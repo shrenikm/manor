@@ -1,41 +1,38 @@
 [build-system]
-requires = ["hatchling", "setuptools", "pip"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["python/manr"]
-
-[tool.hatch.build.hooks.custom]
-path = "hooks/install_xarm.py"
+packages = ["src/manor"]
 
 [project]
-name = "manr"
-version = "0.0.1"
+name = "manor"
+version = "0.1.0"
 requires-python = ">=3.12"
 authors = [{ name = "Shrenik", email = "shrenik95@gmail.com" }]
-description = ""
+description = "Robotics manipulation research"
 readme = "README.md"
 license = { file = "LICENSE" }
-classifiers = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
-  "hatchling==1.25.0",
-  "attrs==24.2.0",
-  # Drake requires Numpy <2.0.0
-  "numpy==1.26.4",
-  "pytest==8.3.2",
-  "mock==5.1.0",
-  "drake==1.26.0",
+    "attrs>=24.2",
+    "numpy>=1.26,<2.0",
+    "drake>=1.26",
+    "pytest>=8.0",
+    "mock>=5.0",
+    "ruff>=0.4",
 ]
 
-[tool.black]
-line-length = 120
-
-[tool.isort]
-profile = "black"
-py_version = 312
-skip_gitignore = "True"
-multi_line_output = 3
-line_length = 120
+[project.optional-dependencies]
+hardware = [
+    "xarm-python-sdk>=1.13",
+]
+ml = [
+    "torch>=2.0",
+]
 
 [tool.ruff]
 line-length = 120
@@ -43,26 +40,8 @@ indent-width = 4
 target-version = "py312"
 respect-gitignore = true
 
-
 [tool.ruff.lint]
-select = [
-  # Pep8
-  "E",
-  # Pyflakes
-  "F",
-  # Isort
-  "I",
-  # Bugbear
-  "B",
-  # Annotations
-  "A",
-  # For black compatible formatting
-  "RUF100",
-  # Remove unused imports
-  "F401",
-]
-# Fix re-organize imports and unused imports
-# These will provide code actions.
+select = ["E", "F", "I", "B", "A", "RUF100", "F401"]
 fixable = ["I001", "F401"]
 
 [tool.ruff.format]
@@ -70,3 +49,9 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
 skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
