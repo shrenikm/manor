@@ -1,26 +1,72 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "setuptools", "pip"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["python/manr"]
+
+[tool.hatch.build.hooks.custom]
+path = "hooks/install_xarm.py"
+
 [project]
-name = "Manipulation Research"
+name = "manr"
 version = "0.0.1"
-requires-python = ">=3.10"
-authors = [
-  {name = "Shrenik", email = "shrenik95@gmail.com"},
-]
+requires-python = ">=3.12"
+authors = [{ name = "Shrenik", email = "shrenik95@gmail.com" }]
 description = ""
 readme = "README.md"
-license = {file = "LICENSE"}
-classifiers = [
+license = { file = "LICENSE" }
+classifiers = []
+dependencies = [
+  "hatchling==1.25.0",
+  "attrs==24.2.0",
+  # Drake requires Numpy <2.0.0
+  "numpy==1.26.4",
+  "pytest==8.3.2",
+  "mock==5.1.0",
+  "drake==1.26.0",
 ]
 
 [tool.black]
-line-length = 88
+line-length = 120
 
 [tool.isort]
 profile = "black"
-py_version = 38
+py_version = 312
 skip_gitignore = "True"
 multi_line_output = 3
-line_length = 88
+line_length = 120
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py312"
+respect-gitignore = true
+
+
+[tool.ruff.lint]
+select = [
+  # Pep8
+  "E",
+  # Pyflakes
+  "F",
+  # Isort
+  "I",
+  # Bugbear
+  "B",
+  # Annotations
+  "A",
+  # For black compatible formatting
+  "RUF100",
+  # Remove unused imports
+  "F401",
+]
+# Fix re-organize imports and unused imports
+# These will provide code actions.
+fixable = ["I001", "F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
