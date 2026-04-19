@@ -9,7 +9,7 @@ from pydrake.multibody.tree import JacobianWrtVariable
 from pydrake.systems.framework import BasicVector, Context, LeafSystem
 
 from manor.common.exceptions import Lite6SystemError
-from manor.lite6.utils.lite6_model_utils import (
+from manor.manipulators.lite6.utils.lite6_model_utils import (
     LITE6_DOF,
     Lite6ModelGroups,
     Lite6ModelType,

@@ -4,14 +4,14 @@ from pydrake.systems.framework import Diagram
 
 from manor.common.control.pid import PIDGains
 from manor.common.testing_utils import run_manor_tests
-from manor.lite6.pliant.lite6_pliant import create_lite6_pliant
-from manor.lite6.pliant.lite6_pliant_utils import (
+from manor.manipulators.lite6.pliant.lite6_pliant import create_lite6_pliant
+from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_SUPPORTED_MODEL_TYPES,
     Lite6ControlType,
     Lite6PliantConfig,
     Lite6PliantType,
 )
-from manor.lite6.utils.lite6_model_utils import Lite6ModelType, get_lite6_num_positions
+from manor.manipulators.lite6.utils.lite6_model_utils import Lite6ModelType, get_lite6_num_positions
 
 # TODO: Figure out how to bypass the socket connection for the actual
 # hardware pliant so that it can be tested. For now just testing simulation

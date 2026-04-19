@@ -8,7 +8,7 @@ from pydrake.systems.framework import BasicVector, Context, DiscreteValues, Even
 from manor.common.definitions.state_definitions import ManipulatorState
 from manor.common.exceptions import Lite6PliantError
 from manor.common.logging_utils import ManorLogger
-from manor.lite6.pliant.lite6_pliant_utils import (
+from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_GSD_IP_NAME,
     LITE6_PLIANT_GSE_OP_NAME,
     LITE6_PLIANT_PD_IP_NAME,
@@ -17,7 +17,7 @@ from manor.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_VE_OP_NAME,
     Lite6PliantConfig,
 )
-from manor.lite6.utils.lite6_model_utils import LITE6_DOF, Lite6ControlType, Lite6GripperStatus
+from manor.manipulators.lite6.utils.lite6_model_utils import LITE6_DOF, Lite6ControlType, Lite6GripperStatus
 
 try:
     from xarm.wrapper import XArmAPI

@@ -10,7 +10,7 @@ from pydrake.visualization import AddDefaultVisualization
 
 from manor.common.model_utils import add_object_models_to_plant
 from manor.common.pliant.multibody_pliant import MultibodyPliantContainer
-from manor.lite6.pliant.lite6_pliant_utils import (
+from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_GSD_IP_NAME,
     LITE6_PLIANT_GSD_OP_NAME,
     LITE6_PLIANT_GSE_OP_NAME,
@@ -26,8 +26,8 @@ from manor.lite6.pliant.lite6_pliant_utils import (
     Lite6PliantMultiplexer,
     Lite6PliantType,
 )
-from manor.lite6.utils.lite6_hardware_utils import Lite6HardwareInterface
-from manor.lite6.utils.lite6_model_utils import (
+from manor.manipulators.lite6.utils.lite6_hardware_utils import Lite6HardwareInterface
+from manor.manipulators.lite6.utils.lite6_model_utils import (
     LITE6_DOF,
     Lite6GripperStatus,
     add_lite6_model_to_plant,

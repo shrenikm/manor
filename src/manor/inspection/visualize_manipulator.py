@@ -7,7 +7,7 @@ from pydrake.multibody.tree import RigidBody
 from pydrake.visualization import AddDefaultVisualization, AddFrameTriadIllustration
 
 from manor.common.model_utils import ObjectModelConfig, ObjectModelType, add_object_models_to_plant
-from manor.lite6.utils.lite6_model_utils import (
+from manor.manipulators.lite6.utils.lite6_model_utils import (
     Lite6ModelType,
     add_lite6_model_to_plant,
     get_default_height_for_object_model_type,

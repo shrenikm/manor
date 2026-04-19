@@ -9,8 +9,8 @@ from manor.analysis.pliant_analysis.lite6_pliant_analysis_choreographer import (
     Lite6PliantChoreographerController,
     get_choreographer_config_yaml_filepath,
 )
-from manor.lite6.pliant.lite6_pliant import create_lite6_pliant
-from manor.lite6.pliant.lite6_pliant_utils import (
+from manor.manipulators.lite6.pliant.lite6_pliant import create_lite6_pliant
+from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_GSD_IP_NAME,
     LITE6_PLIANT_PE_OP_NAME,
     LITE6_PLIANT_VD_IP_NAME,
@@ -20,7 +20,7 @@ from manor.lite6.pliant.lite6_pliant_utils import (
     create_simulator_for_lite6_pliant,
     get_tuned_pid_gains_for_pliant_id_controller,
 )
-from manor.lite6.utils.lite6_model_utils import Lite6ControlType, Lite6GripperStatus, Lite6ModelType
+from manor.manipulators.lite6.utils.lite6_model_utils import Lite6ControlType, Lite6GripperStatus, Lite6ModelType
 
 
 def analyze_lite6_pliant(
