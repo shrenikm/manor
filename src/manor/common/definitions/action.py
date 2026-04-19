@@ -10,6 +10,15 @@ from __future__ import annotations
 from typing import Any, ClassVar, Self
 
 import attr
+from manor_lcm.action_t import action_t
+from manor_lcm.eef_pose_t import eef_pose_t
+from manor_lcm.eef_pose_trajectory_t import eef_pose_trajectory_t
+from manor_lcm.eef_twist_t import eef_twist_t
+from manor_lcm.eef_twist_trajectory_t import eef_twist_trajectory_t
+from manor_lcm.joint_positions_t import joint_positions_t
+from manor_lcm.joint_positions_trajectory_t import joint_positions_trajectory_t
+from manor_lcm.joint_velocities_t import joint_velocities_t
+from manor_lcm.joint_velocities_trajectory_t import joint_velocities_trajectory_t
 
 from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.eef_pose import EEFPose
@@ -23,28 +32,19 @@ from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.joint_velocities_trajectory import JointVelocitiesTrajectory
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import InvalidDefinitionError
-from manor_lcm.action_t import action_t
-from manor_lcm.eef_pose_t import eef_pose_t
-from manor_lcm.eef_pose_trajectory_t import eef_pose_trajectory_t
-from manor_lcm.eef_twist_t import eef_twist_t
-from manor_lcm.eef_twist_trajectory_t import eef_twist_trajectory_t
-from manor_lcm.joint_positions_t import joint_positions_t
-from manor_lcm.joint_positions_trajectory_t import joint_positions_trajectory_t
-from manor_lcm.joint_velocities_t import joint_velocities_t
-from manor_lcm.joint_velocities_trajectory_t import joint_velocities_trajectory_t
 
 _CAPNP = load_versioned_schema("action")
 
 # Field name -> (capnp union arm, LCM variant tag)
 _VARIANTS: tuple[tuple[str, str, int], ...] = (
-    ("joint_positions",             "jointPositions",           0),
-    ("joint_positions_trajectory",  "jointPositionsTrajectory", 1),
-    ("joint_velocities",            "jointVelocities",          2),
+    ("joint_positions", "jointPositions", 0),
+    ("joint_positions_trajectory", "jointPositionsTrajectory", 1),
+    ("joint_velocities", "jointVelocities", 2),
     ("joint_velocities_trajectory", "jointVelocitiesTrajectory", 3),
-    ("eef_pose",                    "eefPose",                  4),
-    ("eef_pose_trajectory",         "eefPoseTrajectory",        5),
-    ("eef_twist",                   "eefTwist",                 6),
-    ("eef_twist_trajectory",        "eefTwistTrajectory",       7),
+    ("eef_pose", "eefPose", 4),
+    ("eef_pose_trajectory", "eefPoseTrajectory", 5),
+    ("eef_twist", "eefTwist", 6),
+    ("eef_twist_trajectory", "eefTwistTrajectory", 7),
 )
 _FIELD_TO_CAPNP_ARM = {name: arm for name, arm, _ in _VARIANTS}
 _CAPNP_ARM_TO_FIELD = {arm: name for name, arm, _ in _VARIANTS}

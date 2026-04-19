@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Self
 
 import attr
 import numpy as np
+from manor_lcm.joint_positions_t import joint_positions_t
 
 from manor.common.custom_types import JointPositionsVector
 from manor.common.definitions._capnp_utils import (
@@ -17,7 +18,6 @@ from manor.common.definitions._capnp_utils import (
 )
 from manor.common.definitions.interfaces import DefinitionBase
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.joint_positions_t import joint_positions_t
 
 _CAPNP = load_versioned_schema("joint_positions")
 
