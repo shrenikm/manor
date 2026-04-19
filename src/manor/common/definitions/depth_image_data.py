@@ -8,11 +8,11 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
-from manor.common.definitions.enums import DepthEncoding
-from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.lcmtypes.lcmt_depth_image_data import lcmt_depth_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.depth_image_data_t import depth_image_data_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.enums import DepthEncoding
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("depth_image_data")
 
@@ -25,7 +25,7 @@ _CAPNP_TO_ENCODING: dict[str, DepthEncoding] = {v: k for k, v in _ENCODING_TO_CA
 
 
 @attr.frozen
-class DepthImageData(DefinitionBase):
+class DepthImageData(IDefinition):
     """
     A single depth frame. `data` is interpreted per `encoding`, and multiplied
     by `depth_scale` to get meters.
@@ -40,7 +40,7 @@ class DepthImageData(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedDepthImageData
-    LCM_CLASS: ClassVar[type] = depth_image_data_t
+    LCM_CLASS: ClassVar[type] = lcmt_depth_image_data
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -62,8 +62,8 @@ class DepthImageData(DefinitionBase):
             depth_scale=float(reader.depthScale),
         )
 
-    def to_lcm_message(self) -> depth_image_data_t:
-        msg = depth_image_data_t()
+    def to_lcm_message(self) -> lcmt_depth_image_data:
+        msg = lcmt_depth_image_data()
         msg.header = self.header.to_lcm_message()
         msg.height = int(self.height)
         msg.width = int(self.width)

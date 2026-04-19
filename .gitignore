@@ -131,4 +131,4 @@ dmypy.json
 results/
 
 # Generated LCM python classes (emitted by scripts/compile_messages.py)
-src/manor/common/definitions/_generated/
+src/manor/common/definitions/lcmtypes/

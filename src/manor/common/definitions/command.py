@@ -11,27 +11,27 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_twist import EEFTwist
-from manor.common.definitions.interfaces import DefinitionBase
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
+from manor.common.definitions.lcmtypes.lcmt_command import lcmt_command
+from manor.common.definitions.lcmtypes.lcmt_eef_pose import lcmt_eef_pose
+from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
+from manor.common.definitions.lcmtypes.lcmt_joint_positions import lcmt_joint_positions
+from manor.common.definitions.lcmtypes.lcmt_joint_velocities import lcmt_joint_velocities
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 from manor.common.exceptions import InvalidDefinitionError
-from manor_lcm.command_t import command_t
-from manor_lcm.eef_pose_t import eef_pose_t
-from manor_lcm.eef_twist_t import eef_twist_t
-from manor_lcm.joint_positions_t import joint_positions_t
-from manor_lcm.joint_velocities_t import joint_velocities_t
 
 _CAPNP = load_versioned_schema("command")
 
 _VARIANTS: tuple[tuple[str, str, int], ...] = (
-    ("joint_positions",  "jointPositions",  0),
+    ("joint_positions", "jointPositions", 0),
     ("joint_velocities", "jointVelocities", 1),
-    ("eef_pose",         "eefPose",         2),
-    ("eef_twist",        "eefTwist",        3),
+    ("eef_pose", "eefPose", 2),
+    ("eef_twist", "eefTwist", 3),
 )
 _FIELD_TO_CAPNP_ARM = {name: arm for name, arm, _ in _VARIANTS}
 _CAPNP_ARM_TO_FIELD = {arm: name for name, arm, _ in _VARIANTS}
@@ -44,15 +44,15 @@ _FIELD_TO_CLASS: dict[str, type] = {
     "eef_twist": EEFTwist,
 }
 _LCM_DEFAULTS: dict[str, type] = {
-    "joint_positions": joint_positions_t,
-    "joint_velocities": joint_velocities_t,
-    "eef_pose": eef_pose_t,
-    "eef_twist": eef_twist_t,
+    "joint_positions": lcmt_joint_positions,
+    "joint_velocities": lcmt_joint_velocities,
+    "eef_pose": lcmt_eef_pose,
+    "eef_twist": lcmt_eef_twist,
 }
 
 
 @attr.frozen
-class Command(DefinitionBase):
+class Command(IDefinition):
     """
     A hardware-facing command. Exactly one of the variant fields must be non-None.
     """
@@ -65,7 +65,7 @@ class Command(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedCommand
-    LCM_CLASS: ClassVar[type] = command_t
+    LCM_CLASS: ClassVar[type] = lcmt_command
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def __attrs_post_init__(self) -> None:
@@ -100,8 +100,8 @@ class Command(DefinitionBase):
             **{field: value},
         )
 
-    def to_lcm_message(self) -> command_t:
-        msg = command_t()
+    def to_lcm_message(self) -> lcmt_command:
+        msg = lcmt_command()
         msg.header = self.header.to_lcm_message()
         field = self._active_field()
         msg.variant = _FIELD_TO_VARIANT[field]

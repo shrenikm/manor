@@ -11,23 +11,23 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.eef_twist import EEFTwist
-from manor.common.definitions.interfaces import DefinitionBase
 from manor.common.definitions.joint_state import JointState
+from manor.common.definitions.lcmtypes.lcmt_eef_pose import lcmt_eef_pose
+from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
+from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
+from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_pose_t import eef_pose_t
-from manor_lcm.eef_state_t import eef_state_t
-from manor_lcm.eef_twist_t import eef_twist_t
-from manor_lcm.proprioception_t import proprioception_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("proprioception")
 
 
 @attr.frozen
-class Proprioception(DefinitionBase):
+class Proprioception(IDefinition):
     """
     Full proprioception state of a robot.
     """
@@ -40,7 +40,7 @@ class Proprioception(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedProprioception
-    LCM_CLASS: ClassVar[type] = proprioception_t
+    LCM_CLASS: ClassVar[type] = lcmt_proprioception
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -87,19 +87,25 @@ class Proprioception(DefinitionBase):
             eef_twist=eef_twist,
         )
 
-    def to_lcm_message(self) -> proprioception_t:
-        msg = proprioception_t()
+    def to_lcm_message(self) -> lcmt_proprioception:
+        msg = lcmt_proprioception()
         msg.header = self.header.to_lcm_message()
         msg.joint_state = self.joint_state.to_lcm_message()
 
         msg.has_eef_state = 1 if self.eef_state is not None else 0
-        msg.eef_state = self.eef_state.to_lcm_message() if self.eef_state is not None else eef_state_t()
+        msg.eef_state = (
+            self.eef_state.to_lcm_message() if self.eef_state is not None else lcmt_eef_state()
+        )
 
         msg.has_eef_pose = 1 if self.eef_pose is not None else 0
-        msg.eef_pose = self.eef_pose.to_lcm_message() if self.eef_pose is not None else eef_pose_t()
+        msg.eef_pose = (
+            self.eef_pose.to_lcm_message() if self.eef_pose is not None else lcmt_eef_pose()
+        )
 
         msg.has_eef_twist = 1 if self.eef_twist is not None else 0
-        msg.eef_twist = self.eef_twist.to_lcm_message() if self.eef_twist is not None else eef_twist_t()
+        msg.eef_twist = (
+            self.eef_twist.to_lcm_message() if self.eef_twist is not None else lcmt_eef_twist()
+        )
         return msg
 
     @classmethod

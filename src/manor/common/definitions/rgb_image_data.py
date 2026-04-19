@@ -8,11 +8,11 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
-from manor.common.definitions.enums import ImageEncoding
-from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.rgb_image_data_t import rgb_image_data_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.enums import ImageEncoding
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("rgb_image_data")
 
@@ -26,7 +26,7 @@ _CAPNP_TO_ENCODING: dict[str, ImageEncoding] = {v: k for k, v in _ENCODING_TO_CA
 
 
 @attr.frozen
-class RGBImageData(DefinitionBase):
+class RGBImageData(IDefinition):
     """
     A single RGB frame. `data` is the raw pixel bytes when `encoding` is RAW_*,
     or a compressed image payload (e.g. JPEG/PNG bytes) otherwise.
@@ -40,7 +40,7 @@ class RGBImageData(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedRgbImageData
-    LCM_CLASS: ClassVar[type] = rgb_image_data_t
+    LCM_CLASS: ClassVar[type] = lcmt_rgb_image_data
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -60,8 +60,8 @@ class RGBImageData(DefinitionBase):
             data=bytes(reader.data),
         )
 
-    def to_lcm_message(self) -> rgb_image_data_t:
-        msg = rgb_image_data_t()
+    def to_lcm_message(self) -> lcmt_rgb_image_data:
+        msg = lcmt_rgb_image_data()
         msg.header = self.header.to_lcm_message()
         msg.height = int(self.height)
         msg.width = int(self.width)

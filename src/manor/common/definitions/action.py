@@ -10,27 +10,31 @@ from __future__ import annotations
 from typing import Any, ClassVar, Self
 
 import attr
-from manor_lcm.action_t import action_t
-from manor_lcm.eef_pose_t import eef_pose_t
-from manor_lcm.eef_pose_trajectory_t import eef_pose_trajectory_t
-from manor_lcm.eef_twist_t import eef_twist_t
-from manor_lcm.eef_twist_trajectory_t import eef_twist_trajectory_t
-from manor_lcm.joint_positions_t import joint_positions_t
-from manor_lcm.joint_positions_trajectory_t import joint_positions_trajectory_t
-from manor_lcm.joint_velocities_t import joint_velocities_t
-from manor_lcm.joint_velocities_trajectory_t import joint_velocities_trajectory_t
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_pose_trajectory import EEFPoseTrajectory
 from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.eef_twist_trajectory import EEFTwistTrajectory
-from manor.common.definitions.interfaces import DefinitionBase
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_positions_trajectory import JointPositionsTrajectory
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.joint_velocities_trajectory import JointVelocitiesTrajectory
+from manor.common.definitions.lcmtypes.lcmt_action import lcmt_action
+from manor.common.definitions.lcmtypes.lcmt_eef_pose import lcmt_eef_pose
+from manor.common.definitions.lcmtypes.lcmt_eef_pose_trajectory import lcmt_eef_pose_trajectory
+from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
+from manor.common.definitions.lcmtypes.lcmt_eef_twist_trajectory import lcmt_eef_twist_trajectory
+from manor.common.definitions.lcmtypes.lcmt_joint_positions import lcmt_joint_positions
+from manor.common.definitions.lcmtypes.lcmt_joint_positions_trajectory import (
+    lcmt_joint_positions_trajectory,
+)
+from manor.common.definitions.lcmtypes.lcmt_joint_velocities import lcmt_joint_velocities
+from manor.common.definitions.lcmtypes.lcmt_joint_velocities_trajectory import (
+    lcmt_joint_velocities_trajectory,
+)
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 from manor.common.exceptions import InvalidDefinitionError
 
 _CAPNP = load_versioned_schema("action")
@@ -61,19 +65,19 @@ _FIELD_TO_CLASS: dict[str, type] = {
     "eef_twist_trajectory": EEFTwistTrajectory,
 }
 _LCM_DEFAULTS: dict[str, type] = {
-    "joint_positions": joint_positions_t,
-    "joint_positions_trajectory": joint_positions_trajectory_t,
-    "joint_velocities": joint_velocities_t,
-    "joint_velocities_trajectory": joint_velocities_trajectory_t,
-    "eef_pose": eef_pose_t,
-    "eef_pose_trajectory": eef_pose_trajectory_t,
-    "eef_twist": eef_twist_t,
-    "eef_twist_trajectory": eef_twist_trajectory_t,
+    "joint_positions": lcmt_joint_positions,
+    "joint_positions_trajectory": lcmt_joint_positions_trajectory,
+    "joint_velocities": lcmt_joint_velocities,
+    "joint_velocities_trajectory": lcmt_joint_velocities_trajectory,
+    "eef_pose": lcmt_eef_pose,
+    "eef_pose_trajectory": lcmt_eef_pose_trajectory,
+    "eef_twist": lcmt_eef_twist,
+    "eef_twist_trajectory": lcmt_eef_twist_trajectory,
 }
 
 
 @attr.frozen
-class Action(DefinitionBase):
+class Action(IDefinition):
     """
     A policy action. Exactly one of the variant fields must be non-None.
     """
@@ -90,7 +94,7 @@ class Action(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedAction
-    LCM_CLASS: ClassVar[type] = action_t
+    LCM_CLASS: ClassVar[type] = lcmt_action
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def __attrs_post_init__(self) -> None:
@@ -125,8 +129,8 @@ class Action(DefinitionBase):
             **{field: value},
         )
 
-    def to_lcm_message(self) -> action_t:
-        msg = action_t()
+    def to_lcm_message(self) -> lcmt_action:
+        msg = lcmt_action()
         msg.header = self.header.to_lcm_message()
         field = self._active_field()
         msg.variant = _FIELD_TO_VARIANT[field]

@@ -10,20 +10,20 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpVectorNf64
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_eef_velocities import lcmt_eef_velocities
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_velocities_t import eef_velocities_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("eef_velocities")
 
 
 @attr.frozen
-class EEFVelocities(DefinitionBase):
+class EEFVelocities(IDefinition):
     """
     EEF generalized velocities.
     """
@@ -33,7 +33,7 @@ class EEFVelocities(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefVelocities
-    LCM_CLASS: ClassVar[type] = eef_velocities_t
+    LCM_CLASS: ClassVar[type] = lcmt_eef_velocities
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -47,8 +47,8 @@ class EEFVelocities(DefinitionBase):
             velocities=float64_array_to_ndarray(reader.velocities),
         )
 
-    def to_lcm_message(self) -> eef_velocities_t:
-        msg = eef_velocities_t()
+    def to_lcm_message(self) -> lcmt_eef_velocities:
+        msg = lcmt_eef_velocities()
         msg.header = self.header.to_lcm_message()
         msg.num_velocities = int(self.velocities.size)
         msg.velocities = self.velocities.astype(np.float64).tolist()

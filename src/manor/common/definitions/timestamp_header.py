@@ -8,15 +8,15 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
-from manor.common.definitions.interfaces import DefinitionBase
-from manor_lcm.timestamp_header_t import timestamp_header_t
+from manor.common.definitions.lcmtypes.lcmt_timestamp_header import lcmt_timestamp_header
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("timestamp_header")
 
 
 @attr.frozen
-class TimestampHeader(DefinitionBase):
+class TimestampHeader(IDefinition):
     """
     Monotonic and system-wall-clock timestamps, both in nanoseconds.
     """
@@ -26,7 +26,7 @@ class TimestampHeader(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedTimestampHeader
-    LCM_CLASS: ClassVar[type] = timestamp_header_t
+    LCM_CLASS: ClassVar[type] = lcmt_timestamp_header
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -40,8 +40,8 @@ class TimestampHeader(DefinitionBase):
             system_ns=int(reader.systemNs),
         )
 
-    def to_lcm_message(self) -> timestamp_header_t:
-        msg = timestamp_header_t()
+    def to_lcm_message(self) -> lcmt_timestamp_header:
+        msg = lcmt_timestamp_header()
         msg.monotonic_ns = int(self.monotonic_ns)
         msg.system_ns = int(self.system_ns)
         return msg

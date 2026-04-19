@@ -12,18 +12,18 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.depth_image_data import DepthImageData
-from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.lcmtypes.lcmt_rgbd_image_data import lcmt_rgbd_image_data
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.rgbd_image_data_t import rgbd_image_data_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("rgbd_image_data")
 
 
 @attr.frozen
-class RGBDImageData(DefinitionBase):
+class RGBDImageData(IDefinition):
     """
     A color frame paired with a depth frame.
     """
@@ -34,7 +34,7 @@ class RGBDImageData(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedRgbdImageData
-    LCM_CLASS: ClassVar[type] = rgbd_image_data_t
+    LCM_CLASS: ClassVar[type] = lcmt_rgbd_image_data
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -50,8 +50,8 @@ class RGBDImageData(DefinitionBase):
             depth=DepthImageData._from_capnp_v1(reader.depth),
         )
 
-    def to_lcm_message(self) -> rgbd_image_data_t:
-        msg = rgbd_image_data_t()
+    def to_lcm_message(self) -> lcmt_rgbd_image_data:
+        msg = lcmt_rgbd_image_data()
         msg.header = self.header.to_lcm_message()
         msg.rgb = self.rgb.to_lcm_message()
         msg.depth = self.depth.to_lcm_message()

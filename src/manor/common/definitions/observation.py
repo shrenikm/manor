@@ -12,22 +12,22 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
-from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.lcmtypes.lcmt_observation import lcmt_observation
+from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception
+from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image_data
+from manor.common.definitions.lcmtypes.lcmt_rgbd_image_data import lcmt_rgbd_image_data
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.rgbd_image_data import RGBDImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.observation_t import observation_t
-from manor_lcm.proprioception_t import proprioception_t
-from manor_lcm.rgb_image_data_t import rgb_image_data_t
-from manor_lcm.rgbd_image_data_t import rgbd_image_data_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("observation")
 
 
 @attr.frozen
-class Observation(DefinitionBase):
+class Observation(IDefinition):
     """
     Policy observation. All sensor channels are optional.
     """
@@ -39,7 +39,7 @@ class Observation(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedObservation
-    LCM_CLASS: ClassVar[type] = observation_t
+    LCM_CLASS: ClassVar[type] = lcmt_observation
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -84,23 +84,29 @@ class Observation(DefinitionBase):
             rgbd_image=rgbd_image,
         )
 
-    def to_lcm_message(self) -> observation_t:
-        msg = observation_t()
+    def to_lcm_message(self) -> lcmt_observation:
+        msg = lcmt_observation()
         msg.header = self.header.to_lcm_message()
 
         msg.has_proprioception = 1 if self.proprioception is not None else 0
         msg.proprioception = (
-            self.proprioception.to_lcm_message() if self.proprioception is not None else proprioception_t()
+            self.proprioception.to_lcm_message()
+            if self.proprioception is not None
+            else lcmt_proprioception()
         )
 
         msg.has_rgb_image = 1 if self.rgb_image is not None else 0
         msg.rgb_image = (
-            self.rgb_image.to_lcm_message() if self.rgb_image is not None else rgb_image_data_t()
+            self.rgb_image.to_lcm_message()
+            if self.rgb_image is not None
+            else lcmt_rgb_image_data()
         )
 
         msg.has_rgbd_image = 1 if self.rgbd_image is not None else 0
         msg.rgbd_image = (
-            self.rgbd_image.to_lcm_message() if self.rgbd_image is not None else rgbd_image_data_t()
+            self.rgbd_image.to_lcm_message()
+            if self.rgbd_image is not None
+            else lcmt_rgbd_image_data()
         )
         return msg
 

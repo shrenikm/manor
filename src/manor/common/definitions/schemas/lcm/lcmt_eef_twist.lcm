@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_eef_twist {
+    lcmt_timestamp_header header;
+    double linear[3];
+    double angular[3];
+}

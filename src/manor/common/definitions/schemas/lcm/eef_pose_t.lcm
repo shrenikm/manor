@@ -1,7 +1,0 @@
-package manor_lcm;
-
-struct eef_pose_t {
-    timestamp_header_t header;
-    double translation[3];
-    double orientation[4];
-}

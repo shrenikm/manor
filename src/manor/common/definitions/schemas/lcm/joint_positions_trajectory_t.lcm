@@ -1,9 +1,0 @@
-package manor_lcm;
-
-struct joint_positions_trajectory_t {
-    timestamp_header_t header;
-    int32_t num_steps;
-    int32_t num_joints;
-    double times[num_steps];
-    double joint_positions_array[num_steps][num_joints];
-}

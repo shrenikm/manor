@@ -1,7 +1,0 @@
-package manor_lcm;
-
-struct rgbd_image_data_t {
-    timestamp_header_t header;
-    rgb_image_data_t rgb;
-    depth_image_data_t depth;
-}

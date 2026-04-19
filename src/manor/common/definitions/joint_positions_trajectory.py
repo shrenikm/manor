@@ -10,20 +10,22 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_joint_positions_trajectory import (
+    lcmt_joint_positions_trajectory,
+)
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.joint_positions_trajectory_t import joint_positions_trajectory_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("joint_positions_trajectory")
 
 
 @attr.frozen
-class JointPositionsTrajectory(DefinitionBase):
+class JointPositionsTrajectory(IDefinition):
     """
     A trajectory of joint positions.
 
@@ -37,7 +39,7 @@ class JointPositionsTrajectory(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointPositionsTrajectory
-    LCM_CLASS: ClassVar[type] = joint_positions_trajectory_t
+    LCM_CLASS: ClassVar[type] = lcmt_joint_positions_trajectory
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -53,8 +55,8 @@ class JointPositionsTrajectory(DefinitionBase):
             joint_positions_array=float64_array_to_ndarray(reader.jointPositionsArray),
         )
 
-    def to_lcm_message(self) -> joint_positions_trajectory_t:
-        msg = joint_positions_trajectory_t()
+    def to_lcm_message(self) -> lcmt_joint_positions_trajectory:
+        msg = lcmt_joint_positions_trajectory()
         msg.header = self.header.to_lcm_message()
         arr = np.ascontiguousarray(self.joint_positions_array, dtype=np.float64)
         msg.num_steps = int(arr.shape[0])

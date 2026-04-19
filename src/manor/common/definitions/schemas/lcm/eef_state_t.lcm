@@ -1,7 +1,0 @@
-package manor_lcm;
-
-struct eef_state_t {
-    timestamp_header_t header;
-    eef_positions_t eef_positions;
-    eef_velocities_t eef_velocities;
-}

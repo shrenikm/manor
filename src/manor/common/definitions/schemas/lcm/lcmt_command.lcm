@@ -1,0 +1,13 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_command {
+    lcmt_timestamp_header header;
+
+    // One of: 0 = joint_positions, 1 = joint_velocities, 2 = eef_pose, 3 = eef_twist
+    int8_t variant;
+
+    lcmt_joint_positions joint_positions;
+    lcmt_joint_velocities joint_velocities;
+    lcmt_eef_pose eef_pose;
+    lcmt_eef_twist eef_twist;
+}

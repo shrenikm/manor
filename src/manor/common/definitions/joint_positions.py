@@ -8,22 +8,22 @@ from typing import Any, ClassVar, Self
 
 import attr
 import numpy as np
-from manor_lcm.joint_positions_t import joint_positions_t
 
 from manor.common.custom_types import JointPositionsVector
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_joint_positions import lcmt_joint_positions
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("joint_positions")
 
 
 @attr.frozen
-class JointPositions(DefinitionBase):
+class JointPositions(IDefinition):
     """
     Per-joint generalized positions.
     """
@@ -33,7 +33,7 @@ class JointPositions(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointPositions
-    LCM_CLASS: ClassVar[type] = joint_positions_t
+    LCM_CLASS: ClassVar[type] = lcmt_joint_positions
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -47,8 +47,8 @@ class JointPositions(DefinitionBase):
             positions=float64_array_to_ndarray(reader.positions),
         )
 
-    def to_lcm_message(self) -> joint_positions_t:
-        msg = joint_positions_t()
+    def to_lcm_message(self) -> lcmt_joint_positions:
+        msg = lcmt_joint_positions()
         msg.header = self.header.to_lcm_message()
         msg.num_positions = int(self.positions.size)
         msg.positions = self.positions.astype(np.float64).tolist()

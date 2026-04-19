@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_joint_state {
+    lcmt_timestamp_header header;
+    lcmt_joint_positions joint_positions;
+    lcmt_joint_velocities joint_velocities;
+}

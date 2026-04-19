@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/manor"]
 artifacts = [
-    "src/manor/common/definitions/_generated/**/*",
+    "src/manor/common/definitions/lcmtypes/**/*",
 ]
 
 [tool.hatch.build.hooks.custom]

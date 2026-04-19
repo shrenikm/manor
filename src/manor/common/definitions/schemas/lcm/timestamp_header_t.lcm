@@ -1,6 +1,0 @@
-package manor_lcm;
-
-struct timestamp_header_t {
-    int64_t monotonic_ns;
-    int64_t system_ns;
-}

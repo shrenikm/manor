@@ -10,20 +10,22 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_eef_positions_trajectory import (
+    lcmt_eef_positions_trajectory,
+)
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_positions_trajectory_t import eef_positions_trajectory_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("eef_positions_trajectory")
 
 
 @attr.frozen
-class EEFPositionsTrajectory(DefinitionBase):
+class EEFPositionsTrajectory(IDefinition):
     """
     A trajectory of EEF generalized positions.
     """
@@ -34,7 +36,7 @@ class EEFPositionsTrajectory(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefPositionsTrajectory
-    LCM_CLASS: ClassVar[type] = eef_positions_trajectory_t
+    LCM_CLASS: ClassVar[type] = lcmt_eef_positions_trajectory
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -50,8 +52,8 @@ class EEFPositionsTrajectory(DefinitionBase):
             eef_positions_array=float64_array_to_ndarray(reader.eefPositionsArray),
         )
 
-    def to_lcm_message(self) -> eef_positions_trajectory_t:
-        msg = eef_positions_trajectory_t()
+    def to_lcm_message(self) -> lcmt_eef_positions_trajectory:
+        msg = lcmt_eef_positions_trajectory()
         msg.header = self.header.to_lcm_message()
         arr = np.ascontiguousarray(self.eef_positions_array, dtype=np.float64)
         msg.num_steps = int(arr.shape[0])

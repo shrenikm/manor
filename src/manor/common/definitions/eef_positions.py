@@ -13,20 +13,20 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpVectorNf64
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_eef_positions import lcmt_eef_positions
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_positions_t import eef_positions_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("eef_positions")
 
 
 @attr.frozen
-class EEFPositions(DefinitionBase):
+class EEFPositions(IDefinition):
     """
     EEF generalized positions.
     """
@@ -36,7 +36,7 @@ class EEFPositions(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefPositions
-    LCM_CLASS: ClassVar[type] = eef_positions_t
+    LCM_CLASS: ClassVar[type] = lcmt_eef_positions
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -50,8 +50,8 @@ class EEFPositions(DefinitionBase):
             positions=float64_array_to_ndarray(reader.positions),
         )
 
-    def to_lcm_message(self) -> eef_positions_t:
-        msg = eef_positions_t()
+    def to_lcm_message(self) -> lcmt_eef_positions:
+        msg = lcmt_eef_positions()
         msg.header = self.header.to_lcm_message()
         msg.num_positions = int(self.positions.size)
         msg.positions = self.positions.astype(np.float64).tolist()

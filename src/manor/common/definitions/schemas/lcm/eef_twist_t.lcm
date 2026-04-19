@@ -1,7 +1,0 @@
-package manor_lcm;
-
-struct eef_twist_t {
-    timestamp_header_t header;
-    double linear[3];
-    double angular[3];
-}

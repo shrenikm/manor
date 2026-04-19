@@ -8,18 +8,18 @@ from typing import Any, ClassVar, Self
 
 import attr
 
-from manor.common.definitions._capnp_utils import load_versioned_schema
 from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_velocities import EEFVelocities
-from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_state_t import eef_state_t
+from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("eef_state")
 
 
 @attr.frozen
-class EEFState(DefinitionBase):
+class EEFState(IDefinition):
     """
     EEF generalized positions and velocities at the same time instant.
     """
@@ -30,7 +30,7 @@ class EEFState(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefState
-    LCM_CLASS: ClassVar[type] = eef_state_t
+    LCM_CLASS: ClassVar[type] = lcmt_eef_state
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -46,8 +46,8 @@ class EEFState(DefinitionBase):
             eef_velocities=EEFVelocities._from_capnp_v1(reader.eefVelocities),
         )
 
-    def to_lcm_message(self) -> eef_state_t:
-        msg = eef_state_t()
+    def to_lcm_message(self) -> lcmt_eef_state:
+        msg = lcmt_eef_state()
         msg.header = self.header.to_lcm_message()
         msg.eef_positions = self.eef_positions.to_lcm_message()
         msg.eef_velocities = self.eef_velocities.to_lcm_message()

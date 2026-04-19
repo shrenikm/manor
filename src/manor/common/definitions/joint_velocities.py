@@ -10,20 +10,20 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import JointVelocitiesVector
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_joint_velocities import lcmt_joint_velocities
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.joint_velocities_t import joint_velocities_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("joint_velocities")
 
 
 @attr.frozen
-class JointVelocities(DefinitionBase):
+class JointVelocities(IDefinition):
     """
     Per-joint generalized velocities.
     """
@@ -33,7 +33,7 @@ class JointVelocities(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointVelocities
-    LCM_CLASS: ClassVar[type] = joint_velocities_t
+    LCM_CLASS: ClassVar[type] = lcmt_joint_velocities
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -47,8 +47,8 @@ class JointVelocities(DefinitionBase):
             velocities=float64_array_to_ndarray(reader.velocities),
         )
 
-    def to_lcm_message(self) -> joint_velocities_t:
-        msg = joint_velocities_t()
+    def to_lcm_message(self) -> lcmt_joint_velocities:
+        msg = lcmt_joint_velocities()
         msg.header = self.header.to_lcm_message()
         msg.num_velocities = int(self.velocities.size)
         msg.velocities = self.velocities.astype(np.float64).tolist()

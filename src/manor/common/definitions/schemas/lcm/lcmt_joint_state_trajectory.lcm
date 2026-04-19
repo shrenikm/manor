@@ -1,0 +1,10 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_joint_state_trajectory {
+    lcmt_timestamp_header header;
+    int32_t num_steps;
+    int32_t num_joints;
+    double times[num_steps];
+    double joint_positions_array[num_steps][num_joints];
+    double joint_velocities_array[num_steps][num_joints];
+}

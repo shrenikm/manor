@@ -10,20 +10,22 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_joint_velocities_trajectory import (
+    lcmt_joint_velocities_trajectory,
+)
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.joint_velocities_trajectory_t import joint_velocities_trajectory_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("joint_velocities_trajectory")
 
 
 @attr.frozen
-class JointVelocitiesTrajectory(DefinitionBase):
+class JointVelocitiesTrajectory(IDefinition):
     """
     A trajectory of joint velocities.
 
@@ -37,7 +39,7 @@ class JointVelocitiesTrajectory(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointVelocitiesTrajectory
-    LCM_CLASS: ClassVar[type] = joint_velocities_trajectory_t
+    LCM_CLASS: ClassVar[type] = lcmt_joint_velocities_trajectory
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -55,8 +57,8 @@ class JointVelocitiesTrajectory(DefinitionBase):
             joint_velocities_array=float64_array_to_ndarray(reader.jointVelocitiesArray),
         )
 
-    def to_lcm_message(self) -> joint_velocities_trajectory_t:
-        msg = joint_velocities_trajectory_t()
+    def to_lcm_message(self) -> lcmt_joint_velocities_trajectory:
+        msg = lcmt_joint_velocities_trajectory()
         msg.header = self.header.to_lcm_message()
         arr = np.ascontiguousarray(self.joint_velocities_array, dtype=np.float64)
         msg.num_steps = int(arr.shape[0])

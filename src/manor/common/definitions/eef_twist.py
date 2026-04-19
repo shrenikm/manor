@@ -10,20 +10,20 @@ import attr
 import numpy as np
 
 from manor.common.custom_types import NpVector3f64
-from manor.common.definitions._capnp_utils import (
+from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.capnp_utils import (
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.interfaces import DefinitionBase
-from manor.common.definitions.timestamp_header import TimestampHeader
-from manor_lcm.eef_twist_t import eef_twist_t
+from manor.common.definitions.utils.interfaces import IDefinition
 
 _CAPNP = load_versioned_schema("eef_twist")
 
 
 @attr.frozen
-class EEFTwist(DefinitionBase):
+class EEFTwist(IDefinition):
     """
     EEF spatial twist.
 
@@ -36,7 +36,7 @@ class EEFTwist(DefinitionBase):
 
     VERSION: ClassVar[str] = "1.0.0"
     CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefTwist
-    LCM_CLASS: ClassVar[type] = eef_twist_t
+    LCM_CLASS: ClassVar[type] = lcmt_eef_twist
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
 
     def _to_capnp_current(self, builder: Any) -> None:
@@ -52,8 +52,8 @@ class EEFTwist(DefinitionBase):
             angular=float64_array_to_ndarray(reader.angular),
         )
 
-    def to_lcm_message(self) -> eef_twist_t:
-        msg = eef_twist_t()
+    def to_lcm_message(self) -> lcmt_eef_twist:
+        msg = lcmt_eef_twist()
         msg.header = self.header.to_lcm_message()
         msg.linear = self.linear.astype(np.float64).tolist()
         msg.angular = self.angular.astype(np.float64).tolist()
