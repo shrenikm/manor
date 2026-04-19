@@ -8,7 +8,7 @@ from pydrake.multibody.plant import MultibodyPlantConfig
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import BasicVector, Context, Diagram, LeafSystem
 
-from manor.common.control.constructs import PIDGains
+from manor.common.control.pid import PIDGains
 from manor.common.model_utils import ObjectModelConfig
 from manor.lite6.utils.lite6_model_utils import (
     LITE6_DOF,
