@@ -17,7 +17,7 @@ from manor.common.model_utils import (
     get_robot_models_directory_path,
 )
 from manor.common.path_utils import list_directories_in_path
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 
 
 def test_get_models_directory_path() -> None:
@@ -107,4 +107,4 @@ def test_add_object_models_to_plant(
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

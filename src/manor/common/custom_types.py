@@ -17,10 +17,10 @@ NpArr = npt.NDArray
 NpArrf64 = npt.NDArray[f64]
 
 # Numpy types.
-NpVectorNf64 = Annotated[npt.NDArray[f64], Literal["N"]]
-NpVector1f64 = Annotated[npt.NDArray[f64], Literal["1"]]
-NpVector2f64 = Annotated[npt.NDArray[f64], Literal["2"]]
-NpVector3f64 = Annotated[npt.NDArray[f64], Literal["3"]]
+NpVectorNf64 = Annotated[NpArrf64, Literal["N"]]
+NpVector1f64 = Annotated[NpArrf64, Literal["1"]]
+NpVector2f64 = Annotated[NpArrf64, Literal["2"]]
+NpVector3f64 = Annotated[NpArrf64, Literal["3"]]
 
 # Time stuff.
 TimesVector = NpVectorNf64  # Time in seconds

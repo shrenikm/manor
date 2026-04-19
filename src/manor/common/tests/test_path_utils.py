@@ -7,7 +7,7 @@ from manor.common.path_utils import (
     list_directories_in_path,
     list_files_in_path,
 )
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 
 
 def test_create_temporary_directory() -> None:
@@ -98,4 +98,4 @@ def test_create_directory_if_not_exists() -> None:
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

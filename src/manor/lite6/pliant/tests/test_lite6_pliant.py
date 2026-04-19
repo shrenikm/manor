@@ -3,7 +3,7 @@ from pydrake.multibody.plant import MultibodyPlant, MultibodyPlantConfig
 from pydrake.systems.framework import Diagram
 
 from manor.common.control.constructs import PIDGains
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 from manor.lite6.pliant.lite6_pliant import create_lite6_pliant
 from manor.lite6.pliant.lite6_pliant_utils import (
     LITE6_PLIANT_SUPPORTED_MODEL_TYPES,
@@ -103,4 +103,4 @@ def test_create_lite6_pliant_with_supported_type(
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

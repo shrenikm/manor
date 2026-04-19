@@ -2,7 +2,7 @@ from manor.analysis.pliant_analysis.lite6_pliant_analysis_choreographer import (
     Lite6PliantChoreographer,
     get_choreographer_config_yaml_filepath,
 )
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 
 
 def test_choreographer_from_yaml() -> None:
@@ -14,4 +14,4 @@ def test_choreographer_from_yaml() -> None:
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

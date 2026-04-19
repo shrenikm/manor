@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 from manor.lite6.utils.lite6_model_utils import (
     LITE6_NP_GRIPPER_CLOSED_POSITIONS,
     LITE6_NP_GRIPPER_CLOSED_VELOCITIES,
@@ -1085,4 +1085,4 @@ def test_get_default_lite6_joint_positions() -> None:
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()
