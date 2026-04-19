@@ -1,0 +1,15 @@
+package manor_lcm;
+
+struct proprioception_t {
+    timestamp_header_t header;
+    joint_state_t joint_state;
+
+    int8_t has_eef_state;
+    eef_state_t eef_state;
+
+    int8_t has_eef_pose;
+    eef_pose_t eef_pose;
+
+    int8_t has_eef_twist;
+    eef_twist_t eef_twist;
+}

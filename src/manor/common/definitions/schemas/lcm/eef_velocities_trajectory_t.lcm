@@ -1,0 +1,9 @@
+package manor_lcm;
+
+struct eef_velocities_trajectory_t {
+    timestamp_header_t header;
+    int32_t num_steps;
+    int32_t num_velocities;
+    double times[num_steps];
+    double eef_velocities_array[num_steps][num_velocities];
+}

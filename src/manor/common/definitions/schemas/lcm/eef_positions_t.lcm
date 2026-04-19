@@ -1,0 +1,7 @@
+package manor_lcm;
+
+struct eef_positions_t {
+    timestamp_header_t header;
+    int32_t num_positions;
+    double positions[num_positions];
+}

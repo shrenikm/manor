@@ -1,0 +1,13 @@
+package manor_lcm;
+
+struct command_t {
+    timestamp_header_t header;
+
+    // One of: 0 = joint_positions, 1 = joint_velocities, 2 = eef_pose, 3 = eef_twist
+    int8_t variant;
+
+    joint_positions_t joint_positions;
+    joint_velocities_t joint_velocities;
+    eef_pose_t eef_pose;
+    eef_twist_t eef_twist;
+}

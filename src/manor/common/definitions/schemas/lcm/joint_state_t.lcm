@@ -1,0 +1,7 @@
+package manor_lcm;
+
+struct joint_state_t {
+    timestamp_header_t header;
+    joint_positions_t joint_positions;
+    joint_velocities_t joint_velocities;
+}

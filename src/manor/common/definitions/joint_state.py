@@ -1,0 +1,62 @@
+"""
+Joint state (positions + velocities) at a single time instant.
+"""
+
+from __future__ import annotations
+
+from typing import Any, ClassVar, Self
+
+import attr
+
+from manor.common.definitions._capnp_utils import load_versioned_schema
+from manor.common.definitions.interfaces import DefinitionBase
+from manor.common.definitions.joint_positions import JointPositions
+from manor.common.definitions.joint_velocities import JointVelocities
+from manor.common.definitions.timestamp_header import TimestampHeader
+from manor_lcm.joint_state_t import joint_state_t
+
+_CAPNP = load_versioned_schema("joint_state")
+
+
+@attr.frozen
+class JointState(DefinitionBase):
+    """
+    Joint positions and velocities at the same time instant.
+    """
+
+    header: TimestampHeader
+    joint_positions: JointPositions
+    joint_velocities: JointVelocities
+
+    VERSION: ClassVar[str] = "1.0.0"
+    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointState
+    LCM_CLASS: ClassVar[type] = joint_state_t
+    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    def _to_capnp_current(self, builder: Any) -> None:
+        self.header._to_capnp_current(builder.init("header"))
+        self.joint_positions._to_capnp_current(builder.init("jointPositions"))
+        self.joint_velocities._to_capnp_current(builder.init("jointVelocities"))
+
+    @classmethod
+    def _from_capnp_v1(cls, reader: Any) -> Self:
+        return cls(
+            header=TimestampHeader._from_capnp_v1(reader.header),
+            joint_positions=JointPositions._from_capnp_v1(reader.jointPositions),
+            joint_velocities=JointVelocities._from_capnp_v1(reader.jointVelocities),
+        )
+
+    def to_lcm_message(self) -> joint_state_t:
+        msg = joint_state_t()
+        msg.header = self.header.to_lcm_message()
+        msg.joint_positions = self.joint_positions.to_lcm_message()
+        msg.joint_velocities = self.joint_velocities.to_lcm_message()
+        return msg
+
+    @classmethod
+    def from_lcm_message(cls, msg: Any) -> Self:
+        return cls(
+            header=TimestampHeader.from_lcm_message(msg.header),
+            joint_positions=JointPositions.from_lcm_message(msg.joint_positions),
+            joint_velocities=JointVelocities.from_lcm_message(msg.joint_velocities),
+        )

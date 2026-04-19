@@ -1,0 +1,14 @@
+package manor_lcm;
+
+struct observation_t {
+    timestamp_header_t header;
+
+    int8_t has_proprioception;
+    proprioception_t proprioception;
+
+    int8_t has_rgb_image;
+    rgb_image_data_t rgb_image;
+
+    int8_t has_rgbd_image;
+    rgbd_image_data_t rgbd_image;
+}

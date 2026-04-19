@@ -21,6 +21,12 @@ NpVectorNf64 = Annotated[NpArrf64, Literal["N"]]
 NpVector1f64 = Annotated[NpArrf64, Literal["1"]]
 NpVector2f64 = Annotated[NpArrf64, Literal["2"]]
 NpVector3f64 = Annotated[NpArrf64, Literal["3"]]
+NpVector4f64 = Annotated[NpArrf64, Literal["4"]]
+
+# 2D matrix types
+NpMatrixNMf64 = Annotated[NpArrf64, Literal["N", "M"]]
+NpMatrixN3f64 = Annotated[NpArrf64, Literal["N", "3"]]
+NpMatrixN4f64 = Annotated[NpArrf64, Literal["N", "4"]]
 
 # Time stuff.
 TimesVector = NpVectorNf64  # Time in seconds
