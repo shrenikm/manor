@@ -1,0 +1,21 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_action {
+    lcmt_timestamp_header header;
+
+    // One of:
+    //   0 = joint_positions, 1 = joint_positions_trajectory,
+    //   2 = joint_velocities, 3 = joint_velocities_trajectory,
+    //   4 = eef_pose, 5 = eef_pose_trajectory,
+    //   6 = eef_twist, 7 = eef_twist_trajectory
+    int8_t variant;
+
+    lcmt_joint_positions joint_positions;
+    lcmt_joint_positions_trajectory joint_positions_trajectory;
+    lcmt_joint_velocities joint_velocities;
+    lcmt_joint_velocities_trajectory joint_velocities_trajectory;
+    lcmt_eef_pose eef_pose;
+    lcmt_eef_pose_trajectory eef_pose_trajectory;
+    lcmt_eef_twist eef_twist;
+    lcmt_eef_twist_trajectory eef_twist_trajectory;
+}

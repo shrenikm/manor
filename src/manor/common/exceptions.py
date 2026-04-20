@@ -28,3 +28,27 @@ class Lite6PliantChoreographerError(Lite6PliantError):
 
 class Lite6SystemError(Lite6Error):
     pass
+
+
+class DefinitionError(ManorError):
+    """
+    Base exception for errors related to typed data-class definitions.
+    """
+
+    pass
+
+
+class InvalidDefinitionError(DefinitionError):
+    """
+    Raised when a definition's invariants (e.g. exactly-one-of fields) are violated.
+    """
+
+    pass
+
+
+class SerializationError(DefinitionError):
+    """
+    Raised when serializing or deserializing a definition fails.
+    """
+
+    pass

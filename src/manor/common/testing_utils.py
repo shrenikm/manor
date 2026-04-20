@@ -4,7 +4,7 @@ from typing import Optional
 import pytest
 
 
-def execute_pytest_file(
+def run_manor_tests(
     test_name: Optional[str] = None,
 ) -> None:
     calling_filename = inspect.stack()[1].filename

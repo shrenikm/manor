@@ -3,7 +3,7 @@ import numpy as np
 
 from manor.common.control.signals import SineControlSignal, StepControlSignal
 from manor.common.custom_types import ControlSignalVector, TimesVector
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 
 
 def _plot_signals(
@@ -92,4 +92,4 @@ def test_sine_standard_positive_signal(debug: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

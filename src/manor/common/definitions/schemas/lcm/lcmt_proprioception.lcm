@@ -1,0 +1,15 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_proprioception {
+    lcmt_timestamp_header header;
+    lcmt_joint_state joint_state;
+
+    boolean has_eef_state;
+    lcmt_eef_state eef_state;
+
+    boolean has_eef_pose;
+    lcmt_eef_pose eef_pose;
+
+    boolean has_eef_twist;
+    lcmt_eef_twist eef_twist;
+}

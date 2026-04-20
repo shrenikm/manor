@@ -6,13 +6,13 @@ from pydrake.all import DiagramBuilder
 from pydrake.multibody.plant import MultibodyPlantConfig
 from pydrake.systems.framework import Diagram
 
-from manor.lite6.pliant.lite6_pliant import create_lite6_pliant
-from manor.lite6.pliant.lite6_pliant_utils import (
+from manor.manipulators.lite6.pliant.lite6_pliant import create_lite6_pliant
+from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     Lite6PliantConfig,
     Lite6PliantType,
     get_tuned_pid_gains_for_pliant_id_controller,
 )
-from manor.lite6.utils.lite6_model_utils import Lite6ControlType, Lite6ModelType
+from manor.manipulators.lite6.utils.lite6_model_utils import Lite6ControlType, Lite6ModelType
 
 
 def visualize_lite6_pliant_diagram(

@@ -17,7 +17,7 @@ from manor.common.model_utils import (
     get_robot_models_directory_path,
 )
 from manor.common.path_utils import list_directories_in_path
-from manor.common.testing_utils import execute_pytest_file
+from manor.common.testing_utils import run_manor_tests
 
 
 def test_get_models_directory_path() -> None:
@@ -70,15 +70,15 @@ def test_add_robot_models_to_package_map() -> None:
 @pytest.mark.parametrize("with_parser", [True, False])
 @pytest.mark.parametrize("with_position", [True, False])
 def test_add_object_models_to_plant(
+    rng: np.random.Generator,
     with_parser: bool,
     with_position: bool,
 ) -> None:
-    rng = np.random.RandomState(7)
     configs = []
     for object_model_type in ObjectModelType:
         position = None
         if with_position:
-            position = rng.randn(3)
+            position = rng.standard_normal(3)
 
         config = ObjectModelConfig(
             object_model_type=object_model_type,
@@ -107,4 +107,4 @@ def test_add_object_models_to_plant(
 
 
 if __name__ == "__main__":
-    execute_pytest_file()
+    run_manor_tests()

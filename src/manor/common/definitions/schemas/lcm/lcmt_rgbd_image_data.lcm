@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_rgbd_image_data {
+    lcmt_timestamp_header header;
+    lcmt_rgb_image_data rgb;
+    lcmt_depth_image_data depth;
+}
