@@ -115,22 +115,22 @@ class Action(DefinitionBase):
                 return name
         raise InvalidDefinitionError("Action has no active variant")
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
         field = self._active_field()
         arm = _FIELD_TO_CAPNP_ARM[field]
         value = getattr(self, field)
-        value._to_versioned_capnp(builder.init(arm))
+        value.to_versioned_capnp(builder.init(arm))
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         arm = reader.which()
         if arm not in _CAPNP_ARM_TO_FIELD:
             raise InvalidDefinitionError(f"Unknown action capnp arm {arm!r}")
         field = _CAPNP_ARM_TO_FIELD[arm]
-        value = _FIELD_TO_CLASS[field]._from_versioned_capnp(getattr(reader, arm))
+        value = _FIELD_TO_CLASS[field].from_versioned_capnp(getattr(reader, arm))
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
             **{field: value},
         )
 

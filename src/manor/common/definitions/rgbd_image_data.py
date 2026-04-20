@@ -42,17 +42,17 @@ class RGBDImageData(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_rgbd_image_data
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
-        self.rgb._to_versioned_capnp(builder.init("rgb"))
-        self.depth._to_versioned_capnp(builder.init("depth"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
+        self.rgb.to_versioned_capnp(builder.init("rgb"))
+        self.depth.to_versioned_capnp(builder.init("depth"))
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
-            rgb=RGBImageData._from_versioned_capnp(reader.rgb),
-            depth=DepthImageData._from_versioned_capnp(reader.depth),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
+            rgb=RGBImageData.from_versioned_capnp(reader.rgb),
+            depth=DepthImageData.from_versioned_capnp(reader.depth),
         )
 
     @override

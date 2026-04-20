@@ -49,16 +49,16 @@ class EEFPoseTrajectory(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_eef_pose_trajectory
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
         ndarray_to_float64_array(self.times, builder.init("times"))
         ndarray_to_float64_array(self.translations_array, builder.init("translationsArray"))
         ndarray_to_float64_array(self.orientations_array, builder.init("orientationsArray"))
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
             times=float64_array_to_ndarray(reader.times),
             translations_array=float64_array_to_ndarray(reader.translationsArray),
             orientations_array=float64_array_to_ndarray(reader.orientationsArray),

@@ -45,14 +45,14 @@ class EEFPositions(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_eef_positions
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
         ndarray_to_float64_array(self.positions, builder.init("positions"))
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
             positions=float64_array_to_ndarray(reader.positions),
         )
 

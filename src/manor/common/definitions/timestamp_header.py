@@ -34,12 +34,12 @@ class TimestampHeader(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_timestamp_header
 
-    def _to_capnp_current(self, builder: Any) -> None:
+    def to_capnp_current(self, builder: Any) -> None:
         builder.monotonicNs = int(self.monotonic_ns)
         builder.systemNs = int(self.system_ns)
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
             monotonic_ns=int(reader.monotonicNs),
             system_ns=int(reader.systemNs),

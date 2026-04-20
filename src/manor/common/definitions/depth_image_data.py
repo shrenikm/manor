@@ -48,8 +48,8 @@ class DepthImageData(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_depth_image_data
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
         builder.height = int(self.height)
         builder.width = int(self.width)
         builder.encoding = _ENCODING_TO_CAPNP[self.encoding]
@@ -57,9 +57,9 @@ class DepthImageData(DefinitionBase):
         builder.depthScale = float(self.depth_scale)
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
             height=int(reader.height),
             width=int(reader.width),
             encoding=_CAPNP_TO_ENCODING[str(reader.encoding)],

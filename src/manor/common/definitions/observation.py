@@ -47,39 +47,39 @@ class Observation(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_observation
 
-    def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_versioned_capnp(builder.init("header"))
+    def to_capnp_current(self, builder: Any) -> None:
+        self.header.to_versioned_capnp(builder.init("header"))
 
         if self.proprioception is None:
             builder.proprioception.none = None
         else:
-            self.proprioception._to_versioned_capnp(builder.proprioception.init("some"))
+            self.proprioception.to_versioned_capnp(builder.proprioception.init("some"))
 
         if self.rgb_image is None:
             builder.rgbImage.none = None
         else:
-            self.rgb_image._to_versioned_capnp(builder.rgbImage.init("some"))
+            self.rgb_image.to_versioned_capnp(builder.rgbImage.init("some"))
 
         if self.rgbd_image is None:
             builder.rgbdImage.none = None
         else:
-            self.rgbd_image._to_versioned_capnp(builder.rgbdImage.init("some"))
+            self.rgbd_image.to_versioned_capnp(builder.rgbdImage.init("some"))
 
     @classmethod
-    def _from_capnp_v1(cls, reader: Any) -> Self:
+    def from_capnp_v1(cls, reader: Any) -> Self:
         proprioception = (
-            Proprioception._from_versioned_capnp(reader.proprioception.some)
+            Proprioception.from_versioned_capnp(reader.proprioception.some)
             if reader.proprioception.which() == "some"
             else None
         )
         rgb_image = (
-            RGBImageData._from_versioned_capnp(reader.rgbImage.some) if reader.rgbImage.which() == "some" else None
+            RGBImageData.from_versioned_capnp(reader.rgbImage.some) if reader.rgbImage.which() == "some" else None
         )
         rgbd_image = (
-            RGBDImageData._from_versioned_capnp(reader.rgbdImage.some) if reader.rgbdImage.which() == "some" else None
+            RGBDImageData.from_versioned_capnp(reader.rgbdImage.some) if reader.rgbdImage.which() == "some" else None
         )
         return cls(
-            header=TimestampHeader._from_versioned_capnp(reader.header),
+            header=TimestampHeader.from_versioned_capnp(reader.header),
             proprioception=proprioception,
             rgb_image=rgb_image,
             rgbd_image=rgbd_image,
