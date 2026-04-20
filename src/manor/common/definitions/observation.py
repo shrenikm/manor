@@ -86,15 +86,15 @@ class Observation(DefinitionBase):
         msg = lcmt_observation()
         msg.header = self.header.to_lcm_message()
 
-        msg.has_proprioception = 1 if self.proprioception is not None else 0
+        msg.has_proprioception = self.proprioception is not None
         msg.proprioception = (
             self.proprioception.to_lcm_message() if self.proprioception is not None else lcmt_proprioception()
         )
 
-        msg.has_rgb_image = 1 if self.rgb_image is not None else 0
+        msg.has_rgb_image = self.rgb_image is not None
         msg.rgb_image = self.rgb_image.to_lcm_message() if self.rgb_image is not None else lcmt_rgb_image_data()
 
-        msg.has_rgbd_image = 1 if self.rgbd_image is not None else 0
+        msg.has_rgbd_image = self.rgbd_image is not None
         msg.rgbd_image = self.rgbd_image.to_lcm_message() if self.rgbd_image is not None else lcmt_rgbd_image_data()
         return msg
 

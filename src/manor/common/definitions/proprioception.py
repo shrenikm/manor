@@ -86,13 +86,13 @@ class Proprioception(DefinitionBase):
         msg.header = self.header.to_lcm_message()
         msg.joint_state = self.joint_state.to_lcm_message()
 
-        msg.has_eef_state = 1 if self.eef_state is not None else 0
+        msg.has_eef_state = self.eef_state is not None
         msg.eef_state = self.eef_state.to_lcm_message() if self.eef_state is not None else lcmt_eef_state()
 
-        msg.has_eef_pose = 1 if self.eef_pose is not None else 0
+        msg.has_eef_pose = self.eef_pose is not None
         msg.eef_pose = self.eef_pose.to_lcm_message() if self.eef_pose is not None else lcmt_eef_pose()
 
-        msg.has_eef_twist = 1 if self.eef_twist is not None else 0
+        msg.has_eef_twist = self.eef_twist is not None
         msg.eef_twist = self.eef_twist.to_lcm_message() if self.eef_twist is not None else lcmt_eef_twist()
         return msg
 

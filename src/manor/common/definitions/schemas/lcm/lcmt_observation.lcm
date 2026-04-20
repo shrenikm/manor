@@ -3,12 +3,12 @@ package manor.common.definitions.lcmtypes;
 struct lcmt_observation {
     lcmt_timestamp_header header;
 
-    int8_t has_proprioception;
+    boolean has_proprioception;
     lcmt_proprioception proprioception;
 
-    int8_t has_rgb_image;
+    boolean has_rgb_image;
     lcmt_rgb_image_data rgb_image;
 
-    int8_t has_rgbd_image;
+    boolean has_rgbd_image;
     lcmt_rgbd_image_data rgbd_image;
 }

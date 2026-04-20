@@ -4,12 +4,12 @@ struct lcmt_proprioception {
     lcmt_timestamp_header header;
     lcmt_joint_state joint_state;
 
-    int8_t has_eef_state;
+    boolean has_eef_state;
     lcmt_eef_state eef_state;
 
-    int8_t has_eef_pose;
+    boolean has_eef_pose;
     lcmt_eef_pose eef_pose;
 
-    int8_t has_eef_twist;
+    boolean has_eef_twist;
     lcmt_eef_twist eef_twist;
 }
