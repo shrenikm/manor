@@ -10,7 +10,7 @@ import attr
 
 from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.enums import ImageEncoding
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
@@ -40,7 +40,7 @@ class RGBImageData(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("rgb_image_data.capnp").VersionedRgbImageData
 
     @classmethod

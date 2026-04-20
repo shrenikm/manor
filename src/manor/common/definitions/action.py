@@ -33,7 +33,7 @@ from manor.common.definitions.lcmtypes.lcmt_joint_velocities_trajectory import (
     lcmt_joint_velocities_trajectory,
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 from manor.common.exceptions import InvalidDefinitionError
 
@@ -94,7 +94,7 @@ class Action(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("action.capnp").VersionedAction
 
     @classmethod

@@ -13,6 +13,7 @@ from manor.common.custom_types import NpVector3f64
 from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import (
+    CapnpStructSchema,
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
@@ -36,7 +37,7 @@ class EEFTwist(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("eef_twist.capnp").VersionedEEFTwist
 
     @classmethod

@@ -13,6 +13,7 @@ from manor.common.custom_types import NpVectorNf64
 from manor.common.definitions.lcmtypes.lcmt_eef_velocities import lcmt_eef_velocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import (
+    CapnpStructSchema,
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
@@ -33,7 +34,7 @@ class EEFVelocities(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("eef_velocities.capnp").VersionedEEFVelocities
 
     @classmethod

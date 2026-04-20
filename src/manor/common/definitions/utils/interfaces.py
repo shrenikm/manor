@@ -11,7 +11,7 @@ from __future__ import annotations
 import abc
 from typing import Any, ClassVar, Self, override
 
-from manor.common.definitions.utils.capnp_utils import CapnpUnionArm
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, CapnpUnionArm
 from manor.common.exceptions import SerializationError
 
 
@@ -29,7 +29,7 @@ class ISerializable(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def get_capnp_schema(cls) -> Any: ...
+    def get_capnp_schema(cls) -> CapnpStructSchema: ...
 
 
 class ILcmMessage(abc.ABC):
@@ -100,9 +100,7 @@ class DefinitionBase(ISerializable, ILcmMessage):
                     )
                 handler = getattr(cls, f"_from_capnp_{arm}", None)
                 if handler is None:
-                    raise SerializationError(
-                        f"{cls.__name__} has no handler for capnp union arm {arm!r}"
-                    )
+                    raise SerializationError(f"{cls.__name__} has no handler for capnp union arm {arm!r}")
                 return handler(getattr(msg, arm))
         except SerializationError:
             raise

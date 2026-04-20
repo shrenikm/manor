@@ -12,7 +12,7 @@ from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_velocities import EEFVelocities
 from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
@@ -30,7 +30,7 @@ class EEFState(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("eef_state.capnp").VersionedEEFState
 
     @classmethod

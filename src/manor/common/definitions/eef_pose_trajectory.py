@@ -15,6 +15,7 @@ from manor.common.definitions.lcmtypes.lcmt_eef_pose_trajectory import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import (
+    CapnpStructSchema,
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
@@ -40,7 +41,7 @@ class EEFPoseTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("eef_pose_trajectory.capnp").VersionedEEFPoseTrajectory
 
     @classmethod
@@ -81,10 +82,6 @@ class EEFPoseTrajectory(DefinitionBase):
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             times=np.array(msg.times, dtype=np.float64),
-            translations_array=np.array(msg.translations_array, dtype=np.float64).reshape(
-                msg.num_steps, 3
-            ),
-            orientations_array=np.array(msg.orientations_array, dtype=np.float64).reshape(
-                msg.num_steps, 4
-            ),
+            translations_array=np.array(msg.translations_array, dtype=np.float64).reshape(msg.num_steps, 3),
+            orientations_array=np.array(msg.orientations_array, dtype=np.float64).reshape(msg.num_steps, 4),
         )

@@ -16,7 +16,7 @@ from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.lcmtypes.lcmt_rgbd_image_data import lcmt_rgbd_image_data
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
@@ -34,7 +34,7 @@ class RGBDImageData(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("rgbd_image_data.capnp").VersionedRgbdImageData
 
     @classmethod

@@ -12,7 +12,7 @@ from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.lcmtypes.lcmt_joint_state import lcmt_joint_state
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
@@ -30,7 +30,7 @@ class JointState(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("joint_state.capnp").VersionedJointState
 
     @classmethod

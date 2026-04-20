@@ -15,6 +15,7 @@ from manor.common.definitions.lcmtypes.lcmt_eef_velocities_trajectory import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import (
+    CapnpStructSchema,
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
@@ -36,10 +37,8 @@ class EEFVelocitiesTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
-        return load_versioned_schema(
-            "eef_velocities_trajectory.capnp"
-        ).VersionedEEFVelocitiesTrajectory
+    def get_capnp_schema(cls) -> CapnpStructSchema:
+        return load_versioned_schema("eef_velocities_trajectory.capnp").VersionedEEFVelocitiesTrajectory
 
     @classmethod
     @override

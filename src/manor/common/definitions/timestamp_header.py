@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 
 from manor.common.definitions.lcmtypes.lcmt_timestamp_header import lcmt_timestamp_header
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
@@ -26,7 +26,7 @@ class TimestampHeader(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("timestamp_header.capnp").VersionedTimestampHeader
 
     @classmethod

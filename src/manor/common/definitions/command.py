@@ -21,7 +21,7 @@ from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
 from manor.common.definitions.lcmtypes.lcmt_joint_positions import lcmt_joint_positions
 from manor.common.definitions.lcmtypes.lcmt_joint_velocities import lcmt_joint_velocities
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 from manor.common.exceptions import InvalidDefinitionError
 
@@ -65,7 +65,7 @@ class Command(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("command.capnp").VersionedCommand
 
     @classmethod

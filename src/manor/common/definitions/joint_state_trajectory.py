@@ -15,6 +15,7 @@ from manor.common.definitions.lcmtypes.lcmt_joint_state_trajectory import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import (
+    CapnpStructSchema,
     float64_array_to_ndarray,
     load_versioned_schema,
     ndarray_to_float64_array,
@@ -40,10 +41,8 @@ class JointStateTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
-        return load_versioned_schema(
-            "joint_state_trajectory.capnp"
-        ).VersionedJointStateTrajectory
+    def get_capnp_schema(cls) -> CapnpStructSchema:
+        return load_versioned_schema("joint_state_trajectory.capnp").VersionedJointStateTrajectory
 
     @classmethod
     @override
@@ -54,9 +53,7 @@ class JointStateTrajectory(DefinitionBase):
         self.header._to_capnp_current(builder.init("header"))
         ndarray_to_float64_array(self.times, builder.init("times"))
         ndarray_to_float64_array(self.joint_positions_array, builder.init("jointPositionsArray"))
-        ndarray_to_float64_array(
-            self.joint_velocities_array, builder.init("jointVelocitiesArray")
-        )
+        ndarray_to_float64_array(self.joint_velocities_array, builder.init("jointVelocitiesArray"))
 
     @classmethod
     def _from_capnp_v1(cls, reader: Any) -> Self:
@@ -89,7 +86,7 @@ class JointStateTrajectory(DefinitionBase):
             joint_positions_array=np.array(msg.joint_positions_array, dtype=np.float64).reshape(
                 msg.num_steps, msg.num_joints
             ),
-            joint_velocities_array=np.array(
-                msg.joint_velocities_array, dtype=np.float64
-            ).reshape(msg.num_steps, msg.num_joints),
+            joint_velocities_array=np.array(msg.joint_velocities_array, dtype=np.float64).reshape(
+                msg.num_steps, msg.num_joints
+            ),
         )

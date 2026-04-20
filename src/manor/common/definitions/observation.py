@@ -20,7 +20,7 @@ from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.rgbd_image_data import RGBDImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.capnp_utils import load_versioned_schema
+from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
@@ -39,7 +39,7 @@ class Observation(DefinitionBase):
 
     @classmethod
     @override
-    def get_capnp_schema(cls) -> Any:
+    def get_capnp_schema(cls) -> CapnpStructSchema:
         return load_versioned_schema("observation.capnp").VersionedObservation
 
     @classmethod
@@ -72,16 +72,8 @@ class Observation(DefinitionBase):
             if reader.proprioception.which() == "some"
             else None
         )
-        rgb_image = (
-            RGBImageData._from_capnp_v1(reader.rgbImage.some)
-            if reader.rgbImage.which() == "some"
-            else None
-        )
-        rgbd_image = (
-            RGBDImageData._from_capnp_v1(reader.rgbdImage.some)
-            if reader.rgbdImage.which() == "some"
-            else None
-        )
+        rgb_image = RGBImageData._from_capnp_v1(reader.rgbImage.some) if reader.rgbImage.which() == "some" else None
+        rgbd_image = RGBDImageData._from_capnp_v1(reader.rgbdImage.some) if reader.rgbdImage.which() == "some" else None
         return cls(
             header=TimestampHeader._from_capnp_v1(reader.header),
             proprioception=proprioception,
@@ -96,24 +88,14 @@ class Observation(DefinitionBase):
 
         msg.has_proprioception = 1 if self.proprioception is not None else 0
         msg.proprioception = (
-            self.proprioception.to_lcm_message()
-            if self.proprioception is not None
-            else lcmt_proprioception()
+            self.proprioception.to_lcm_message() if self.proprioception is not None else lcmt_proprioception()
         )
 
         msg.has_rgb_image = 1 if self.rgb_image is not None else 0
-        msg.rgb_image = (
-            self.rgb_image.to_lcm_message()
-            if self.rgb_image is not None
-            else lcmt_rgb_image_data()
-        )
+        msg.rgb_image = self.rgb_image.to_lcm_message() if self.rgb_image is not None else lcmt_rgb_image_data()
 
         msg.has_rgbd_image = 1 if self.rgbd_image is not None else 0
-        msg.rgbd_image = (
-            self.rgbd_image.to_lcm_message()
-            if self.rgbd_image is not None
-            else lcmt_rgbd_image_data()
-        )
+        msg.rgbd_image = self.rgbd_image.to_lcm_message() if self.rgbd_image is not None else lcmt_rgbd_image_data()
         return msg
 
     @classmethod
@@ -121,11 +103,7 @@ class Observation(DefinitionBase):
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
-            proprioception=Proprioception.from_lcm_message(msg.proprioception)
-            if msg.has_proprioception
-            else None,
+            proprioception=Proprioception.from_lcm_message(msg.proprioception) if msg.has_proprioception else None,
             rgb_image=RGBImageData.from_lcm_message(msg.rgb_image) if msg.has_rgb_image else None,
-            rgbd_image=RGBDImageData.from_lcm_message(msg.rgbd_image)
-            if msg.has_rgbd_image
-            else None,
+            rgbd_image=RGBDImageData.from_lcm_message(msg.rgbd_image) if msg.has_rgbd_image else None,
         )
