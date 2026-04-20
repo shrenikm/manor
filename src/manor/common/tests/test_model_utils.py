@@ -70,15 +70,15 @@ def test_add_robot_models_to_package_map() -> None:
 @pytest.mark.parametrize("with_parser", [True, False])
 @pytest.mark.parametrize("with_position", [True, False])
 def test_add_object_models_to_plant(
+    rng: np.random.Generator,
     with_parser: bool,
     with_position: bool,
 ) -> None:
-    rng = np.random.RandomState(7)
     configs = []
     for object_model_type in ObjectModelType:
         position = None
         if with_position:
-            position = rng.randn(3)
+            position = rng.standard_normal(3)
 
         config = ObjectModelConfig(
             object_model_type=object_model_type,
