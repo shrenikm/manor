@@ -7,13 +7,13 @@ using EP = import "/eef_pose.capnp";
 using ET = import "/eef_twist.capnp";
 
 struct CommandV1 {
-    header @0 :Header.TimestampHeaderV1;
+    header @0 :Header.VersionedTimestampHeader;
 
     union {
-        jointPositions  @1 :JP.JointPositionsV1;
-        jointVelocities @2 :JV.JointVelocitiesV1;
-        eefPose         @3 :EP.EEFPoseV1;
-        eefTwist        @4 :ET.EEFTwistV1;
+        jointPositions  @1 :JP.VersionedJointPositions;
+        jointVelocities @2 :JV.VersionedJointVelocities;
+        eefPose         @3 :EP.VersionedEEFPose;
+        eefTwist        @4 :ET.VersionedEEFTwist;
     }
 }
 

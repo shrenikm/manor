@@ -49,32 +49,32 @@ class Proprioception(DefinitionBase):
         return lcmt_proprioception
 
     def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_capnp_current(builder.init("header"))
-        self.joint_state._to_capnp_current(builder.init("jointState"))
+        self.header._to_versioned_capnp(builder.init("header"))
+        self.joint_state._to_versioned_capnp(builder.init("jointState"))
 
         if self.eef_state is None:
             builder.eefState.none = None
         else:
-            self.eef_state._to_capnp_current(builder.eefState.init("some"))
+            self.eef_state._to_versioned_capnp(builder.eefState.init("some"))
 
         if self.eef_pose is None:
             builder.eefPose.none = None
         else:
-            self.eef_pose._to_capnp_current(builder.eefPose.init("some"))
+            self.eef_pose._to_versioned_capnp(builder.eefPose.init("some"))
 
         if self.eef_twist is None:
             builder.eefTwist.none = None
         else:
-            self.eef_twist._to_capnp_current(builder.eefTwist.init("some"))
+            self.eef_twist._to_versioned_capnp(builder.eefTwist.init("some"))
 
     @classmethod
     def _from_capnp_v1(cls, reader: Any) -> Self:
-        eef_state = EEFState._from_capnp_v1(reader.eefState.some) if reader.eefState.which() == "some" else None
-        eef_pose = EEFPose._from_capnp_v1(reader.eefPose.some) if reader.eefPose.which() == "some" else None
-        eef_twist = EEFTwist._from_capnp_v1(reader.eefTwist.some) if reader.eefTwist.which() == "some" else None
+        eef_state = EEFState._from_versioned_capnp(reader.eefState.some) if reader.eefState.which() == "some" else None
+        eef_pose = EEFPose._from_versioned_capnp(reader.eefPose.some) if reader.eefPose.which() == "some" else None
+        eef_twist = EEFTwist._from_versioned_capnp(reader.eefTwist.some) if reader.eefTwist.which() == "some" else None
         return cls(
-            header=TimestampHeader._from_capnp_v1(reader.header),
-            joint_state=JointState._from_capnp_v1(reader.jointState),
+            header=TimestampHeader._from_versioned_capnp(reader.header),
+            joint_state=JointState._from_versioned_capnp(reader.jointState),
             eef_state=eef_state,
             eef_pose=eef_pose,
             eef_twist=eef_twist,

@@ -10,7 +10,7 @@ enum ImageEncodingV1 {
 }
 
 struct RgbImageDataV1 {
-    header   @0 :Header.TimestampHeaderV1;
+    header   @0 :Header.VersionedTimestampHeader;
     height   @1 :UInt32;
     width    @2 :UInt32;
     encoding @3 :ImageEncodingV1;

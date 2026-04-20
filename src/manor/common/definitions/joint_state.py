@@ -39,16 +39,16 @@ class JointState(DefinitionBase):
         return lcmt_joint_state
 
     def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_capnp_current(builder.init("header"))
-        self.joint_positions._to_capnp_current(builder.init("jointPositions"))
-        self.joint_velocities._to_capnp_current(builder.init("jointVelocities"))
+        self.header._to_versioned_capnp(builder.init("header"))
+        self.joint_positions._to_versioned_capnp(builder.init("jointPositions"))
+        self.joint_velocities._to_versioned_capnp(builder.init("jointVelocities"))
 
     @classmethod
     def _from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_capnp_v1(reader.header),
-            joint_positions=JointPositions._from_capnp_v1(reader.jointPositions),
-            joint_velocities=JointVelocities._from_capnp_v1(reader.jointVelocities),
+            header=TimestampHeader._from_versioned_capnp(reader.header),
+            joint_positions=JointPositions._from_versioned_capnp(reader.jointPositions),
+            joint_velocities=JointVelocities._from_versioned_capnp(reader.jointVelocities),
         )
 
     @override

@@ -39,16 +39,16 @@ class EEFState(DefinitionBase):
         return lcmt_eef_state
 
     def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_capnp_current(builder.init("header"))
-        self.eef_positions._to_capnp_current(builder.init("eefPositions"))
-        self.eef_velocities._to_capnp_current(builder.init("eefVelocities"))
+        self.header._to_versioned_capnp(builder.init("header"))
+        self.eef_positions._to_versioned_capnp(builder.init("eefPositions"))
+        self.eef_velocities._to_versioned_capnp(builder.init("eefVelocities"))
 
     @classmethod
     def _from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_capnp_v1(reader.header),
-            eef_positions=EEFPositions._from_capnp_v1(reader.eefPositions),
-            eef_velocities=EEFVelocities._from_capnp_v1(reader.eefVelocities),
+            header=TimestampHeader._from_versioned_capnp(reader.header),
+            eef_positions=EEFPositions._from_versioned_capnp(reader.eefPositions),
+            eef_velocities=EEFVelocities._from_versioned_capnp(reader.eefVelocities),
         )
 
     @override

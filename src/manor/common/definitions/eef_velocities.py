@@ -43,13 +43,13 @@ class EEFVelocities(DefinitionBase):
         return lcmt_eef_velocities
 
     def _to_capnp_current(self, builder: Any) -> None:
-        self.header._to_capnp_current(builder.init("header"))
+        self.header._to_versioned_capnp(builder.init("header"))
         ndarray_to_float64_array(self.velocities, builder.init("velocities"))
 
     @classmethod
     def _from_capnp_v1(cls, reader: Any) -> Self:
         return cls(
-            header=TimestampHeader._from_capnp_v1(reader.header),
+            header=TimestampHeader._from_versioned_capnp(reader.header),
             velocities=float64_array_to_ndarray(reader.velocities),
         )
 

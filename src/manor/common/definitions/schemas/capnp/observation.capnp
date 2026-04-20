@@ -6,19 +6,19 @@ using RGB = import "/rgb_image_data.capnp";
 using RGBD = import "/rgbd_image_data.capnp";
 
 struct ObservationV1 {
-    header @0 :Header.TimestampHeaderV1;
+    header @0 :Header.VersionedTimestampHeader;
 
     proprioception :union {
         none @1 :Void;
-        some @2 :P.ProprioceptionV1;
+        some @2 :P.VersionedProprioception;
     }
     rgbImage :union {
         none @3 :Void;
-        some @4 :RGB.RgbImageDataV1;
+        some @4 :RGB.VersionedRgbImageData;
     }
     rgbdImage :union {
         none @5 :Void;
-        some @6 :RGBD.RgbdImageDataV1;
+        some @6 :RGBD.VersionedRgbdImageData;
     }
 }
 

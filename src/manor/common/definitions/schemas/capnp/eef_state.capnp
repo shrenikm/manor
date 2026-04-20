@@ -5,9 +5,9 @@ using EP = import "/eef_positions.capnp";
 using EV = import "/eef_velocities.capnp";
 
 struct EEFStateV1 {
-    header        @0 :Header.TimestampHeaderV1;
-    eefPositions  @1 :EP.EEFPositionsV1;
-    eefVelocities @2 :EV.EEFVelocitiesV1;
+    header        @0 :Header.VersionedTimestampHeader;
+    eefPositions  @1 :EP.VersionedEEFPositions;
+    eefVelocities @2 :EV.VersionedEEFVelocities;
 }
 
 struct VersionedEEFState {

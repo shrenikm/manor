@@ -5,9 +5,9 @@ using JP = import "/joint_positions.capnp";
 using JV = import "/joint_velocities.capnp";
 
 struct JointStateV1 {
-    header          @0 :Header.TimestampHeaderV1;
-    jointPositions  @1 :JP.JointPositionsV1;
-    jointVelocities @2 :JV.JointVelocitiesV1;
+    header          @0 :Header.VersionedTimestampHeader;
+    jointPositions  @1 :JP.VersionedJointPositions;
+    jointVelocities @2 :JV.VersionedJointVelocities;
 }
 
 struct VersionedJointState {

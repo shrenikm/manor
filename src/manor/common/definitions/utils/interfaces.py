@@ -58,7 +58,7 @@ class DefinitionBase(ISerializable, ILcmMessage):
         CURRENT_CAPNP_VERSION      : the union arm to write on serialize ("v1", "v2", ...).
 
     Subclasses MUST implement:
-        get_capnp_schema(cls) -> Any
+        get_capnp_schema(cls) -> CapnpStructSchema
             Return the VersionedX wrapper struct type for this definition.
         get_lcm_class(cls) -> type
             Return the generated LCM class used for pub/sub.
@@ -69,17 +69,46 @@ class DefinitionBase(ISerializable, ILcmMessage):
             versions to the latest python shape live here.
         to_lcm_message(self) -> <LCM class>
         from_lcm_message(cls, msg) -> Self
+
+    Composite definitions call `_to_versioned_capnp` / `_from_versioned_capnp`
+    on their nested definitions. These helpers operate on a VersionedX
+    builder/reader (i.e. the union wrapper), so nested fields can be declared
+    in the parent schema as `VersionedX` rather than a specific `XV1` and each
+    definition can evolve its version independently.
     """
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
+
+    def _to_versioned_capnp(self, versioned_builder: Any) -> None:
+        """
+        Init the current-version arm of a VersionedX builder and fill it.
+        """
+        inner = versioned_builder.init(self.CURRENT_CAPNP_VERSION)
+        self._to_capnp_current(inner)
+
+    @classmethod
+    def _from_versioned_capnp(cls, versioned_reader: Any) -> Self:
+        """
+        Read a VersionedX reader, dispatching on the active arm to the
+        matching `_from_capnp_v{N}` handler.
+        """
+        arm = versioned_reader.which()
+        if arm == CapnpUnionArm.UNSET:
+            raise SerializationError(
+                f"{cls.__name__} versioned reader has sentinel '{CapnpUnionArm.UNSET}' arm "
+                "active -- payload was never populated with a version"
+            )
+        handler = getattr(cls, f"_from_capnp_{arm}", None)
+        if handler is None:
+            raise SerializationError(f"{cls.__name__} has no handler for capnp union arm {arm!r}")
+        return handler(getattr(versioned_reader, arm))
 
     @override
     def serialize(self) -> bytes:
         try:
             schema = self.get_capnp_schema()
             msg = schema.new_message()
-            inner = msg.init(self.CURRENT_CAPNP_VERSION)
-            self._to_capnp_current(inner)
+            self._to_versioned_capnp(msg)
             return msg.to_bytes()
         except SerializationError:
             raise
@@ -92,16 +121,7 @@ class DefinitionBase(ISerializable, ILcmMessage):
         try:
             schema = cls.get_capnp_schema()
             with schema.from_bytes(data) as msg:
-                arm = msg.which()
-                if arm == CapnpUnionArm.UNSET:
-                    raise SerializationError(
-                        f"{cls.__name__} bytes have the sentinel '{CapnpUnionArm.UNSET}' arm "
-                        "active -- payload was never populated with a version"
-                    )
-                handler = getattr(cls, f"_from_capnp_{arm}", None)
-                if handler is None:
-                    raise SerializationError(f"{cls.__name__} has no handler for capnp union arm {arm!r}")
-                return handler(getattr(msg, arm))
+                return cls._from_versioned_capnp(msg)
         except SerializationError:
             raise
         except Exception as e:

@@ -11,17 +11,17 @@ using ET = import "/eef_twist.capnp";
 using ETT = import "/eef_twist_trajectory.capnp";
 
 struct ActionV1 {
-    header @0 :Header.TimestampHeaderV1;
+    header @0 :Header.VersionedTimestampHeader;
 
     union {
-        jointPositions            @1 :JP.JointPositionsV1;
-        jointPositionsTrajectory  @2 :JPT.JointPositionsTrajectoryV1;
-        jointVelocities           @3 :JV.JointVelocitiesV1;
-        jointVelocitiesTrajectory @4 :JVT.JointVelocitiesTrajectoryV1;
-        eefPose                   @5 :EP.EEFPoseV1;
-        eefPoseTrajectory         @6 :EPT.EEFPoseTrajectoryV1;
-        eefTwist                  @7 :ET.EEFTwistV1;
-        eefTwistTrajectory        @8 :ETT.EEFTwistTrajectoryV1;
+        jointPositions            @1 :JP.VersionedJointPositions;
+        jointPositionsTrajectory  @2 :JPT.VersionedJointPositionsTrajectory;
+        jointVelocities           @3 :JV.VersionedJointVelocities;
+        jointVelocitiesTrajectory @4 :JVT.VersionedJointVelocitiesTrajectory;
+        eefPose                   @5 :EP.VersionedEEFPose;
+        eefPoseTrajectory         @6 :EPT.VersionedEEFPoseTrajectory;
+        eefTwist                  @7 :ET.VersionedEEFTwist;
+        eefTwistTrajectory        @8 :ETT.VersionedEEFTwistTrajectory;
     }
 }
 

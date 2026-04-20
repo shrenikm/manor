@@ -4,7 +4,7 @@ using Common = import "/common.capnp";
 using Header = import "/timestamp_header.capnp";
 
 struct EEFTwistV1 {
-    header  @0 :Header.TimestampHeaderV1;
+    header  @0 :Header.VersionedTimestampHeader;
     linear  @1 :Common.Float64Array;
     angular @2 :Common.Float64Array;
 }

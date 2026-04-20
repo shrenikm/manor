@@ -4,7 +4,7 @@ using Common = import "/common.capnp";
 using Header = import "/timestamp_header.capnp";
 
 struct EEFPositionsTrajectoryV1 {
-    header            @0 :Header.TimestampHeaderV1;
+    header            @0 :Header.VersionedTimestampHeader;
     times             @1 :Common.Float64Array;
     eefPositionsArray @2 :Common.Float64Array;
 }

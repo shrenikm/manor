@@ -4,7 +4,7 @@ using Common = import "/common.capnp";
 using Header = import "/timestamp_header.capnp";
 
 struct EEFPoseV1 {
-    header      @0 :Header.TimestampHeaderV1;
+    header      @0 :Header.VersionedTimestampHeader;
     translation @1 :Common.Float64Array;
     orientation @2 :Common.Float64Array;
 }

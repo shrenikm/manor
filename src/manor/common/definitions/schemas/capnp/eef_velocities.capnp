@@ -4,7 +4,7 @@ using Common = import "/common.capnp";
 using Header = import "/timestamp_header.capnp";
 
 struct EEFVelocitiesV1 {
-    header     @0 :Header.TimestampHeaderV1;
+    header     @0 :Header.VersionedTimestampHeader;
     velocities @1 :Common.Float64Array;
 }
 
