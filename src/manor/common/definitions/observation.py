@@ -8,7 +8,7 @@ varies across robots.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -21,13 +21,11 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.rgbd_image_data import RGBDImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("observation")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class Observation(IDefinition):
+class Observation(DefinitionBase):
     """
     Policy observation. All sensor channels are optional.
     """
@@ -37,10 +35,13 @@ class Observation(IDefinition):
     rgb_image: RGBImageData | None = None
     rgbd_image: RGBDImageData | None = None
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedObservation
     LCM_CLASS: ClassVar[type] = lcmt_observation
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("observation.capnp").VersionedObservation
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -84,6 +85,7 @@ class Observation(IDefinition):
             rgbd_image=rgbd_image,
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_observation:
         msg = lcmt_observation()
         msg.header = self.header.to_lcm_message()
@@ -111,6 +113,7 @@ class Observation(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

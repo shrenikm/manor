@@ -4,7 +4,7 @@ Time-indexed trajectory of end-effector state.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 import numpy as np
@@ -19,13 +19,11 @@ from manor.common.definitions.utils.capnp_utils import (
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("eef_state_trajectory")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class EEFStateTrajectory(IDefinition):
+class EEFStateTrajectory(DefinitionBase):
     """
     A trajectory of EEF state. eef_positions_array and eef_velocities_array have
     shape (num_steps, num_coords); times has shape (num_steps,).
@@ -36,10 +34,13 @@ class EEFStateTrajectory(IDefinition):
     eef_positions_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
     eef_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefStateTrajectory
     LCM_CLASS: ClassVar[type] = lcmt_eef_state_trajectory
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("eef_state_trajectory.capnp").VersionedEEFStateTrajectory
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -56,6 +57,7 @@ class EEFStateTrajectory(IDefinition):
             eef_velocities_array=float64_array_to_ndarray(reader.eefVelocitiesArray),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_eef_state_trajectory:
         msg = lcmt_eef_state_trajectory()
         msg.header = self.header.to_lcm_message()
@@ -69,6 +71,7 @@ class EEFStateTrajectory(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

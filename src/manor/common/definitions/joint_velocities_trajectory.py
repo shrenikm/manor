@@ -4,7 +4,7 @@ Time-indexed trajectory of joint velocities.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 import numpy as np
@@ -19,13 +19,11 @@ from manor.common.definitions.utils.capnp_utils import (
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("joint_velocities_trajectory")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class JointVelocitiesTrajectory(IDefinition):
+class JointVelocitiesTrajectory(DefinitionBase):
     """
     A trajectory of joint velocities.
 
@@ -37,10 +35,15 @@ class JointVelocitiesTrajectory(IDefinition):
     times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
     joint_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointVelocitiesTrajectory
     LCM_CLASS: ClassVar[type] = lcmt_joint_velocities_trajectory
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema(
+            "joint_velocities_trajectory.capnp"
+        ).VersionedJointVelocitiesTrajectory
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -57,6 +60,7 @@ class JointVelocitiesTrajectory(IDefinition):
             joint_velocities_array=float64_array_to_ndarray(reader.jointVelocitiesArray),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_joint_velocities_trajectory:
         msg = lcmt_joint_velocities_trajectory()
         msg.header = self.header.to_lcm_message()
@@ -68,6 +72,7 @@ class JointVelocitiesTrajectory(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

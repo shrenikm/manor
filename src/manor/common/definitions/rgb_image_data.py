@@ -4,7 +4,7 @@ RGB image frame produced by a color camera.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -12,9 +12,7 @@ from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
 from manor.common.definitions.utils.enums import ImageEncoding
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("rgb_image_data")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 _ENCODING_TO_CAPNP: dict[ImageEncoding, str] = {
     ImageEncoding.RAW_RGB8: "rawRgb8",
@@ -26,7 +24,7 @@ _CAPNP_TO_ENCODING: dict[str, ImageEncoding] = {v: k for k, v in _ENCODING_TO_CA
 
 
 @attr.frozen
-class RGBImageData(IDefinition):
+class RGBImageData(DefinitionBase):
     """
     A single RGB frame. `data` is the raw pixel bytes when `encoding` is RAW_*,
     or a compressed image payload (e.g. JPEG/PNG bytes) otherwise.
@@ -38,10 +36,13 @@ class RGBImageData(IDefinition):
     encoding: ImageEncoding
     data: bytes
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedRgbImageData
     LCM_CLASS: ClassVar[type] = lcmt_rgb_image_data
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("rgb_image_data.capnp").VersionedRgbImageData
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -60,6 +61,7 @@ class RGBImageData(IDefinition):
             data=bytes(reader.data),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_rgb_image_data:
         msg = lcmt_rgb_image_data()
         msg.header = self.header.to_lcm_message()
@@ -71,6 +73,7 @@ class RGBImageData(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

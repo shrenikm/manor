@@ -4,7 +4,7 @@ Joint positions at a single time instant.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 import numpy as np
@@ -17,13 +17,11 @@ from manor.common.definitions.utils.capnp_utils import (
     load_versioned_schema,
     ndarray_to_float64_array,
 )
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("joint_positions")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class JointPositions(IDefinition):
+class JointPositions(DefinitionBase):
     """
     Per-joint generalized positions.
     """
@@ -31,10 +29,13 @@ class JointPositions(IDefinition):
     header: TimestampHeader
     positions: JointPositionsVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedJointPositions
     LCM_CLASS: ClassVar[type] = lcmt_joint_positions
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("joint_positions.capnp").VersionedJointPositions
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -47,6 +48,7 @@ class JointPositions(IDefinition):
             positions=float64_array_to_ndarray(reader.positions),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_joint_positions:
         msg = lcmt_joint_positions()
         msg.header = self.header.to_lcm_message()
@@ -55,6 +57,7 @@ class JointPositions(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

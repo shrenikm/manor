@@ -7,7 +7,7 @@ Exactly one of the variant fields must be non-None.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -22,10 +22,8 @@ from manor.common.definitions.lcmtypes.lcmt_joint_positions import lcmt_joint_po
 from manor.common.definitions.lcmtypes.lcmt_joint_velocities import lcmt_joint_velocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
+from manor.common.definitions.utils.interfaces import DefinitionBase
 from manor.common.exceptions import InvalidDefinitionError
-
-_CAPNP = load_versioned_schema("command")
 
 _VARIANTS: tuple[tuple[str, str, int], ...] = (
     ("joint_positions", "jointPositions", 0),
@@ -52,7 +50,7 @@ _LCM_DEFAULTS: dict[str, type] = {
 
 
 @attr.frozen
-class Command(IDefinition):
+class Command(DefinitionBase):
     """
     A hardware-facing command. Exactly one of the variant fields must be non-None.
     """
@@ -63,10 +61,13 @@ class Command(IDefinition):
     eef_pose: EEFPose | None = None
     eef_twist: EEFTwist | None = None
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedCommand
     LCM_CLASS: ClassVar[type] = lcmt_command
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("command.capnp").VersionedCommand
 
     def __attrs_post_init__(self) -> None:
         active = [name for name, _, _ in _VARIANTS if getattr(self, name) is not None]
@@ -100,6 +101,7 @@ class Command(IDefinition):
             **{field: value},
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_command:
         msg = lcmt_command()
         msg.header = self.header.to_lcm_message()
@@ -114,6 +116,7 @@ class Command(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         variant = int(msg.variant)
         if variant not in _VARIANT_TO_FIELD:

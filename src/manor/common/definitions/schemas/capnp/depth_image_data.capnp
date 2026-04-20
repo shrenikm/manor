@@ -5,7 +5,7 @@ using Header = import "/timestamp_header.capnp";
 enum DepthEncodingV1 {
     rawFloat32M @0;
     rawUint16Mm @1;
-    pngUint16   @2;
+    pngUint16Mm @2;
 }
 
 struct DepthImageDataV1 {

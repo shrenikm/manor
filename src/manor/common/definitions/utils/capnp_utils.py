@@ -7,6 +7,7 @@ containing the per-version structs AND the versioned-union wrapper.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,12 +18,23 @@ import numpy as np
 _SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schemas" / "capnp"
 
 
+class CapnpUnionArm(StrEnum):
+    """
+    Sentinel arm names for versioned-union wrappers.
+
+    Only the sentinel is enumerated; version arms (v1, v2, ...) grow dynamically
+    per schema and are referred to by plain string.
+    """
+
+    UNSET = "unset"
+
+
 @lru_cache(maxsize=None)
-def load_versioned_schema(definition_name: str) -> Any:
+def load_versioned_schema(capnp_filename: str) -> Any:
     """
     Load the schema file for a definition.
 
-    E.g. load_versioned_schema("timestamp_header") loads
+    E.g. load_versioned_schema("timestamp_header.capnp") loads
         schemas/capnp/timestamp_header.capnp
     and returns the pycapnp module exposing TimestampHeaderV1 and
     VersionedTimestampHeader.
@@ -32,7 +44,7 @@ def load_versioned_schema(definition_name: str) -> Any:
     file through multiple definitions.
     """
     parser = capnp.SchemaParser()
-    schema_path = _SCHEMA_ROOT / f"{definition_name}.capnp"
+    schema_path = _SCHEMA_ROOT / capnp_filename
     return parser.load(
         str(schema_path),
         imports=[str(_SCHEMA_ROOT)],

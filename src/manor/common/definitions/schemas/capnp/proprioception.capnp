@@ -12,15 +12,15 @@ struct ProprioceptionV1 {
 
     eefState :union {
         none @2 :Void;
-        some @3 :ES.EefStateV1;
+        some @3 :ES.EEFStateV1;
     }
     eefPose :union {
         none @4 :Void;
-        some @5 :EP.EefPoseV1;
+        some @5 :EP.EEFPoseV1;
     }
     eefTwist :union {
         none @6 :Void;
-        some @7 :ET.EefTwistV1;
+        some @7 :ET.EEFTwistV1;
     }
 }
 

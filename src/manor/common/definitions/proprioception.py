@@ -7,7 +7,7 @@ e.g. if the robot has no EEF, or if forward kinematics was skipped upstream.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -21,13 +21,11 @@ from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
 from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("proprioception")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class Proprioception(IDefinition):
+class Proprioception(DefinitionBase):
     """
     Full proprioception state of a robot.
     """
@@ -38,10 +36,13 @@ class Proprioception(IDefinition):
     eef_pose: EEFPose | None = None
     eef_twist: EEFTwist | None = None
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedProprioception
     LCM_CLASS: ClassVar[type] = lcmt_proprioception
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("proprioception.capnp").VersionedProprioception
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -87,6 +88,7 @@ class Proprioception(IDefinition):
             eef_twist=eef_twist,
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_proprioception:
         msg = lcmt_proprioception()
         msg.header = self.header.to_lcm_message()
@@ -109,6 +111,7 @@ class Proprioception(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

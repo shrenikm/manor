@@ -3,14 +3,14 @@
 using Common = import "/common.capnp";
 using Header = import "/timestamp_header.capnp";
 
-struct EefPositionsV1 {
+struct EEFPositionsV1 {
     header    @0 :Header.TimestampHeaderV1;
     positions @1 :Common.Float64Array;
 }
 
-struct VersionedEefPositions {
+struct VersionedEEFPositions {
     union {
         unset @0 :Void;
-        v1    @1 :EefPositionsV1;
+        v1    @1 :EEFPositionsV1;
     }
 }

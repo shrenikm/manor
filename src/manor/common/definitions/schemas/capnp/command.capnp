@@ -12,8 +12,8 @@ struct CommandV1 {
     union {
         jointPositions  @1 :JP.JointPositionsV1;
         jointVelocities @2 :JV.JointVelocitiesV1;
-        eefPose         @3 :EP.EefPoseV1;
-        eefTwist        @4 :ET.EefTwistV1;
+        eefPose         @3 :EP.EEFPoseV1;
+        eefTwist        @4 :ET.EEFTwistV1;
     }
 }
 

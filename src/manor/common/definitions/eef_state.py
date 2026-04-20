@@ -4,7 +4,7 @@ End-effector state (generalized positions + velocities) at a single time instant
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -13,13 +13,11 @@ from manor.common.definitions.eef_velocities import EEFVelocities
 from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("eef_state")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class EEFState(IDefinition):
+class EEFState(DefinitionBase):
     """
     EEF generalized positions and velocities at the same time instant.
     """
@@ -28,10 +26,13 @@ class EEFState(IDefinition):
     eef_positions: EEFPositions
     eef_velocities: EEFVelocities
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedEefState
     LCM_CLASS: ClassVar[type] = lcmt_eef_state
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("eef_state.capnp").VersionedEEFState
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -46,6 +47,7 @@ class EEFState(IDefinition):
             eef_velocities=EEFVelocities._from_capnp_v1(reader.eefVelocities),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_eef_state:
         msg = lcmt_eef_state()
         msg.header = self.header.to_lcm_message()
@@ -54,6 +56,7 @@ class EEFState(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),

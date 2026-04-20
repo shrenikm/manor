@@ -7,7 +7,7 @@ or EEF-space commands, either as a single setpoint or as a full trajectory.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -34,10 +34,8 @@ from manor.common.definitions.lcmtypes.lcmt_joint_velocities_trajectory import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
+from manor.common.definitions.utils.interfaces import DefinitionBase
 from manor.common.exceptions import InvalidDefinitionError
-
-_CAPNP = load_versioned_schema("action")
 
 # Field name -> (capnp union arm, LCM variant tag)
 _VARIANTS: tuple[tuple[str, str, int], ...] = (
@@ -77,7 +75,7 @@ _LCM_DEFAULTS: dict[str, type] = {
 
 
 @attr.frozen
-class Action(IDefinition):
+class Action(DefinitionBase):
     """
     A policy action. Exactly one of the variant fields must be non-None.
     """
@@ -92,10 +90,13 @@ class Action(IDefinition):
     eef_twist: EEFTwist | None = None
     eef_twist_trajectory: EEFTwistTrajectory | None = None
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedAction
     LCM_CLASS: ClassVar[type] = lcmt_action
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("action.capnp").VersionedAction
 
     def __attrs_post_init__(self) -> None:
         active = [name for name, _, _ in _VARIANTS if getattr(self, name) is not None]
@@ -129,6 +130,7 @@ class Action(IDefinition):
             **{field: value},
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_action:
         msg = lcmt_action()
         msg.header = self.header.to_lcm_message()
@@ -143,6 +145,7 @@ class Action(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         variant = int(msg.variant)
         if variant not in _VARIANT_TO_FIELD:

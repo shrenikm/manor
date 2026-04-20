@@ -4,19 +4,17 @@ Timestamp header carried by every streaming definition.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
 from manor.common.definitions.lcmtypes.lcmt_timestamp_header import lcmt_timestamp_header
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("timestamp_header")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 
 @attr.frozen
-class TimestampHeader(IDefinition):
+class TimestampHeader(DefinitionBase):
     """
     Monotonic and system-wall-clock timestamps, both in nanoseconds.
     """
@@ -24,10 +22,13 @@ class TimestampHeader(IDefinition):
     monotonic_ns: int
     system_ns: int
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedTimestampHeader
     LCM_CLASS: ClassVar[type] = lcmt_timestamp_header
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("timestamp_header.capnp").VersionedTimestampHeader
 
     def _to_capnp_current(self, builder: Any) -> None:
         builder.monotonicNs = int(self.monotonic_ns)
@@ -40,6 +41,7 @@ class TimestampHeader(IDefinition):
             system_ns=int(reader.systemNs),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_timestamp_header:
         msg = lcmt_timestamp_header()
         msg.monotonic_ns = int(self.monotonic_ns)
@@ -47,6 +49,7 @@ class TimestampHeader(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             monotonic_ns=int(msg.monotonic_ns),

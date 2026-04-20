@@ -18,10 +18,10 @@ struct ActionV1 {
         jointPositionsTrajectory  @2 :JPT.JointPositionsTrajectoryV1;
         jointVelocities           @3 :JV.JointVelocitiesV1;
         jointVelocitiesTrajectory @4 :JVT.JointVelocitiesTrajectoryV1;
-        eefPose                   @5 :EP.EefPoseV1;
-        eefPoseTrajectory         @6 :EPT.EefPoseTrajectoryV1;
-        eefTwist                  @7 :ET.EefTwistV1;
-        eefTwistTrajectory        @8 :ETT.EefTwistTrajectoryV1;
+        eefPose                   @5 :EP.EEFPoseV1;
+        eefPoseTrajectory         @6 :EPT.EEFPoseTrajectoryV1;
+        eefTwist                  @7 :ET.EEFTwistV1;
+        eefTwistTrajectory        @8 :ETT.EEFTwistTrajectoryV1;
     }
 }
 

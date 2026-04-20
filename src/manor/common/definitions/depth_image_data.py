@@ -4,7 +4,7 @@ Depth image frame produced by a depth / RGBD sensor.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, override
 
 import attr
 
@@ -12,20 +12,18 @@ from manor.common.definitions.lcmtypes.lcmt_depth_image_data import lcmt_depth_i
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import load_versioned_schema
 from manor.common.definitions.utils.enums import DepthEncoding
-from manor.common.definitions.utils.interfaces import IDefinition
-
-_CAPNP = load_versioned_schema("depth_image_data")
+from manor.common.definitions.utils.interfaces import DefinitionBase
 
 _ENCODING_TO_CAPNP: dict[DepthEncoding, str] = {
     DepthEncoding.RAW_FLOAT32_M: "rawFloat32M",
     DepthEncoding.RAW_UINT16_MM: "rawUint16Mm",
-    DepthEncoding.PNG_UINT16: "pngUint16",
+    DepthEncoding.PNG_UINT16_MM: "pngUint16Mm",
 }
 _CAPNP_TO_ENCODING: dict[str, DepthEncoding] = {v: k for k, v in _ENCODING_TO_CAPNP.items()}
 
 
 @attr.frozen
-class DepthImageData(IDefinition):
+class DepthImageData(DefinitionBase):
     """
     A single depth frame. `data` is interpreted per `encoding`, and multiplied
     by `depth_scale` to get meters.
@@ -38,10 +36,13 @@ class DepthImageData(IDefinition):
     data: bytes
     depth_scale: float
 
-    VERSION: ClassVar[str] = "1.0.0"
-    CAPNP_SCHEMA: ClassVar[Any] = _CAPNP.VersionedDepthImageData
     LCM_CLASS: ClassVar[type] = lcmt_depth_image_data
     CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+
+    @classmethod
+    @override
+    def get_capnp_schema(cls) -> Any:
+        return load_versioned_schema("depth_image_data.capnp").VersionedDepthImageData
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
@@ -62,6 +63,7 @@ class DepthImageData(IDefinition):
             depth_scale=float(reader.depthScale),
         )
 
+    @override
     def to_lcm_message(self) -> lcmt_depth_image_data:
         msg = lcmt_depth_image_data()
         msg.header = self.header.to_lcm_message()
@@ -74,6 +76,7 @@ class DepthImageData(IDefinition):
         return msg
 
     @classmethod
+    @override
     def from_lcm_message(cls, msg: Any) -> Self:
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
