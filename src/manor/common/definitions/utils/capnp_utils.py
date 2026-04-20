@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 import capnp
 import numpy as np
@@ -21,7 +21,7 @@ _SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schemas" / "capnp"
 # parsing a .capnp file. This is the object `.new_message()` / `.from_bytes()`
 # are called on. pycapnp exposes the underlying class under a leading underscore,
 # but this is the documented, public way to obtain it.
-CapnpStructSchema: TypeAlias = capnp._StructModule
+type CapnpStructSchema = capnp._StructModule
 
 
 class CapnpUnionArm(StrEnum):
