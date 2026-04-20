@@ -90,13 +90,17 @@ class Action(DefinitionBase):
     eef_twist: EEFTwist | None = None
     eef_twist_trajectory: EEFTwistTrajectory | None = None
 
-    LCM_CLASS: ClassVar[type] = lcmt_action
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("action.capnp").VersionedAction
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_action
 
     def __attrs_post_init__(self) -> None:
         active = [name for name, _, _ in _VARIANTS if getattr(self, name) is not None]

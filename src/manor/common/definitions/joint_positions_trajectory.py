@@ -35,8 +35,7 @@ class JointPositionsTrajectory(DefinitionBase):
     times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
     joint_positions_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    LCM_CLASS: ClassVar[type] = lcmt_joint_positions_trajectory
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
@@ -44,6 +43,11 @@ class JointPositionsTrajectory(DefinitionBase):
         return load_versioned_schema(
             "joint_positions_trajectory.capnp"
         ).VersionedJointPositionsTrajectory
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_joint_positions_trajectory
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))

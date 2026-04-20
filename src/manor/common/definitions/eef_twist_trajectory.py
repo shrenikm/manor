@@ -35,13 +35,17 @@ class EEFTwistTrajectory(DefinitionBase):
     linear_array: NpMatrixN3f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
     angular_array: NpMatrixN3f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    LCM_CLASS: ClassVar[type] = lcmt_eef_twist_trajectory
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("eef_twist_trajectory.capnp").VersionedEEFTwistTrajectory
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_eef_twist_trajectory
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))

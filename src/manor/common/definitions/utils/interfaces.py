@@ -44,6 +44,10 @@ class ILcmMessage(abc.ABC):
     @abc.abstractmethod
     def from_lcm_message(cls, msg: Any) -> Self: ...
 
+    @classmethod
+    @abc.abstractmethod
+    def get_lcm_class(cls) -> type: ...
+
 
 class DefinitionBase(ISerializable, ILcmMessage):
     """
@@ -51,30 +55,30 @@ class DefinitionBase(ISerializable, ILcmMessage):
     and an LCM message counterpart.
 
     Subclasses MUST set:
-        LCM_CLASS                  : the generated LCM type for pub/sub.
-        CURRENT_CAPNP_UNION_ARM    : the union arm to write on serialize ("v1", "v2", ...).
+        CURRENT_CAPNP_VERSION      : the union arm to write on serialize ("v1", "v2", ...).
 
     Subclasses MUST implement:
         get_capnp_schema(cls) -> Any
             Return the VersionedX wrapper struct type for this definition.
+        get_lcm_class(cls) -> type
+            Return the generated LCM class used for pub/sub.
         _to_capnp_current(self, builder) -> None
             Fill the current-version struct builder.
         _from_capnp_v{N}(cls, reader) -> Self
             One classmethod per supported capnp version. Migrations from older
             versions to the latest python shape live here.
-        to_lcm_message(self) -> LCM_CLASS
+        to_lcm_message(self) -> <LCM class>
         from_lcm_message(cls, msg) -> Self
     """
 
-    LCM_CLASS: ClassVar[type]
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @override
     def serialize(self) -> bytes:
         try:
             schema = self.get_capnp_schema()
             msg = schema.new_message()
-            inner = msg.init(self.CURRENT_CAPNP_UNION_ARM)
+            inner = msg.init(self.CURRENT_CAPNP_VERSION)
             self._to_capnp_current(inner)
             return msg.to_bytes()
         except SerializationError:

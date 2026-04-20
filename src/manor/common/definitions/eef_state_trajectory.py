@@ -34,13 +34,17 @@ class EEFStateTrajectory(DefinitionBase):
     eef_positions_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
     eef_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
 
-    LCM_CLASS: ClassVar[type] = lcmt_eef_state_trajectory
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("eef_state_trajectory.capnp").VersionedEEFStateTrajectory
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_eef_state_trajectory
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))

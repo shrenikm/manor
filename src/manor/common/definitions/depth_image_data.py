@@ -36,13 +36,17 @@ class DepthImageData(DefinitionBase):
     data: bytes
     depth_scale: float
 
-    LCM_CLASS: ClassVar[type] = lcmt_depth_image_data
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("depth_image_data.capnp").VersionedDepthImageData
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_depth_image_data
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))

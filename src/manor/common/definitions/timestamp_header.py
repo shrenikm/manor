@@ -22,13 +22,17 @@ class TimestampHeader(DefinitionBase):
     monotonic_ns: int
     system_ns: int
 
-    LCM_CLASS: ClassVar[type] = lcmt_timestamp_header
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("timestamp_header.capnp").VersionedTimestampHeader
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_timestamp_header
 
     def _to_capnp_current(self, builder: Any) -> None:
         builder.monotonicNs = int(self.monotonic_ns)

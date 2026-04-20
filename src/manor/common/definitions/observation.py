@@ -35,13 +35,17 @@ class Observation(DefinitionBase):
     rgb_image: RGBImageData | None = None
     rgbd_image: RGBDImageData | None = None
 
-    LCM_CLASS: ClassVar[type] = lcmt_observation
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("observation.capnp").VersionedObservation
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_observation
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))

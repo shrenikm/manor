@@ -26,13 +26,17 @@ class JointState(DefinitionBase):
     joint_positions: JointPositions
     joint_velocities: JointVelocities
 
-    LCM_CLASS: ClassVar[type] = lcmt_joint_state
-    CURRENT_CAPNP_UNION_ARM: ClassVar[str] = "v1"
+    CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
     @classmethod
     @override
     def get_capnp_schema(cls) -> Any:
         return load_versioned_schema("joint_state.capnp").VersionedJointState
+
+    @classmethod
+    @override
+    def get_lcm_class(cls) -> type:
+        return lcmt_joint_state
 
     def _to_capnp_current(self, builder: Any) -> None:
         self.header._to_capnp_current(builder.init("header"))
