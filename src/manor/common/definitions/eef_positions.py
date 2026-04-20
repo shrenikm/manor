@@ -7,6 +7,7 @@ finger opening; for a dexterous hand they are finger-joint positions, etc.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -22,6 +23,11 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
+    POSITIONS = "positions"
 
 
 @attr.frozen
@@ -46,8 +52,8 @@ class EEFPositions(DefinitionBase):
         return lcmt_eef_positions
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.positions, builder.init("positions"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.positions, builder.init(_CapnpField.POSITIONS))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

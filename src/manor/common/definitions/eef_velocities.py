@@ -4,6 +4,7 @@ End-effector generalized velocities at a single time instant.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -19,6 +20,11 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
+    VELOCITIES = "velocities"
 
 
 @attr.frozen
@@ -43,8 +49,8 @@ class EEFVelocities(DefinitionBase):
         return lcmt_eef_velocities
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.velocities, builder.init("velocities"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.velocities, builder.init(_CapnpField.VELOCITIES))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

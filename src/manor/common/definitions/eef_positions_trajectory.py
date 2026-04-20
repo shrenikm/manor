@@ -4,6 +4,7 @@ Time-indexed trajectory of end-effector generalized positions.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -21,6 +22,12 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    EEF_POSITIONS_ARRAY = "eefPositionsArray"
+    HEADER = "header"
+    TIMES = "times"
 
 
 @attr.frozen
@@ -46,9 +53,9 @@ class EEFPositionsTrajectory(DefinitionBase):
         return lcmt_eef_positions_trajectory
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.times, builder.init("times"))
-        ndarray_to_float64_array(self.eef_positions_array, builder.init("eefPositionsArray"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.times, builder.init(_CapnpField.TIMES))
+        ndarray_to_float64_array(self.eef_positions_array, builder.init(_CapnpField.EEF_POSITIONS_ARRAY))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

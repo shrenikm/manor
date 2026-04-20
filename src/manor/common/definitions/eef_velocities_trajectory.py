@@ -4,6 +4,7 @@ Time-indexed trajectory of end-effector generalized velocities.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -21,6 +22,12 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    EEF_VELOCITIES_ARRAY = "eefVelocitiesArray"
+    HEADER = "header"
+    TIMES = "times"
 
 
 @attr.frozen
@@ -46,9 +53,9 @@ class EEFVelocitiesTrajectory(DefinitionBase):
         return lcmt_eef_velocities_trajectory
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.times, builder.init("times"))
-        ndarray_to_float64_array(self.eef_velocities_array, builder.init("eefVelocitiesArray"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.times, builder.init(_CapnpField.TIMES))
+        ndarray_to_float64_array(self.eef_velocities_array, builder.init(_CapnpField.EEF_VELOCITIES_ARRAY))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

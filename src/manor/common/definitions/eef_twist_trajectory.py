@@ -4,6 +4,7 @@ Time-indexed trajectory of end-effector spatial twist.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -21,6 +22,13 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    ANGULAR_ARRAY = "angularArray"
+    HEADER = "header"
+    LINEAR_ARRAY = "linearArray"
+    TIMES = "times"
 
 
 @attr.frozen
@@ -49,10 +57,10 @@ class EEFTwistTrajectory(DefinitionBase):
         return lcmt_eef_twist_trajectory
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.times, builder.init("times"))
-        ndarray_to_float64_array(self.linear_array, builder.init("linearArray"))
-        ndarray_to_float64_array(self.angular_array, builder.init("angularArray"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.times, builder.init(_CapnpField.TIMES))
+        ndarray_to_float64_array(self.linear_array, builder.init(_CapnpField.LINEAR_ARRAY))
+        ndarray_to_float64_array(self.angular_array, builder.init(_CapnpField.ANGULAR_ARRAY))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

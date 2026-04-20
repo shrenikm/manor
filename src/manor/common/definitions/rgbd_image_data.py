@@ -8,6 +8,7 @@ Orbbec frameset model.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -18,6 +19,12 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    DEPTH = "depth"
+    HEADER = "header"
+    RGB = "rgb"
 
 
 @attr.frozen
@@ -43,9 +50,9 @@ class RGBDImageData(DefinitionBase):
         return lcmt_rgbd_image_data
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        self.rgb.to_versioned_capnp(builder.init("rgb"))
-        self.depth.to_versioned_capnp(builder.init("depth"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        self.rgb.to_versioned_capnp(builder.init(_CapnpField.RGB))
+        self.depth.to_versioned_capnp(builder.init(_CapnpField.DEPTH))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

@@ -4,6 +4,7 @@ End-effector Cartesian pose (translation + quaternion orientation).
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -19,6 +20,12 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
+    ORIENTATION = "orientation"
+    TRANSLATION = "translation"
 
 
 @attr.frozen
@@ -47,9 +54,9 @@ class EEFPose(DefinitionBase):
         return lcmt_eef_pose
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.translation, builder.init("translation"))
-        ndarray_to_float64_array(self.orientation, builder.init("orientation"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.translation, builder.init(_CapnpField.TRANSLATION))
+        ndarray_to_float64_array(self.orientation, builder.init(_CapnpField.ORIENTATION))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

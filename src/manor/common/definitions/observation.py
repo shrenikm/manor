@@ -8,6 +8,7 @@ varies across robots.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -22,6 +23,10 @@ from manor.common.definitions.rgbd_image_data import RGBDImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
 
 
 @attr.frozen
@@ -48,7 +53,7 @@ class Observation(DefinitionBase):
         return lcmt_observation
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
 
         if self.proprioception is None:
             builder.proprioception.none = None

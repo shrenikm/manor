@@ -4,6 +4,7 @@ RGB image frame produced by a color camera.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -21,6 +22,10 @@ _ENCODING_TO_CAPNP: dict[ImageEncoding, str] = {
     ImageEncoding.PNG: "png",
 }
 _CAPNP_TO_ENCODING: dict[str, ImageEncoding] = {v: k for k, v in _ENCODING_TO_CAPNP.items()}
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
 
 
 @attr.frozen
@@ -49,7 +54,7 @@ class RGBImageData(DefinitionBase):
         return lcmt_rgb_image_data
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
         builder.height = int(self.height)
         builder.width = int(self.width)
         builder.encoding = _ENCODING_TO_CAPNP[self.encoding]

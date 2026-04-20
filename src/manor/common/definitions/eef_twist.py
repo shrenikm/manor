@@ -4,6 +4,7 @@ End-effector spatial twist (linear and angular velocity).
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -19,6 +20,12 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    ANGULAR = "angular"
+    HEADER = "header"
+    LINEAR = "linear"
 
 
 @attr.frozen
@@ -46,9 +53,9 @@ class EEFTwist(DefinitionBase):
         return lcmt_eef_twist
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        ndarray_to_float64_array(self.linear, builder.init("linear"))
-        ndarray_to_float64_array(self.angular, builder.init("angular"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        ndarray_to_float64_array(self.linear, builder.init(_CapnpField.LINEAR))
+        ndarray_to_float64_array(self.angular, builder.init(_CapnpField.ANGULAR))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

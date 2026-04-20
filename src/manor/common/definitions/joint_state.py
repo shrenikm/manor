@@ -4,6 +4,7 @@ Joint state (positions + velocities) at a single time instant.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -14,6 +15,12 @@ from manor.common.definitions.lcmtypes.lcmt_joint_state import lcmt_joint_state
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
+    JOINT_POSITIONS = "jointPositions"
+    JOINT_VELOCITIES = "jointVelocities"
 
 
 @attr.frozen
@@ -39,9 +46,9 @@ class JointState(DefinitionBase):
         return lcmt_joint_state
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        self.joint_positions.to_versioned_capnp(builder.init("jointPositions"))
-        self.joint_velocities.to_versioned_capnp(builder.init("jointVelocities"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        self.joint_positions.to_versioned_capnp(builder.init(_CapnpField.JOINT_POSITIONS))
+        self.joint_velocities.to_versioned_capnp(builder.init(_CapnpField.JOINT_VELOCITIES))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:

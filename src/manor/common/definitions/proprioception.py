@@ -7,6 +7,7 @@ e.g. if the robot has no EEF, or if forward kinematics was skipped upstream.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -22,6 +23,11 @@ from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioce
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    HEADER = "header"
+    JOINT_STATE = "jointState"
 
 
 @attr.frozen
@@ -49,8 +55,8 @@ class Proprioception(DefinitionBase):
         return lcmt_proprioception
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        self.joint_state.to_versioned_capnp(builder.init("jointState"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        self.joint_state.to_versioned_capnp(builder.init(_CapnpField.JOINT_STATE))
 
         if self.eef_state is None:
             builder.eefState.none = None

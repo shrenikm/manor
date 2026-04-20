@@ -4,6 +4,7 @@ End-effector state (generalized positions + velocities) at a single time instant
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -14,6 +15,12 @@ from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class _CapnpField(StrEnum):
+    EEF_POSITIONS = "eefPositions"
+    EEF_VELOCITIES = "eefVelocities"
+    HEADER = "header"
 
 
 @attr.frozen
@@ -39,9 +46,9 @@ class EEFState(DefinitionBase):
         return lcmt_eef_state
 
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init("header"))
-        self.eef_positions.to_versioned_capnp(builder.init("eefPositions"))
-        self.eef_velocities.to_versioned_capnp(builder.init("eefVelocities"))
+        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
+        self.eef_positions.to_versioned_capnp(builder.init(_CapnpField.EEF_POSITIONS))
+        self.eef_velocities.to_versioned_capnp(builder.init(_CapnpField.EEF_VELOCITIES))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:
