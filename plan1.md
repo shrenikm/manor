@@ -1,4 +1,4 @@
-# Next Plan for Manor
+# Plan 1 for Manor
 
 I want to do a full redesign of how the current systems are set up for manipulation.
 The end goal is still the same -- to be able to run the robot both in simulation and on the hardware through the same code.
