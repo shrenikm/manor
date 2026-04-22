@@ -19,3 +19,7 @@ The project supports both: execution in simulation and real hardware
 - src/manor/ contains the main Python package
 - models/ contains description files for environments/objects (URDF, SDF, etc)
 - robot_models/ is a submodule that points to a project containing robot description files (URDF, SDF, etc)
+
+## Code Style
+
+- When writing tests, please add the function to run the tests (run_manor_tests()) at the end of every file

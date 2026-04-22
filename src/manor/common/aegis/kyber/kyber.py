@@ -34,7 +34,7 @@ def _zero_header() -> TimestampHeader:
     return TimestampHeader(monotonic_ns=0, system_ns=0)
 
 
-def _wall_clock_header() -> TimestampHeader:
+def _system_time_header() -> TimestampHeader:
     return TimestampHeader(monotonic_ns=time.monotonic_ns(), system_ns=time.time_ns())
 
 
@@ -109,6 +109,6 @@ class Kyber(LeafSystem):
         # Proprioception is wired into the interface but unused by this passthrough controller.
         self._proprioception_input.Eval(context)
 
-        command = Command(header=_wall_clock_header(), joint_positions=action.joint_positions)
+        command = Command(header=_system_time_header(), joint_positions=action.joint_positions)
         state.get_mutable_abstract_state(self._command_state_index).set_value(command)
         return EventStatus.Succeeded()

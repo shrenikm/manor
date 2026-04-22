@@ -17,6 +17,7 @@ from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.testing_utils import run_manor_tests
 
 
 def _make_action(positions: np.ndarray) -> Action:
@@ -91,7 +92,7 @@ class TestKyberPassthrough:
         assert command.joint_positions is not None
         np.testing.assert_array_equal(command.joint_positions.positions, positions)
 
-    def test_command_header_is_wall_clock(self) -> None:
+    def test_command_header_is_system_time(self) -> None:
         import time as _time
 
         kyber = Kyber(publish_frequency=100.0)
@@ -144,3 +145,7 @@ class TestKyberPeriodicCadence:
 
         command = _read_command(kyber, simulator.get_context())
         np.testing.assert_array_equal(command.joint_positions.positions, positions)
+
+
+if __name__ == "__main__":
+    run_manor_tests()
