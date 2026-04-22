@@ -1,0 +1,126 @@
+"""
+Aegis top-level assembly.
+
+Builds the full Diagram out of Helios, Talos, Soma, Metis, and Kyber, with
+backends chosen according to ``AegisMode``. The graph shape (ports, wiring,
+sub-system set) is identical in both modes; only the backends change.
+
+Data flow:
+
+    Helios.rgb_image   ---> Metis.rgb_image
+    Helios.depth_image ---> Metis.depth_image
+    Soma.proprioception -> Metis.proprioception
+                         -> Kyber.proprioception
+    Metis.action        -> Kyber.action
+    Kyber.command       -> Talos.command
+    Talos.joint_state   -> Soma.joint_state
+    Talos.eef_state     -> Soma.eef_state
+"""
+
+from __future__ import annotations
+
+import attr
+from pydrake.systems.framework import Diagram, DiagramBuilder
+
+from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend, HardwareSensorBackendConfig
+from manor.common.aegis.helios.helios import Helios, SensorBackend
+from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
+from manor.common.aegis.kyber.kyber import Kyber
+from manor.common.aegis.metis.metis import Metis, Policy
+from manor.common.aegis.mode import AegisMode
+from manor.common.aegis.soma.soma import Soma
+from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
+from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
+from manor.common.aegis.talos.talos import ManipulatorBackend, Talos
+from manor.common.custom_types import FilePath
+from manor.common.exceptions import InvalidDefinitionError
+
+
+@attr.frozen
+class AegisFrequencies:
+    """
+    Per-subsystem publish rates in Hz.
+
+    Defaults are order-of-magnitude sensible for a research manipulation
+    stack (cameras ~30 Hz, proprioception / actuation loops in the hundreds,
+    a high-level policy in the tens, low-level control the fastest).
+    """
+
+    helios_hz: float = 30.0
+    talos_hz: float = 200.0
+    soma_hz: float = 200.0
+    metis_hz: float = 10.0
+    kyber_hz: float = 500.0
+
+
+@attr.frozen
+class AegisSystems:
+    """
+    Handles to each sub-system in the built diagram. Useful for tests and
+    for wiring external driver / recorder systems after ``build_aegis``
+    returns.
+    """
+
+    helios: Helios
+    talos: Talos
+    soma: Soma
+    metis: Metis
+    kyber: Kyber
+
+
+def build_aegis(
+    mode: AegisMode,
+    policy: Policy,
+    robot_model_path: FilePath | None = None,
+    frequencies: AegisFrequencies | None = None,
+) -> tuple[Diagram, AegisSystems]:
+    """
+    Build and wire the full Aegis diagram.
+
+    ``mode`` selects the SensorBackend / ManipulatorBackend pair; all other
+    sub-systems are mode-agnostic. Returns the built Diagram alongside a
+    struct of handles to each leaf for external access.
+    """
+
+    frequencies = frequencies if frequencies is not None else AegisFrequencies()
+    sensor_backend, manipulator_backend = _build_backends(mode)
+
+    builder = DiagramBuilder()
+    helios = builder.AddSystem(Helios(backend=sensor_backend, publish_frequency=frequencies.helios_hz))
+    talos = builder.AddSystem(Talos(backend=manipulator_backend, publish_frequency=frequencies.talos_hz))
+    soma = builder.AddSystem(Soma(robot_model_path=robot_model_path, publish_frequency=frequencies.soma_hz))
+    metis = builder.AddSystem(Metis(policy=policy, publish_frequency=frequencies.metis_hz))
+    kyber = builder.AddSystem(Kyber(publish_frequency=frequencies.kyber_hz))
+
+    helios.set_name("helios")
+    talos.set_name("talos")
+    soma.set_name("soma")
+    metis.set_name("metis")
+    kyber.set_name("kyber")
+
+    builder.Connect(talos.GetOutputPort("joint_state"), soma.GetInputPort("joint_state"))
+    builder.Connect(talos.GetOutputPort("eef_state"), soma.GetInputPort("eef_state"))
+    builder.Connect(soma.GetOutputPort("proprioception"), metis.GetInputPort("proprioception"))
+    builder.Connect(soma.GetOutputPort("proprioception"), kyber.GetInputPort("proprioception"))
+    builder.Connect(helios.GetOutputPort("rgb_image"), metis.GetInputPort("rgb_image"))
+    builder.Connect(helios.GetOutputPort("depth_image"), metis.GetInputPort("depth_image"))
+    builder.Connect(metis.GetOutputPort("action"), kyber.GetInputPort("action"))
+    builder.Connect(kyber.GetOutputPort("command"), talos.GetInputPort("command"))
+
+    diagram = builder.Build()
+    diagram.set_name(f"aegis_{mode.value}")
+    return diagram, AegisSystems(helios=helios, talos=talos, soma=soma, metis=metis, kyber=kyber)
+
+
+def _build_backends(mode: AegisMode) -> tuple[SensorBackend, ManipulatorBackend]:
+    if mode == AegisMode.SIM:
+        return (
+            SimSensorBackend(config=SimSensorBackendConfig()),
+            SimManipulatorBackend(config=SimManipulatorBackendConfig()),
+        )
+    if mode == AegisMode.HARDWARE:
+        return (
+            HardwareSensorBackend(config=HardwareSensorBackendConfig()),
+            HardwareManipulatorBackend(config=HardwareManipulatorBackendConfig()),
+        )
+    raise InvalidDefinitionError(f"Unknown AegisMode: {mode!r}")

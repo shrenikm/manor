@@ -1,64 +1,30 @@
 """
-Kyber low-level controller system.
+Kyber: the low-level controller.
 
-Kyber is a Drake LeafSystem that consumes Action and Proprioception messages
-and publishes Command messages at a fixed rate set by ``publish_frequency``.
-The output rate is decoupled from the input message rates: on every periodic
-tick, Kyber samples whatever values currently sit on its input ports and
-produces a fresh Command, which the output port then holds until the next
-tick (zero-order hold).
+Consumes Action and Proprioception and produces Command at a fixed rate set by
+``publish_frequency``. The output rate is decoupled from the input message
+rates: on every periodic tick Kyber samples whatever values currently sit on
+its input ports and writes a fresh Command into abstract state. The output
+port holds that value until the next tick (zero-order hold).
 
 This initial implementation is a passthrough: it assumes the incoming Action
 carries a ``joint_positions`` variant and forwards those positions into the
-outgoing Command. A proper controller protocol will replace this later.
+outgoing Command. A proper controller protocol will replace this.
 """
 
 from __future__ import annotations
 
-import time
-
-import numpy as np
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
+from manor.common.aegis.defaults import (
+    default_action,
+    default_command,
+    default_proprioception,
+    system_time_header,
+)
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
-from manor.common.definitions.joint_positions import JointPositions
-from manor.common.definitions.joint_state import JointState
-from manor.common.definitions.joint_velocities import JointVelocities
-from manor.common.definitions.proprioception import Proprioception
-from manor.common.definitions.timestamp_header import TimestampHeader
-
-
-def _zero_header() -> TimestampHeader:
-    return TimestampHeader(monotonic_ns=0, system_ns=0)
-
-
-def _system_time_header() -> TimestampHeader:
-    return TimestampHeader(monotonic_ns=time.monotonic_ns(), system_ns=time.time_ns())
-
-
-def _model_joint_positions() -> JointPositions:
-    return JointPositions(header=_zero_header(), positions=np.zeros(0, dtype=np.float64))
-
-
-def _model_action() -> Action:
-    return Action(header=_zero_header(), joint_positions=_model_joint_positions())
-
-
-def _model_proprioception() -> Proprioception:
-    return Proprioception(
-        header=_zero_header(),
-        joint_state=JointState(
-            header=_zero_header(),
-            joint_positions=_model_joint_positions(),
-            joint_velocities=JointVelocities(header=_zero_header(), velocities=np.zeros(0, dtype=np.float64)),
-        ),
-    )
-
-
-def _model_command() -> Command:
-    return Command(header=_zero_header(), joint_positions=_model_joint_positions())
 
 
 class Kyber(LeafSystem):
@@ -75,19 +41,20 @@ class Kyber(LeafSystem):
 
         self._action_input = self.DeclareAbstractInputPort(
             "action",
-            AbstractValue.Make(_model_action()),
+            AbstractValue.Make(default_action()),
         )
         self._proprioception_input = self.DeclareAbstractInputPort(
             "proprioception",
-            AbstractValue.Make(_model_proprioception()),
+            AbstractValue.Make(default_proprioception()),
         )
 
-        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(_model_command()))
+        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(default_command()))
 
         self.DeclareAbstractOutputPort(
             "command",
-            alloc=lambda: AbstractValue.Make(_model_command()),
+            alloc=lambda: AbstractValue.Make(default_command()),
             calc=self._calc_command_output,
+            prerequisites_of_calc={self.abstract_state_ticket(self._command_state_index)},
         )
 
         self.DeclarePeriodicUnrestrictedUpdateEvent(
@@ -109,6 +76,6 @@ class Kyber(LeafSystem):
         # Proprioception is wired into the interface but unused by this passthrough controller.
         self._proprioception_input.Eval(context)
 
-        command = Command(header=_system_time_header(), joint_positions=action.joint_positions)
+        command = Command(header=system_time_header(), joint_positions=action.joint_positions)
         state.get_mutable_abstract_state(self._command_state_index).set_value(command)
         return EventStatus.Succeeded()
