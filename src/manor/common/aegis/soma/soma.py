@@ -12,23 +12,35 @@ to change.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
-from manor.common.aegis.defaults import (
-    default_eef_pose,
-    default_eef_state,
-    default_eef_twist,
-    default_joint_state,
-    default_proprioception,
-    system_time_header,
-)
 from manor.common.custom_types import FilePath
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
+from manor.common.definitions.utils.defaults import (
+    construct_eef_pose,
+    construct_eef_state,
+    construct_eef_twist,
+    construct_joint_state,
+    construct_proprioception,
+    construct_system_time_header,
+)
+
+
+class SomaPorts(StrEnum):
+    """
+    Named input / output ports exposed by Soma.
+    """
+
+    INPUT_JOINT_STATE = "joint_state"
+    INPUT_EEF_STATE = "eef_state"
+    OUTPUT_PROPRIOCEPTION = "proprioception"
 
 
 class Soma(LeafSystem):
@@ -46,21 +58,21 @@ class Soma(LeafSystem):
         self._publish_frequency = publish_frequency
 
         self._joint_state_input = self.DeclareAbstractInputPort(
-            "joint_state",
-            AbstractValue.Make(default_joint_state()),
+            SomaPorts.INPUT_JOINT_STATE,
+            AbstractValue.Make(construct_joint_state()),
         )
         self._eef_state_input = self.DeclareAbstractInputPort(
-            "eef_state",
-            AbstractValue.Make(default_eef_state()),
+            SomaPorts.INPUT_EEF_STATE,
+            AbstractValue.Make(construct_eef_state()),
         )
 
         self._proprioception_state_index = self.DeclareAbstractState(
-            AbstractValue.Make(default_proprioception()),
+            AbstractValue.Make(construct_proprioception()),
         )
 
         self.DeclareAbstractOutputPort(
-            "proprioception",
-            alloc=lambda: AbstractValue.Make(default_proprioception()),
+            SomaPorts.OUTPUT_PROPRIOCEPTION,
+            alloc=lambda: AbstractValue.Make(construct_proprioception()),
             calc=self._calc_proprioception_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._proprioception_state_index)},
         )
@@ -87,7 +99,7 @@ class Soma(LeafSystem):
         eef_state: EEFState = self._eef_state_input.Eval(context)
 
         proprioception = Proprioception(
-            header=system_time_header(),
+            header=construct_system_time_header(),
             joint_state=joint_state,
             eef_state=eef_state,
             eef_pose=self._compute_eef_pose(joint_state),
@@ -99,9 +111,9 @@ class Soma(LeafSystem):
     def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
         # TODO: load the kinematic model from ``self._robot_model_path`` and run FK.
         del joint_state
-        return default_eef_pose()
+        return construct_eef_pose()
 
     def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
         # TODO: spatial-Jacobian-based twist once the model is wired in.
         del joint_state
-        return default_eef_twist()
+        return construct_eef_twist()

@@ -12,19 +12,30 @@ into Drake events yet -- they'll be triggered by higher-level orchestration.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
-from manor.common.aegis.defaults import (
-    default_command,
-    default_eef_state,
-    default_joint_state,
-)
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_state import JointState
+from manor.common.definitions.utils.defaults import (
+    construct_command,
+    construct_eef_state,
+    construct_joint_state,
+)
+
+
+class TalosPorts(StrEnum):
+    """
+    Named input / output ports exposed by Talos.
+    """
+
+    INPUT_COMMAND = "command"
+    OUTPUT_JOINT_STATE = "joint_state"
+    OUTPUT_EEF_STATE = "eef_state"
 
 
 @runtime_checkable
@@ -63,22 +74,22 @@ class Talos(LeafSystem):
         self._publish_frequency = publish_frequency
 
         self._command_input = self.DeclareAbstractInputPort(
-            "command",
-            AbstractValue.Make(default_command()),
+            TalosPorts.INPUT_COMMAND,
+            AbstractValue.Make(construct_command()),
         )
 
-        self._joint_state_index = self.DeclareAbstractState(AbstractValue.Make(default_joint_state()))
-        self._eef_state_index = self.DeclareAbstractState(AbstractValue.Make(default_eef_state()))
+        self._joint_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_joint_state()))
+        self._eef_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_eef_state()))
 
         self.DeclareAbstractOutputPort(
-            "joint_state",
-            alloc=lambda: AbstractValue.Make(default_joint_state()),
+            TalosPorts.OUTPUT_JOINT_STATE,
+            alloc=lambda: AbstractValue.Make(construct_joint_state()),
             calc=self._calc_joint_state_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._joint_state_index)},
         )
         self.DeclareAbstractOutputPort(
-            "eef_state",
-            alloc=lambda: AbstractValue.Make(default_eef_state()),
+            TalosPorts.OUTPUT_EEF_STATE,
+            alloc=lambda: AbstractValue.Make(construct_eef_state()),
             calc=self._calc_eef_state_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._eef_state_index)},
         )

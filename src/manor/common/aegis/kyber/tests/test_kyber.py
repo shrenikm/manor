@@ -9,7 +9,7 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.kyber.kyber import Kyber
+from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.joint_positions import JointPositions
@@ -48,12 +48,12 @@ def _make_proprioception(n_joints: int) -> Proprioception:
 
 
 def _fix_inputs(kyber: Kyber, context, action: Action, proprioception: Proprioception) -> None:
-    kyber.GetInputPort("action").FixValue(context, AbstractValue.Make(action))
-    kyber.GetInputPort("proprioception").FixValue(context, AbstractValue.Make(proprioception))
+    kyber.GetInputPort(KyberPorts.INPUT_ACTION).FixValue(context, AbstractValue.Make(action))
+    kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION).FixValue(context, AbstractValue.Make(proprioception))
 
 
 def _read_command(kyber: Kyber, context) -> Command:
-    return kyber.GetOutputPort("command").Eval(context)
+    return kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND).Eval(context)
 
 
 class TestKyberConstruction:
@@ -67,9 +67,9 @@ class TestKyberConstruction:
         kyber = Kyber(publish_frequency=100.0)
         assert kyber.num_input_ports() == 2
         assert kyber.num_output_ports() == 1
-        assert kyber.GetInputPort("action") is not None
-        assert kyber.GetInputPort("proprioception") is not None
-        assert kyber.GetOutputPort("command") is not None
+        assert kyber.GetInputPort(KyberPorts.INPUT_ACTION) is not None
+        assert kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION) is not None
+        assert kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND) is not None
 
     def test_stores_publish_frequency(self) -> None:
         kyber = Kyber(publish_frequency=250.0)
@@ -125,7 +125,9 @@ class TestKyberPeriodicCadence:
         np.testing.assert_array_equal(cmd_first.joint_positions.positions, first)
 
         second = np.array([2.0, -2.0, 3.5], dtype=np.float64)
-        kyber.GetInputPort("action").FixValue(simulator.get_context(), AbstractValue.Make(_make_action(second)))
+        kyber.GetInputPort(KyberPorts.INPUT_ACTION).FixValue(
+            simulator.get_context(), AbstractValue.Make(_make_action(second))
+        )
         simulator.AdvanceTo(0.10)
         cmd_second = _read_command(kyber, simulator.get_context())
         np.testing.assert_array_equal(cmd_second.joint_positions.positions, second)

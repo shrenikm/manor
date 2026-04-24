@@ -23,15 +23,15 @@ import attr
 from pydrake.systems.framework import Diagram, DiagramBuilder
 
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend, HardwareSensorBackendConfig
-from manor.common.aegis.helios.helios import Helios, SensorBackend
+from manor.common.aegis.helios.helios import Helios, HeliosPorts, SensorBackend
 from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
-from manor.common.aegis.kyber.kyber import Kyber
-from manor.common.aegis.metis.metis import Metis, Policy
+from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
+from manor.common.aegis.metis.metis import Metis, MetisPorts, Policy
 from manor.common.aegis.mode import AegisMode
-from manor.common.aegis.soma.soma import Soma
+from manor.common.aegis.soma.soma import Soma, SomaPorts
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
-from manor.common.aegis.talos.talos import ManipulatorBackend, Talos
+from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
 from manor.common.custom_types import FilePath
 from manor.common.exceptions import InvalidDefinitionError
 
@@ -98,14 +98,38 @@ def build_aegis(
     metis.set_name("metis")
     kyber.set_name("kyber")
 
-    builder.Connect(talos.GetOutputPort("joint_state"), soma.GetInputPort("joint_state"))
-    builder.Connect(talos.GetOutputPort("eef_state"), soma.GetInputPort("eef_state"))
-    builder.Connect(soma.GetOutputPort("proprioception"), metis.GetInputPort("proprioception"))
-    builder.Connect(soma.GetOutputPort("proprioception"), kyber.GetInputPort("proprioception"))
-    builder.Connect(helios.GetOutputPort("rgb_image"), metis.GetInputPort("rgb_image"))
-    builder.Connect(helios.GetOutputPort("depth_image"), metis.GetInputPort("depth_image"))
-    builder.Connect(metis.GetOutputPort("action"), kyber.GetInputPort("action"))
-    builder.Connect(kyber.GetOutputPort("command"), talos.GetInputPort("command"))
+    builder.Connect(
+        talos.GetOutputPort(TalosPorts.OUTPUT_JOINT_STATE),
+        soma.GetInputPort(SomaPorts.INPUT_JOINT_STATE),
+    )
+    builder.Connect(
+        talos.GetOutputPort(TalosPorts.OUTPUT_EEF_STATE),
+        soma.GetInputPort(SomaPorts.INPUT_EEF_STATE),
+    )
+    builder.Connect(
+        soma.GetOutputPort(SomaPorts.OUTPUT_PROPRIOCEPTION),
+        metis.GetInputPort(MetisPorts.INPUT_PROPRIOCEPTION),
+    )
+    builder.Connect(
+        soma.GetOutputPort(SomaPorts.OUTPUT_PROPRIOCEPTION),
+        kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION),
+    )
+    builder.Connect(
+        helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE),
+        metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE),
+    )
+    builder.Connect(
+        helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE),
+        metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE),
+    )
+    builder.Connect(
+        metis.GetOutputPort(MetisPorts.OUTPUT_ACTION),
+        kyber.GetInputPort(KyberPorts.INPUT_ACTION),
+    )
+    builder.Connect(
+        kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
+        talos.GetInputPort(TalosPorts.INPUT_COMMAND),
+    )
 
     diagram = builder.Build()
     diagram.set_name(f"aegis_{mode.value}")

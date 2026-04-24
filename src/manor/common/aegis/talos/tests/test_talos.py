@@ -10,15 +10,15 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.defaults import default_command, default_eef_state, default_joint_state
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
-from manor.common.aegis.talos.talos import ManipulatorBackend, Talos
+from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.defaults import construct_command, construct_eef_state, construct_joint_state
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -32,10 +32,10 @@ class _RecordingBackend:
         self.commands.append(command)
 
     def read_joint_state(self) -> JointState:
-        return default_joint_state(num_joints=3)
+        return construct_joint_state(num_joints=3)
 
     def read_eef_state(self) -> EEFState:
-        return default_eef_state(num_eef_dofs=1)
+        return construct_eef_state(num_eef_dofs=1)
 
     def start(self) -> None:
         self.started = True
@@ -63,9 +63,9 @@ class TestTalosConstruction:
         talos = Talos(backend=_RecordingBackend(), publish_frequency=200.0)
         assert talos.num_input_ports() == 1
         assert talos.num_output_ports() == 2
-        assert talos.GetInputPort("command") is not None
-        assert talos.GetOutputPort("joint_state") is not None
-        assert talos.GetOutputPort("eef_state") is not None
+        assert talos.GetInputPort(TalosPorts.INPUT_COMMAND) is not None
+        assert talos.GetOutputPort(TalosPorts.OUTPUT_JOINT_STATE) is not None
+        assert talos.GetOutputPort(TalosPorts.OUTPUT_EEF_STATE) is not None
 
 
 class TestTalosPeriodic:
@@ -74,7 +74,7 @@ class TestTalosPeriodic:
         talos = Talos(backend=backend, publish_frequency=100.0)
         context = talos.CreateDefaultContext()
         positions = np.array([0.1, 0.2, 0.3], dtype=np.float64)
-        talos.GetInputPort("command").FixValue(context, AbstractValue.Make(_make_command(positions)))
+        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(_make_command(positions)))
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)
@@ -85,13 +85,13 @@ class TestTalosPeriodic:
     def test_publishes_backend_state_on_output(self) -> None:
         talos = Talos(backend=_RecordingBackend(), publish_frequency=100.0)
         context = talos.CreateDefaultContext()
-        talos.GetInputPort("command").FixValue(context, AbstractValue.Make(default_command()))
+        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(construct_command()))
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)
 
-        joint_state = talos.GetOutputPort("joint_state").Eval(simulator.get_context())
-        eef_state = talos.GetOutputPort("eef_state").Eval(simulator.get_context())
+        joint_state = talos.GetOutputPort(TalosPorts.OUTPUT_JOINT_STATE).Eval(simulator.get_context())
+        eef_state = talos.GetOutputPort(TalosPorts.OUTPUT_EEF_STATE).Eval(simulator.get_context())
         assert isinstance(joint_state, JointState)
         assert isinstance(eef_state, EEFState)
 

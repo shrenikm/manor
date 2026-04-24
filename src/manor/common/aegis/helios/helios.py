@@ -9,14 +9,24 @@ on hardware.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
-from manor.common.aegis.defaults import default_depth_image, default_rgb_image
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.common.definitions.utils.defaults import construct_depth_image, construct_rgb_image
+
+
+class HeliosPorts(StrEnum):
+    """
+    Named output ports exposed by Helios. Helios has no input ports.
+    """
+
+    OUTPUT_RGB_IMAGE = "rgb_image"
+    OUTPUT_DEPTH_IMAGE = "depth_image"
 
 
 @runtime_checkable
@@ -46,18 +56,18 @@ class Helios(LeafSystem):
         self._backend = backend
         self._publish_frequency = publish_frequency
 
-        self._rgb_state_index = self.DeclareAbstractState(AbstractValue.Make(default_rgb_image()))
-        self._depth_state_index = self.DeclareAbstractState(AbstractValue.Make(default_depth_image()))
+        self._rgb_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_rgb_image()))
+        self._depth_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_depth_image()))
 
         self.DeclareAbstractOutputPort(
-            "rgb_image",
-            alloc=lambda: AbstractValue.Make(default_rgb_image()),
+            HeliosPorts.OUTPUT_RGB_IMAGE,
+            alloc=lambda: AbstractValue.Make(construct_rgb_image()),
             calc=self._calc_rgb_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._rgb_state_index)},
         )
         self.DeclareAbstractOutputPort(
-            "depth_image",
-            alloc=lambda: AbstractValue.Make(default_depth_image()),
+            HeliosPorts.OUTPUT_DEPTH_IMAGE,
+            alloc=lambda: AbstractValue.Make(construct_depth_image()),
             calc=self._calc_depth_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._depth_state_index)},
         )

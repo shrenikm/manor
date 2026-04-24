@@ -9,8 +9,7 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.defaults import default_depth_image, default_rgb_image
-from manor.common.aegis.metis.metis import Metis, Policy
+from manor.common.aegis.metis.metis import Metis, MetisPorts, Policy
 from manor.common.aegis.metis.policies import IdentityPolicy
 from manor.common.definitions.action import Action
 from manor.common.definitions.joint_positions import JointPositions
@@ -19,6 +18,7 @@ from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.definitions.utils.defaults import construct_depth_image, construct_rgb_image
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -59,10 +59,10 @@ class TestMetisConstruction:
         metis = Metis(policy=IdentityPolicy(), publish_frequency=10.0)
         assert metis.num_input_ports() == 3
         assert metis.num_output_ports() == 1
-        assert metis.GetInputPort("proprioception") is not None
-        assert metis.GetInputPort("rgb_image") is not None
-        assert metis.GetInputPort("depth_image") is not None
-        assert metis.GetOutputPort("action") is not None
+        assert metis.GetInputPort(MetisPorts.INPUT_PROPRIOCEPTION) is not None
+        assert metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE) is not None
+        assert metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE) is not None
+        assert metis.GetOutputPort(MetisPorts.OUTPUT_ACTION) is not None
 
 
 class TestMetisPolicyFlow:
@@ -78,15 +78,17 @@ class TestMetisPolicyFlow:
         policy = _RecordingPolicy(canned)
         metis = Metis(policy=policy, publish_frequency=100.0)
         context = metis.CreateDefaultContext()
-        metis.GetInputPort("proprioception").FixValue(context, AbstractValue.Make(_make_proprioception(positions)))
-        metis.GetInputPort("rgb_image").FixValue(context, AbstractValue.Make(default_rgb_image()))
-        metis.GetInputPort("depth_image").FixValue(context, AbstractValue.Make(default_depth_image()))
+        metis.GetInputPort(MetisPorts.INPUT_PROPRIOCEPTION).FixValue(
+            context, AbstractValue.Make(_make_proprioception(positions))
+        )
+        metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE).FixValue(context, AbstractValue.Make(construct_rgb_image()))
+        metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE).FixValue(context, AbstractValue.Make(construct_depth_image()))
 
         simulator = Simulator(metis, context)
         simulator.AdvanceTo(0.05)
 
         assert len(policy.observations) >= 1
-        action = metis.GetOutputPort("action").Eval(simulator.get_context())
+        action = metis.GetOutputPort(MetisPorts.OUTPUT_ACTION).Eval(simulator.get_context())
         np.testing.assert_array_equal(action.joint_positions.positions, positions)
 
 

@@ -14,22 +14,34 @@ policies, VLAs) plug into.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
-from manor.common.aegis.defaults import (
-    default_action,
-    default_depth_image,
-    default_proprioception,
-    default_rgb_image,
-    system_time_header,
-)
 from manor.common.definitions.action import Action
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.common.definitions.utils.defaults import (
+    construct_action,
+    construct_depth_image,
+    construct_proprioception,
+    construct_rgb_image,
+    construct_system_time_header,
+)
+
+
+class MetisPorts(StrEnum):
+    """
+    Named input / output ports exposed by Metis.
+    """
+
+    INPUT_PROPRIOCEPTION = "proprioception"
+    INPUT_RGB_IMAGE = "rgb_image"
+    INPUT_DEPTH_IMAGE = "depth_image"
+    OUTPUT_ACTION = "action"
 
 
 @runtime_checkable
@@ -59,23 +71,23 @@ class Metis(LeafSystem):
         self._publish_frequency = publish_frequency
 
         self._proprioception_input = self.DeclareAbstractInputPort(
-            "proprioception",
-            AbstractValue.Make(default_proprioception()),
+            MetisPorts.INPUT_PROPRIOCEPTION,
+            AbstractValue.Make(construct_proprioception()),
         )
         self._rgb_input = self.DeclareAbstractInputPort(
-            "rgb_image",
-            AbstractValue.Make(default_rgb_image()),
+            MetisPorts.INPUT_RGB_IMAGE,
+            AbstractValue.Make(construct_rgb_image()),
         )
         self._depth_input = self.DeclareAbstractInputPort(
-            "depth_image",
-            AbstractValue.Make(default_depth_image()),
+            MetisPorts.INPUT_DEPTH_IMAGE,
+            AbstractValue.Make(construct_depth_image()),
         )
 
-        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(default_action()))
+        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_action()))
 
         self.DeclareAbstractOutputPort(
-            "action",
-            alloc=lambda: AbstractValue.Make(default_action()),
+            MetisPorts.OUTPUT_ACTION,
+            alloc=lambda: AbstractValue.Make(construct_action()),
             calc=self._calc_action_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._action_state_index)},
         )
@@ -104,7 +116,7 @@ class Metis(LeafSystem):
         self._depth_input.Eval(context)
 
         observation = Observation(
-            header=system_time_header(),
+            header=construct_system_time_header(),
             proprioception=proprioception,
             rgb_image=rgb,
             rgbd_image=None,

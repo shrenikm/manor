@@ -14,15 +14,15 @@ from typing import Any
 
 import attr
 
-from manor.common.aegis.defaults import (
-    default_eef_state,
-    default_joint_positions,
-    default_joint_velocities,
-    system_time_header,
-)
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_state import JointState
+from manor.common.definitions.utils.defaults import (
+    construct_eef_state,
+    construct_joint_positions,
+    construct_joint_velocities,
+    construct_system_time_header,
+)
 
 
 @attr.frozen
@@ -67,21 +67,21 @@ class SimManipulatorBackend:
         positions = (
             self._latest_command.joint_positions.positions
             if self._latest_command is not None and self._latest_command.joint_positions is not None
-            else default_joint_positions(self.config.num_joints).positions
+            else construct_joint_positions(self.config.num_joints).positions
         )
         return JointState(
-            header=system_time_header(),
+            header=construct_system_time_header(),
             joint_positions=attr.evolve(
-                default_joint_positions(self.config.num_joints),
-                header=system_time_header(),
+                construct_joint_positions(self.config.num_joints),
+                header=construct_system_time_header(),
                 positions=positions,
             ),
             joint_velocities=attr.evolve(
-                default_joint_velocities(self.config.num_joints),
-                header=system_time_header(),
+                construct_joint_velocities(self.config.num_joints),
+                header=construct_system_time_header(),
             ),
         )
 
     def read_eef_state(self) -> EEFState:
         # TODO: derive from plant state or from a parallel-gripper model.
-        return attr.evolve(default_eef_state(self.config.num_eef_dofs), header=system_time_header())
+        return attr.evolve(construct_eef_state(self.config.num_eef_dofs), header=construct_system_time_header())

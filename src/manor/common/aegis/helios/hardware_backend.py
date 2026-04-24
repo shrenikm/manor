@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import attr
 
-from manor.common.aegis.defaults import default_depth_image, default_rgb_image, system_time_header
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.common.definitions.utils.defaults import (
+    construct_depth_image,
+    construct_rgb_image,
+    construct_system_time_header,
+)
 
 
 @attr.frozen
@@ -50,10 +54,10 @@ class HardwareSensorBackend:
 
     def read_rgb(self) -> RGBImageData:
         # TODO: pull the latest color frame from the SDK.
-        image = default_rgb_image(height=self.config.rgb_height, width=self.config.rgb_width)
-        return attr.evolve(image, header=system_time_header())
+        image = construct_rgb_image(height=self.config.rgb_height, width=self.config.rgb_width)
+        return attr.evolve(image, header=construct_system_time_header())
 
     def read_depth(self) -> DepthImageData:
         # TODO: pull the latest depth frame from the SDK.
-        image = default_depth_image(height=self.config.depth_height, width=self.config.depth_width)
-        return attr.evolve(image, header=system_time_header())
+        image = construct_depth_image(height=self.config.depth_height, width=self.config.depth_width)
+        return attr.evolve(image, header=construct_system_time_header())

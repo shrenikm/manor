@@ -14,17 +14,29 @@ outgoing Command. A proper controller protocol will replace this.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
-from manor.common.aegis.defaults import (
-    default_action,
-    default_command,
-    default_proprioception,
-    system_time_header,
-)
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
+from manor.common.definitions.utils.defaults import (
+    construct_action,
+    construct_command,
+    construct_proprioception,
+    construct_system_time_header,
+)
+
+
+class KyberPorts(StrEnum):
+    """
+    Named input / output ports exposed by Kyber.
+    """
+
+    INPUT_ACTION = "action"
+    INPUT_PROPRIOCEPTION = "proprioception"
+    OUTPUT_COMMAND = "command"
 
 
 class Kyber(LeafSystem):
@@ -40,19 +52,19 @@ class Kyber(LeafSystem):
         self._publish_frequency = publish_frequency
 
         self._action_input = self.DeclareAbstractInputPort(
-            "action",
-            AbstractValue.Make(default_action()),
+            KyberPorts.INPUT_ACTION,
+            AbstractValue.Make(construct_action()),
         )
         self._proprioception_input = self.DeclareAbstractInputPort(
-            "proprioception",
-            AbstractValue.Make(default_proprioception()),
+            KyberPorts.INPUT_PROPRIOCEPTION,
+            AbstractValue.Make(construct_proprioception()),
         )
 
-        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(default_command()))
+        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_command()))
 
         self.DeclareAbstractOutputPort(
-            "command",
-            alloc=lambda: AbstractValue.Make(default_command()),
+            KyberPorts.OUTPUT_COMMAND,
+            alloc=lambda: AbstractValue.Make(construct_command()),
             calc=self._calc_command_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._command_state_index)},
         )
@@ -76,6 +88,6 @@ class Kyber(LeafSystem):
         # Proprioception is wired into the interface but unused by this passthrough controller.
         self._proprioception_input.Eval(context)
 
-        command = Command(header=system_time_header(), joint_positions=action.joint_positions)
+        command = Command(header=construct_system_time_header(), joint_positions=action.joint_positions)
         state.get_mutable_abstract_state(self._command_state_index).set_value(command)
         return EventStatus.Succeeded()

@@ -7,12 +7,12 @@ from __future__ import annotations
 import pytest
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.defaults import default_depth_image, default_rgb_image
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend, HardwareSensorBackendConfig
-from manor.common.aegis.helios.helios import Helios, SensorBackend
+from manor.common.aegis.helios.helios import Helios, HeliosPorts, SensorBackend
 from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.common.definitions.utils.defaults import construct_depth_image, construct_rgb_image
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -23,11 +23,11 @@ class _CountingBackend:
 
     def read_rgb(self) -> RGBImageData:
         self.rgb_calls += 1
-        return default_rgb_image(height=8, width=8)
+        return construct_rgb_image(height=8, width=8)
 
     def read_depth(self) -> DepthImageData:
         self.depth_calls += 1
-        return default_depth_image(height=8, width=8)
+        return construct_depth_image(height=8, width=8)
 
 
 class TestHeliosConstruction:
@@ -39,8 +39,8 @@ class TestHeliosConstruction:
         helios = Helios(backend=_CountingBackend(), publish_frequency=30.0)
         assert helios.num_input_ports() == 0
         assert helios.num_output_ports() == 2
-        assert helios.GetOutputPort("rgb_image") is not None
-        assert helios.GetOutputPort("depth_image") is not None
+        assert helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE) is not None
+        assert helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE) is not None
 
 
 class TestHeliosPublishing:
@@ -60,8 +60,8 @@ class TestHeliosPublishing:
         simulator = Simulator(helios, context)
         simulator.AdvanceTo(0.05)
 
-        rgb = helios.GetOutputPort("rgb_image").Eval(simulator.get_context())
-        depth = helios.GetOutputPort("depth_image").Eval(simulator.get_context())
+        rgb = helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE).Eval(simulator.get_context())
+        depth = helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE).Eval(simulator.get_context())
         assert isinstance(rgb, RGBImageData)
         assert isinstance(depth, DepthImageData)
         assert rgb.height == 8 and rgb.width == 8
