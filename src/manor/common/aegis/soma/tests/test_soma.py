@@ -12,7 +12,7 @@ from manor.common.aegis.soma.soma import Soma, SomaPorts
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.proprioception import Proprioception
-from manor.common.definitions.utils.defaults import construct_eef_state, construct_joint_state
+from manor.common.definitions.utils.defaults import construct_default_eef_state, construct_default_joint_state
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -35,10 +35,10 @@ class TestSomaProprioception:
         soma = Soma(robot_model_path=None, publish_frequency=100.0)
         context = soma.CreateDefaultContext()
         soma.GetInputPort(SomaPorts.INPUT_JOINT_STATE).FixValue(
-            context, AbstractValue.Make(construct_joint_state(num_joints=6))
+            context, AbstractValue.Make(construct_default_joint_state(num_joints=6))
         )
         soma.GetInputPort(SomaPorts.INPUT_EEF_STATE).FixValue(
-            context, AbstractValue.Make(construct_eef_state(num_eef_dofs=1))
+            context, AbstractValue.Make(construct_default_eef_state(num_eef_dofs=1))
         )
 
         simulator = Simulator(soma, context)

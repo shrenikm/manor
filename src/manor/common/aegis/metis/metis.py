@@ -25,10 +25,10 @@ from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.utils.defaults import (
-    construct_action,
-    construct_depth_image,
-    construct_proprioception,
-    construct_rgb_image,
+    construct_default_action,
+    construct_default_depth_image,
+    construct_default_proprioception,
+    construct_default_rgb_image,
     construct_system_time_header,
 )
 
@@ -72,22 +72,22 @@ class Metis(LeafSystem):
 
         self._proprioception_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_PROPRIOCEPTION,
-            AbstractValue.Make(construct_proprioception()),
+            AbstractValue.Make(construct_default_proprioception()),
         )
         self._rgb_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_RGB_IMAGE,
-            AbstractValue.Make(construct_rgb_image()),
+            AbstractValue.Make(construct_default_rgb_image()),
         )
         self._depth_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_DEPTH_IMAGE,
-            AbstractValue.Make(construct_depth_image()),
+            AbstractValue.Make(construct_default_depth_image()),
         )
 
-        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_action()))
+        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_action()))
 
         self.DeclareAbstractOutputPort(
             MetisPorts.OUTPUT_ACTION,
-            alloc=lambda: AbstractValue.Make(construct_action()),
+            alloc=lambda: AbstractValue.Make(construct_default_action()),
             calc=self._calc_action_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._action_state_index)},
         )

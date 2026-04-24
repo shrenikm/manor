@@ -18,9 +18,9 @@ from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.utils.defaults import (
-    construct_eef_state,
-    construct_joint_positions,
-    construct_joint_velocities,
+    construct_default_eef_state,
+    construct_default_joint_positions,
+    construct_default_joint_velocities,
     construct_system_time_header,
 )
 
@@ -67,21 +67,21 @@ class SimManipulatorBackend:
         positions = (
             self._latest_command.joint_positions.positions
             if self._latest_command is not None and self._latest_command.joint_positions is not None
-            else construct_joint_positions(self.config.num_joints).positions
+            else construct_default_joint_positions(self.config.num_joints).positions
         )
         return JointState(
             header=construct_system_time_header(),
             joint_positions=attr.evolve(
-                construct_joint_positions(self.config.num_joints),
+                construct_default_joint_positions(self.config.num_joints),
                 header=construct_system_time_header(),
                 positions=positions,
             ),
             joint_velocities=attr.evolve(
-                construct_joint_velocities(self.config.num_joints),
+                construct_default_joint_velocities(self.config.num_joints),
                 header=construct_system_time_header(),
             ),
         )
 
     def read_eef_state(self) -> EEFState:
         # TODO: derive from plant state or from a parallel-gripper model.
-        return attr.evolve(construct_eef_state(self.config.num_eef_dofs), header=construct_system_time_header())
+        return attr.evolve(construct_default_eef_state(self.config.num_eef_dofs), header=construct_system_time_header())

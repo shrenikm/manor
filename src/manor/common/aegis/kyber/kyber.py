@@ -22,9 +22,9 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.utils.defaults import (
-    construct_action,
-    construct_command,
-    construct_proprioception,
+    construct_default_action,
+    construct_default_command,
+    construct_default_proprioception,
     construct_system_time_header,
 )
 
@@ -53,18 +53,18 @@ class Kyber(LeafSystem):
 
         self._action_input = self.DeclareAbstractInputPort(
             KyberPorts.INPUT_ACTION,
-            AbstractValue.Make(construct_action()),
+            AbstractValue.Make(construct_default_action()),
         )
         self._proprioception_input = self.DeclareAbstractInputPort(
             KyberPorts.INPUT_PROPRIOCEPTION,
-            AbstractValue.Make(construct_proprioception()),
+            AbstractValue.Make(construct_default_proprioception()),
         )
 
-        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_command()))
+        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_command()))
 
         self.DeclareAbstractOutputPort(
             KyberPorts.OUTPUT_COMMAND,
-            alloc=lambda: AbstractValue.Make(construct_command()),
+            alloc=lambda: AbstractValue.Make(construct_default_command()),
             calc=self._calc_command_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._command_state_index)},
         )

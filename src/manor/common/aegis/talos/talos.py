@@ -22,9 +22,9 @@ from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.utils.defaults import (
-    construct_command,
-    construct_eef_state,
-    construct_joint_state,
+    construct_default_command,
+    construct_default_eef_state,
+    construct_default_joint_state,
 )
 
 
@@ -75,21 +75,21 @@ class Talos(LeafSystem):
 
         self._command_input = self.DeclareAbstractInputPort(
             TalosPorts.INPUT_COMMAND,
-            AbstractValue.Make(construct_command()),
+            AbstractValue.Make(construct_default_command()),
         )
 
-        self._joint_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_joint_state()))
-        self._eef_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_eef_state()))
+        self._joint_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_joint_state()))
+        self._eef_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_eef_state()))
 
         self.DeclareAbstractOutputPort(
             TalosPorts.OUTPUT_JOINT_STATE,
-            alloc=lambda: AbstractValue.Make(construct_joint_state()),
+            alloc=lambda: AbstractValue.Make(construct_default_joint_state()),
             calc=self._calc_joint_state_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._joint_state_index)},
         )
         self.DeclareAbstractOutputPort(
             TalosPorts.OUTPUT_EEF_STATE,
-            alloc=lambda: AbstractValue.Make(construct_eef_state()),
+            alloc=lambda: AbstractValue.Make(construct_default_eef_state()),
             calc=self._calc_eef_state_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._eef_state_index)},
         )

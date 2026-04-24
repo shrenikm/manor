@@ -18,7 +18,11 @@ from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.defaults import construct_command, construct_eef_state, construct_joint_state
+from manor.common.definitions.utils.defaults import (
+    construct_default_command,
+    construct_default_eef_state,
+    construct_default_joint_state,
+)
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -32,10 +36,10 @@ class _RecordingBackend:
         self.commands.append(command)
 
     def read_joint_state(self) -> JointState:
-        return construct_joint_state(num_joints=3)
+        return construct_default_joint_state(num_joints=3)
 
     def read_eef_state(self) -> EEFState:
-        return construct_eef_state(num_eef_dofs=1)
+        return construct_default_eef_state(num_eef_dofs=1)
 
     def start(self) -> None:
         self.started = True
@@ -85,7 +89,7 @@ class TestTalosPeriodic:
     def test_publishes_backend_state_on_output(self) -> None:
         talos = Talos(backend=_RecordingBackend(), publish_frequency=100.0)
         context = talos.CreateDefaultContext()
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(construct_command()))
+        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(construct_default_command()))
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)

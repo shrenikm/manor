@@ -16,7 +16,12 @@ from manor.manipulators.lite6.pliant.lite6_pliant_utils import (
     get_tuned_pid_gains_for_pliant_id_controller,
 )
 from manor.manipulators.lite6.systems.lite6_gripper_status_source import Lite6GripperStatusSource
-from manor.manipulators.lite6.utils.lite6_model_utils import LITE6_DOF, Lite6ControlType, Lite6GripperStatus, Lite6ModelType
+from manor.manipulators.lite6.utils.lite6_model_utils import (
+    LITE6_DOF,
+    Lite6ControlType,
+    Lite6GripperStatus,
+    Lite6ModelType,
+)
 
 
 def check_gripper_control(

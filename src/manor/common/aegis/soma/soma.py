@@ -24,11 +24,11 @@ from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.utils.defaults import (
-    construct_eef_pose,
-    construct_eef_state,
-    construct_eef_twist,
-    construct_joint_state,
-    construct_proprioception,
+    construct_default_eef_pose,
+    construct_default_eef_state,
+    construct_default_eef_twist,
+    construct_default_joint_state,
+    construct_default_proprioception,
     construct_system_time_header,
 )
 
@@ -59,20 +59,20 @@ class Soma(LeafSystem):
 
         self._joint_state_input = self.DeclareAbstractInputPort(
             SomaPorts.INPUT_JOINT_STATE,
-            AbstractValue.Make(construct_joint_state()),
+            AbstractValue.Make(construct_default_joint_state()),
         )
         self._eef_state_input = self.DeclareAbstractInputPort(
             SomaPorts.INPUT_EEF_STATE,
-            AbstractValue.Make(construct_eef_state()),
+            AbstractValue.Make(construct_default_eef_state()),
         )
 
         self._proprioception_state_index = self.DeclareAbstractState(
-            AbstractValue.Make(construct_proprioception()),
+            AbstractValue.Make(construct_default_proprioception()),
         )
 
         self.DeclareAbstractOutputPort(
             SomaPorts.OUTPUT_PROPRIOCEPTION,
-            alloc=lambda: AbstractValue.Make(construct_proprioception()),
+            alloc=lambda: AbstractValue.Make(construct_default_proprioception()),
             calc=self._calc_proprioception_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._proprioception_state_index)},
         )
@@ -111,9 +111,9 @@ class Soma(LeafSystem):
     def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
         # TODO: load the kinematic model from ``self._robot_model_path`` and run FK.
         del joint_state
-        return construct_eef_pose()
+        return construct_default_eef_pose()
 
     def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
         # TODO: spatial-Jacobian-based twist once the model is wired in.
         del joint_state
-        return construct_eef_twist()
+        return construct_default_eef_twist()

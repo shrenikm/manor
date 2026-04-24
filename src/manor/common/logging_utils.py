@@ -5,7 +5,6 @@ import attr
 
 @attr.frozen
 class ManorLogger:
-
     name: str
     level: int = logging.INFO
 

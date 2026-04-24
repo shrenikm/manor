@@ -8,13 +8,11 @@ import numpy as np
 
 @attr.frozen
 class ControlSignal(Protocol):
-    def compute_signal(self, time_step: float) -> float:
-        ...
+    def compute_signal(self, time_step: float) -> float: ...
 
 
 @attr.frozen
 class StepControlSignal:
-
     value: float
     delay_time: float
 
@@ -28,7 +26,6 @@ class StepControlSignal:
 
 @attr.frozen
 class SineControlSignal:
-
     amplitude: float
     frequency: float
     phase_shift: float
@@ -36,11 +33,7 @@ class SineControlSignal:
 
     def compute_signal(self, time_step: float) -> float:
 
-        return (
-            self.amplitude
-            * np.sin(2 * np.pi * self.frequency * time_step + self.phase_shift)
-            + self.offset
-        )
+        return self.amplitude * np.sin(2 * np.pi * self.frequency * time_step + self.phase_shift) + self.offset
 
     @classmethod
     def standard_positive_signal(

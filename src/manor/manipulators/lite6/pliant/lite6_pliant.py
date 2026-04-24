@@ -330,9 +330,9 @@ def create_lite6_pliant_for_simulation(
 def create_lite6_pliant(
     config: Lite6PliantConfig,
 ) -> MultibodyPliantContainer:
-    assert (
-        config.lite6_model_type in LITE6_PLIANT_SUPPORTED_MODEL_TYPES
-    ), f"Unsupported model type. Must be one of {LITE6_PLIANT_SUPPORTED_MODEL_TYPES}"
+    assert config.lite6_model_type in LITE6_PLIANT_SUPPORTED_MODEL_TYPES, (
+        f"Unsupported model type. Must be one of {LITE6_PLIANT_SUPPORTED_MODEL_TYPES}"
+    )
 
     if config.lite6_pliant_type == Lite6PliantType.HARDWARE:
         return create_lite6_pliant_for_hardware(

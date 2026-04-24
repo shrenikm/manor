@@ -18,7 +18,7 @@ from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.defaults import construct_depth_image, construct_rgb_image
+from manor.common.definitions.utils.defaults import construct_default_depth_image, construct_default_rgb_image
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -81,8 +81,12 @@ class TestMetisPolicyFlow:
         metis.GetInputPort(MetisPorts.INPUT_PROPRIOCEPTION).FixValue(
             context, AbstractValue.Make(_make_proprioception(positions))
         )
-        metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE).FixValue(context, AbstractValue.Make(construct_rgb_image()))
-        metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE).FixValue(context, AbstractValue.Make(construct_depth_image()))
+        metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE).FixValue(
+            context, AbstractValue.Make(construct_default_rgb_image())
+        )
+        metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE).FixValue(
+            context, AbstractValue.Make(construct_default_depth_image())
+        )
 
         simulator = Simulator(metis, context)
         simulator.AdvanceTo(0.05)

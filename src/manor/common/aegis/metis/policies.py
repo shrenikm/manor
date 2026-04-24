@@ -13,7 +13,7 @@ import attr
 
 from manor.common.definitions.action import Action
 from manor.common.definitions.observation import Observation
-from manor.common.definitions.utils.defaults import construct_joint_positions, construct_system_time_header
+from manor.common.definitions.utils.defaults import construct_default_joint_positions, construct_system_time_header
 
 
 @attr.frozen
@@ -34,6 +34,6 @@ class IdentityPolicy:
             joint_positions = observation.proprioception.joint_state.joint_positions
             joint_positions = attr.evolve(joint_positions, header=construct_system_time_header())
         else:
-            joint_positions = construct_joint_positions(self.num_joints)
+            joint_positions = construct_default_joint_positions(self.num_joints)
 
         return Action(header=construct_system_time_header(), joint_positions=joint_positions)
