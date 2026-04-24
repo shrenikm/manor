@@ -1,9 +1,17 @@
 """
-Talos LeafSystem: sends commands to the robot and publishes its state.
+Talos LeafSystem: sends commands to the robot and publishes its full
+proprioception state.
 
-On each periodic tick Talos (a) forwards the latest Command on its input port
-to the backend, and (b) polls joint + EEF state from the backend and writes
-them into abstract state. Output ports are zero-order holds of that state.
+On each periodic tick Talos:
+  1. forwards the latest Command on its input port to the backend,
+  2. polls the backend for the current joint + EEF state,
+  3. runs forward kinematics on the joint state to compute EEF pose + twist,
+  4. assembles a Proprioception message and writes it into abstract state.
+
+The output port is a zero-order hold of that state. The FK computation is
+currently a stub (identity pose, zero twist); once the kinematic model
+loader is wired in, only ``_compute_eef_pose`` / ``_compute_eef_twist``
+need to change.
 
 Start / end hooks for going to a safe configuration before and after policy
 execution are declared on the backend protocol but intentionally not wired
@@ -18,13 +26,19 @@ from typing import Protocol, runtime_checkable
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
+from manor.common.custom_types import FilePath
 from manor.common.definitions.command import Command
+from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
+from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
+from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.utils.defaults import (
     construct_default_command,
-    construct_default_eef_state,
-    construct_default_joint_state,
+    construct_default_eef_pose,
+    construct_default_eef_twist,
+    construct_default_proprioception,
+    construct_system_time_header,
 )
 
 
@@ -34,8 +48,7 @@ class TalosPorts(StrEnum):
     """
 
     INPUT_COMMAND = "command"
-    OUTPUT_JOINT_STATE = "joint_state"
-    OUTPUT_EEF_STATE = "eef_state"
+    OUTPUT_PROPRIOCEPTION = "proprioception"
 
 
 @runtime_checkable
@@ -43,9 +56,10 @@ class ManipulatorBackend(Protocol):
     """
     Protocol for a manipulator actuation-and-state interface.
 
-    Exactly one backend owns the robot's actual state at a time. Talos
-    drives the backend on every tick by calling ``send_command`` and reads
-    state back via ``read_joint_state`` / ``read_eef_state``.
+    Exactly one backend owns the robot's actual state at a time. Talos drives
+    the backend on every tick by calling ``send_command`` and reads state
+    back via ``read_joint_state`` / ``read_eef_state``. Forward kinematics is
+    Talos's responsibility, not the backend's.
     """
 
     def send_command(self, command: Command) -> None: ...
@@ -62,15 +76,21 @@ class ManipulatorBackend(Protocol):
 class Talos(LeafSystem):
     """
     Bridge between the Aegis graph and the manipulator. Consumes Command,
-    publishes JointState and EEFState.
+    publishes Proprioception.
     """
 
-    def __init__(self, backend: ManipulatorBackend, publish_frequency: float) -> None:
+    def __init__(
+        self,
+        backend: ManipulatorBackend,
+        robot_model_path: FilePath | None,
+        publish_frequency: float,
+    ) -> None:
         super().__init__()
         if publish_frequency <= 0.0:
             raise ValueError(f"publish_frequency must be positive, got {publish_frequency}")
 
         self._backend = backend
+        self._robot_model_path = robot_model_path
         self._publish_frequency = publish_frequency
 
         self._command_input = self.DeclareAbstractInputPort(
@@ -78,20 +98,15 @@ class Talos(LeafSystem):
             AbstractValue.Make(construct_default_command()),
         )
 
-        self._joint_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_joint_state()))
-        self._eef_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_eef_state()))
+        self._proprioception_state_index = self.DeclareAbstractState(
+            AbstractValue.Make(construct_default_proprioception()),
+        )
 
         self.DeclareAbstractOutputPort(
-            TalosPorts.OUTPUT_JOINT_STATE,
-            alloc=lambda: AbstractValue.Make(construct_default_joint_state()),
-            calc=self._calc_joint_state_output,
-            prerequisites_of_calc={self.abstract_state_ticket(self._joint_state_index)},
-        )
-        self.DeclareAbstractOutputPort(
-            TalosPorts.OUTPUT_EEF_STATE,
-            alloc=lambda: AbstractValue.Make(construct_default_eef_state()),
-            calc=self._calc_eef_state_output,
-            prerequisites_of_calc={self.abstract_state_ticket(self._eef_state_index)},
+            TalosPorts.OUTPUT_PROPRIOCEPTION,
+            alloc=lambda: AbstractValue.Make(construct_default_proprioception()),
+            calc=self._calc_proprioception_output,
+            prerequisites_of_calc={self.abstract_state_ticket(self._proprioception_state_index)},
         )
 
         self.DeclarePeriodicUnrestrictedUpdateEvent(
@@ -108,15 +123,36 @@ class Talos(LeafSystem):
     def backend(self) -> ManipulatorBackend:
         return self._backend
 
-    def _calc_joint_state_output(self, context: Context, output: AbstractValue) -> None:
-        output.set_value(context.get_abstract_state(self._joint_state_index).get_value())
+    @property
+    def robot_model_path(self) -> FilePath | None:
+        return self._robot_model_path
 
-    def _calc_eef_state_output(self, context: Context, output: AbstractValue) -> None:
-        output.set_value(context.get_abstract_state(self._eef_state_index).get_value())
+    def _calc_proprioception_output(self, context: Context, output: AbstractValue) -> None:
+        output.set_value(context.get_abstract_state(self._proprioception_state_index).get_value())
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
         command: Command = self._command_input.Eval(context)
         self._backend.send_command(command)
-        state.get_mutable_abstract_state(self._joint_state_index).set_value(self._backend.read_joint_state())
-        state.get_mutable_abstract_state(self._eef_state_index).set_value(self._backend.read_eef_state())
+
+        joint_state = self._backend.read_joint_state()
+        eef_state = self._backend.read_eef_state()
+
+        proprioception = Proprioception(
+            header=construct_system_time_header(),
+            joint_state=joint_state,
+            eef_state=eef_state,
+            eef_pose=self._compute_eef_pose(joint_state),
+            eef_twist=self._compute_eef_twist(joint_state),
+        )
+        state.get_mutable_abstract_state(self._proprioception_state_index).set_value(proprioception)
         return EventStatus.Succeeded()
+
+    def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
+        # TODO: load the kinematic model from ``self._robot_model_path`` and run FK.
+        del joint_state
+        return construct_default_eef_pose()
+
+    def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
+        # TODO: spatial-Jacobian-based twist once the model is wired in.
+        del joint_state
+        return construct_default_eef_twist()

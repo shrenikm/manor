@@ -27,7 +27,6 @@ from pydrake.systems.lcm import LcmInterfaceSystem, LcmPublisherSystem, LcmSubsc
 from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
 from manor.common.aegis.kyber.lcm_source import AEGIS_ACTION_CHANNEL, AEGIS_PROPRIOCEPTION_CHANNEL
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
 from manor.common.definitions.lcmtypes.lcmt_action import lcmt_action
 from manor.common.definitions.lcmtypes.lcmt_command import lcmt_command
 from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception

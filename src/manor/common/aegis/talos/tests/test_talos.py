@@ -1,6 +1,6 @@
 """
-Tests for Talos: port shape, periodic publish, backend delegation, and
-backend protocol compliance.
+Tests for Talos: port shape, periodic publish, backend delegation, FK
+assembly, and backend protocol compliance.
 """
 
 from __future__ import annotations
@@ -14,9 +14,12 @@ from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
 from manor.common.definitions.command import Command
+from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
+from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
+from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.defaults import (
     construct_default_command,
@@ -58,24 +61,29 @@ def _make_command(positions: np.ndarray) -> Command:
     )
 
 
+def _make_talos(**overrides) -> Talos:
+    defaults = dict(backend=_RecordingBackend(), robot_model_path=None, publish_frequency=100.0)
+    defaults.update(overrides)
+    return Talos(**defaults)
+
+
 class TestTalosConstruction:
     def test_rejects_non_positive_frequency(self) -> None:
         with pytest.raises(ValueError):
-            Talos(backend=_RecordingBackend(), publish_frequency=0.0)
+            _make_talos(publish_frequency=0.0)
 
     def test_declares_expected_ports(self) -> None:
-        talos = Talos(backend=_RecordingBackend(), publish_frequency=200.0)
+        talos = _make_talos(publish_frequency=200.0)
         assert talos.num_input_ports() == 1
-        assert talos.num_output_ports() == 2
+        assert talos.num_output_ports() == 1
         assert talos.GetInputPort(TalosPorts.INPUT_COMMAND) is not None
-        assert talos.GetOutputPort(TalosPorts.OUTPUT_JOINT_STATE) is not None
-        assert talos.GetOutputPort(TalosPorts.OUTPUT_EEF_STATE) is not None
+        assert talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION) is not None
 
 
 class TestTalosPeriodic:
     def test_forwards_commands_to_backend(self) -> None:
         backend = _RecordingBackend()
-        talos = Talos(backend=backend, publish_frequency=100.0)
+        talos = _make_talos(backend=backend)
         context = talos.CreateDefaultContext()
         positions = np.array([0.1, 0.2, 0.3], dtype=np.float64)
         talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(_make_command(positions)))
@@ -86,18 +94,23 @@ class TestTalosPeriodic:
         assert len(backend.commands) >= 1
         np.testing.assert_array_equal(backend.commands[-1].joint_positions.positions, positions)
 
-    def test_publishes_backend_state_on_output(self) -> None:
-        talos = Talos(backend=_RecordingBackend(), publish_frequency=100.0)
+    def test_publishes_assembled_proprioception(self) -> None:
+        talos = _make_talos()
         context = talos.CreateDefaultContext()
         talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(construct_default_command()))
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)
 
-        joint_state = talos.GetOutputPort(TalosPorts.OUTPUT_JOINT_STATE).Eval(simulator.get_context())
-        eef_state = talos.GetOutputPort(TalosPorts.OUTPUT_EEF_STATE).Eval(simulator.get_context())
-        assert isinstance(joint_state, JointState)
-        assert isinstance(eef_state, EEFState)
+        proprioception = talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION).Eval(simulator.get_context())
+        assert isinstance(proprioception, Proprioception)
+        assert isinstance(proprioception.joint_state, JointState)
+        assert isinstance(proprioception.eef_state, EEFState)
+        assert isinstance(proprioception.eef_pose, EEFPose)
+        assert isinstance(proprioception.eef_twist, EEFTwist)
+        # Header is stamped via system time -- nonzero monotonic_ns confirms a
+        # real tick ran (default construction puts this at 0).
+        assert proprioception.header.monotonic_ns > 0
 
 
 class TestManipulatorBackendProtocolCompliance:

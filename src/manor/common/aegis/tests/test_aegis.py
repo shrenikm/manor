@@ -5,7 +5,7 @@ These verify that the graph wires up and ticks in both SIM and HARDWARE
 modes. They do not assert behavioural correctness: the backends are stubs
 and the identity policy produces zero-joint actions from zero-joint
 proprioception. Success here means the messages flow through the full
-Helios / Talos / Soma / Metis / Kyber cycle without schema mismatches or
+Helios / Talos / Metis / Kyber cycle without schema mismatches or
 algebraic-loop errors.
 """
 
@@ -24,7 +24,7 @@ from manor.common.testing_utils import run_manor_tests
 def _fast_freqs() -> AegisFrequencies:
     # Turn everything down so AdvanceTo doesn't have to churn too many events
     # for a smoke test while still exercising the periodic-update plumbing.
-    return AegisFrequencies(helios_hz=10.0, talos_hz=20.0, soma_hz=20.0, metis_hz=10.0, kyber_hz=50.0)
+    return AegisFrequencies(helios_hz=10.0, talos_hz=20.0, metis_hz=10.0, kyber_hz=50.0)
 
 
 class TestBuildAegis:
@@ -35,7 +35,6 @@ class TestBuildAegis:
         assert isinstance(systems, AegisSystems)
         assert systems.helios.get_name() == "helios"
         assert systems.talos.get_name() == "talos"
-        assert systems.soma.get_name() == "soma"
         assert systems.metis.get_name() == "metis"
         assert systems.kyber.get_name() == "kyber"
 
