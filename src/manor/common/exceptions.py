@@ -30,6 +30,48 @@ class Lite6SystemError(Lite6Error):
     pass
 
 
+class ManipulatorError(ManorError):
+    """
+    Base exception for the manipulators sub-package.
+    """
+
+    pass
+
+
+class UnknownManipulatorTypeError(ManipulatorError):
+    """
+    Raised when a ManipulatorType has no registered variant class or
+    when a lookup against the registry fails for some other reason.
+    """
+
+    pass
+
+
+class VariantAlreadyRegisteredError(ManipulatorError):
+    """
+    Raised when ``register_variant_for`` is called for a manipulator type
+    that already has a variant class registered.
+    """
+
+    pass
+
+
+class ManipulatorDriverError(ManipulatorError):
+    """
+    Base exception for hardware-driver failures.
+    """
+
+    pass
+
+
+class Lite6DriverError(ManipulatorDriverError):
+    """
+    Raised when a Lite6Driver call (prime/unprime/read/write) fails.
+    """
+
+    pass
+
+
 class DefinitionError(ManorError):
     """
     Base exception for errors related to typed data-class definitions.
