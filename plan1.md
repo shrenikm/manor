@@ -196,3 +196,47 @@ Command:
 Let's start by implementing these classes
 
 Let's leave tests out for now. Once I have confirmed that the messages look good, we can write a lot of thorough tests.
+
+# Implemented
+
+## Final state
+
+- **24 message classes** under `src/manor/common/definitions/`, one file per message. Every class is `@attr.frozen` and inherits from `DefinitionBase`, which composes two interfaces:
+  - `ISerializable` — `serialize() -> bytes` / `deserialize(bytes) -> Self` via Cap'n Proto.
+  - `ILcmMessage` — `to_lcm_message()` / `from_lcm_message(msg)` for the generated `lcmt_*` classes.
+- The set covers everything in the plan plus a standalone `DepthImageData` (so `RGBDImageData` composes RGB + depth instead of duplicating depth fields):
+  `TimestampHeader`, `RGBImageData`, `DepthImageData`, `RGBDImageData`,
+  `JointPositions(/Trajectory)`, `JointVelocities(/Trajectory)`, `JointState(/Trajectory)`,
+  `EEFPositions(/Trajectory)`, `EEFVelocities(/Trajectory)`, `EEFState(/Trajectory)`,
+  `EEFPose(/Trajectory)`, `EEFTwist(/Trajectory)`,
+  `Proprioception`, `Observation`, `Action`, `Command`.
+- **Discriminated-union messages** (`Action`, `Command`) enforce "exactly one variant set" in `__attrs_post_init__`; they persist their active variant via a tag (`variant: int8`) on LCM and via a Cap'n Proto union arm on capnp.
+- **Optional sub-messages** in `Proprioception` / `Observation` use Cap'n Proto union groups (`some` / `none`) and a `has_X` flag on LCM.
+
+## Versioning
+
+- Each message has a top-level Cap'n Proto wrapper `VersionedX` that's a union over `v1`, `v2`, ... arms.
+- The Python class declares `CURRENT_CAPNP_VERSION: ClassVar[str]` (e.g. `"v1"`), implements `to_capnp_current(builder)`, and per-version `from_capnp_vN(reader)` classmethods.
+- `serialize()` always writes the current version arm. `deserialize()` reads whichever arm is active and dispatches to the matching `from_capnp_vN`. Adding a new version is purely additive: new `.capnp` arm + bumped `CURRENT_CAPNP_VERSION` + new `from_capnp_vN`, leave existing converters intact.
+- **No LCM versioning** per the plan: `lcmt_*` always reflects the latest schema. Old serialized capnp bytes still round-trip cleanly via `from_capnp → to_lcm_message`.
+
+## Schemas + build
+
+- `definitions/schemas/capnp/` — 25 `.capnp` files (one per message + a shared `common.capnp`).
+- `definitions/schemas/lcm/` — 24 `.lcm` files, all declaring `package manor.common.definitions.lcmtypes;`.
+- `definitions/lcmtypes/` — Python LCM bindings, generated from the `.lcm` files.
+- `scripts/compile_messages.py` runs `lcm-gen --python --ppath src/` to regenerate the bindings in-place under the package tree and validates each capnp schema with a fresh `SchemaParser`.
+- `scripts/build_hook.py` is a hatchling custom build hook that invokes `compile_messages.py` during `uv pip install --no-cache-dir -e .`, so editable installs always have fresh bindings.
+
+## Beyond the plan
+
+- **Tests**: ~70 pytest tests in `definitions/tests/`, including round-trip coverage (capnp serialize → deserialize, LCM to/from) for every message. The plan called tests out as "later" — they were added.
+- **Custom exception hierarchy**: `ManorError → DefinitionError → InvalidDefinitionError`, plus `SerializationError`. Used by variant-validation failures and unknown capnp arms / LCM tags.
+- **Capnp utilities** in `definitions/utils/capnp_utils.py` (e.g. `ndarray_to_float64_array`, `float64_array_to_ndarray`, `load_versioned_schema`).
+- **Image encoding enums** in `definitions/utils/enums.py` (`ImageEncoding`, `DepthEncoding`).
+- **Test factories** in `definitions/tests/factories.py` for building well-formed instances of any message during testing.
+
+## Out of scope / pre-existing
+
+- `control_definitions.py` and `state_definitions.py` are pre-existing legacy modules from before the redesign and are not part of this plan; they will be removed or rewritten as the rest of the codebase migrates off them.
+

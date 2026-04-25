@@ -93,3 +93,84 @@ So for the next stage of the project, we will implement this design for aegis.
 
 We want an "aegis" directory inside common/ under which we will have sub-directories for each of the sub-systems. The idea is that this scales for any robot and we can run our policies
 on hardware or in sim with the switch of a flag.
+
+# Implemented
+
+## Final state
+
+The Aegis stack lives at `src/manor/common/aegis/` and contains **four sub-systems** plus a top-level builder. Each sub-system is a Drake `LeafSystem`, and they all follow the same template:
+
+- **Inputs** are abstract-valued ports carrying typed Plan 1 messages.
+- **State** is one or more `DeclareAbstractState` slots holding the latest produced message.
+- **Outputs** are abstract-valued ports that are pure reads of state, with `prerequisites_of_calc={self.abstract_state_ticket(...)}` so outputs are **not** direct-feedthrough on inputs — this is what lets the cyclic graph build without algebraic-loop errors.
+- **Periodic ticks** via `DeclarePeriodicUnrestrictedUpdateEvent(period=1/f, ...)` recompute state from the latest input port values; outputs are zero-order holds between ticks. Each system's publish rate is decoupled from its inputs' rates.
+- **Port names** are `StrEnum`s per system (`KyberPorts.INPUT_ACTION`, etc.). The only raw string port-name literals anywhere in the tree are the values inside those enum definitions.
+- Every test file ends with `if __name__ == "__main__": run_manor_tests()` so individual files run as `python test_X.py`.
+
+### Sub-systems
+
+- **Helios** (`helios/`) — sensor publisher. No inputs; outputs `rgb_image` + `depth_image`. Takes a `SensorBackend` protocol object.
+- **Talos** (`talos/`) — manipulator interface. Input `command`; output `proprioception`. Takes a `ManipulatorBackend` protocol object plus an optional `robot_model_path` (intended for FK). Forward kinematics lives here (it was Soma's job originally; see "Deviations").
+- **Metis** (`metis/`) — policy runner. Inputs `proprioception`, `rgb_image`, `depth_image`; output `action`. Takes a `Policy` protocol object. One concrete `IdentityPolicy` (mirrors current joint positions back) ships in `metis/policies.py`.
+- **Kyber** (`kyber/`) — low-level controller. Inputs `action`, `proprioception`; output `command`. Currently a passthrough (joint positions in → joint positions out); the `Controller` protocol is deferred.
+
+### Sim/hardware split — backend injection
+
+The plan called for "switch of a flag" between sim and hardware. Implemented as **backend injection**: each system that touches the world (Helios, Talos) takes a backend protocol object in its constructor. The `LeafSystem` itself is shape-identical in both modes; only the backend class changes.
+
+- `SensorBackend` protocol → `SimSensorBackend`, `HardwareSensorBackend` (in `helios/sim_backend.py`, `helios/hardware_backend.py`).
+- `ManipulatorBackend` protocol → `SimManipulatorBackend`, `HardwareManipulatorBackend` (in `talos/sim_backend.py`, `talos/hardware_backend.py`).
+- All four backends are currently stubs (clean APIs, no real SDK or Drake plant calls yet).
+
+This keeps the Drake graph topology identical across modes — important for porting policies between sim and hardware later.
+
+### Top-level builder
+
+- `aegis.py` exposes `build_aegis(mode, policy, robot_model_path, frequencies)` returning `(Diagram, AegisSystems)`.
+- `AegisMode` is a `StrEnum` of `SIM` / `HARDWARE`; `AegisFrequencies` carries per-system Hz defaults (helios 30, talos 200, metis 10, kyber 500); `AegisSystems` is an `attr.frozen` container of the four leaf-system handles.
+- Wiring after the Soma removal:
+  - `Helios.{rgb,depth}_image → Metis.{rgb,depth}_image`
+  - `Talos.proprioception → {Metis, Kyber}.proprioception`
+  - `Metis.action → Kyber.action`
+  - `Kyber.command → Talos.command`
+
+## Deviations from the plan
+
+- **Soma was removed.** The user folded its FK responsibility into Talos. The Soma sub-package is gone; Talos owns `_compute_eef_pose` / `_compute_eef_twist` (still stubs) and publishes `Proprioception` directly instead of separate joint + EEF state ports. Net effect: 4 sub-systems instead of 5, simpler wiring, no semantic loss.
+- The plan listed Helios as publishing "RGB images, RGBD images, etc.". The implementation publishes RGB + Depth separately. RGBD is a derived combined message that can be added later if needed.
+
+## Beyond the plan
+
+### Shared message constructors
+
+`src/manor/common/definitions/utils/defaults.py` — `construct_default_*()` factories for every Plan 1 message, plus `construct_zero_header()` and `construct_system_time_header()` (live wall-clock via `time.monotonic_ns()` + `time.time_ns()`). These are used as Drake `AbstractValue` model values throughout the Aegis tree, and to stamp freshly-produced outputs.
+
+### LCM connectivity prototype
+
+The plan notes that some sub-systems (Metis especially) need to run on a separate machine. A working LCM-bridge prototype lives in `kyber/`:
+
+- `kyber/lcm_source.py` — standalone Drake diagram that publishes fresh `Proprioception` + `Action` LCM messages at a configurable rate (default 10 Hz). Runs as `python -m manor.common.aegis.kyber.lcm_source`.
+- `kyber/kyber_lcm.py` — standalone Drake diagram that subscribes to those channels, runs a real `Kyber`, and publishes `Command` LCM messages at its publish frequency (default 50 Hz, deliberately distinct from the source). Runs as `python -m manor.common.aegis.kyber.kyber_lcm`.
+- Channels: `AEGIS_PROPRIOCEPTION`, `AEGIS_ACTION`, `AEGIS_COMMAND`.
+- Internal helpers `_AegisToLcmMessageSystem` / `_LcmToAegisMessageSystem` bridge between `attrs` messages and generated LCM types via the existing `to_lcm_message()` / `from_lcm_message()` methods. These helpers are duplicated across the two files for now; when the other systems get LCM-ified they should be hoisted to a shared module under `aegis/`.
+- `tests/test_kyber_lcm.py` — in-process LCM round-trip tests using `DrakeLcm("memq://")`. Three tests: schema round-trip, end-to-end through Kyber, and a frequency sanity check.
+
+### lcm-spy with decoded Aegis messages
+
+- `scripts/compile_messages.py` was extended with `_compile_lcm_java_bindings()`. When `javac` + `jar` + `lcm.jar` are all available, it runs `lcm-gen --java`, compiles the Java sources, and bundles them into `build/java/manor_lcmtypes.jar`. Soft-skips with a warning when any tool is missing, so installs on headless / Java-less environments still succeed.
+- `scripts/manor_lcm_spy.sh` — wrapper that exports `CLASSPATH=build/java/manor_lcmtypes.jar` and execs `lcm-spy`. The conda-shipped `lcm-spy` script appends `$CLASSPATH` to its internal classpath, so this is enough for decoded message contents in the GUI.
+
+### Tests
+
+- 32 aegis-tree pytest tests covering construction, periodic publish, backend protocol compliance, FK assembly, and a parametrized SIM + HARDWARE smoke run of the full diagram (`test_aegis.py::TestBuildAegis::test_diagram_advances_without_error[sim|hardware]`).
+
+## Stubs / explicit TODOs
+
+Each is intentionally scoped so the real implementation is a single-location change:
+
+- **Backends** — all four (`Sim/Hardware × Sensor/Manipulator`) return zero-valued defaults. Real RealSense / Orbbec / Lite6 / Drake `MultibodyPlant` integration is a separate effort.
+- **Talos FK** — `_compute_eef_pose`, `_compute_eef_twist` return identity pose / zero twist. Loading the kinematic model from `robot_model_path` and running FK lives entirely in those two methods.
+- **Kyber controller protocol** — currently joint-positions passthrough; a `Controller` protocol replacing the inline logic is deferred.
+- **Metis policies** — only `IdentityPolicy` exists; classical motion planners, trajectory optimization, diffusion policies, and VLAs are each their own follow-up plan.
+- **Talos start/end safe-config hooks** — declared on `ManipulatorBackend` (`start()` / `stop()`) but not yet invoked from Drake events; will be triggered by higher-level orchestration.
+
