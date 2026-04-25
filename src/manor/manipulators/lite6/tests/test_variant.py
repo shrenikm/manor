@@ -24,7 +24,7 @@ class TestLite6Variant:
         # The string values are referenced from the URDF mapping table
         # and from any external config; treat them as part of the API.
         assert Lite6Variant.VACUUM_GRIPPER.value == "vacuum_gripper"
-        assert Lite6Variant.PARALLEL_GRIPPER.value == "parallel_gripper"
+        assert Lite6Variant.PARALLEL_GRIPPER_NORMAL.value == "parallel_gripper_normal"
         assert Lite6Variant.PARALLEL_GRIPPER_REVERSE.value == "parallel_gripper_reverse"
 
 

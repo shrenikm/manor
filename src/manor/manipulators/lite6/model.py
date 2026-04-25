@@ -32,7 +32,7 @@ _LITE6_EEF_TIP_FRAME_NAME = "link_eef_tip"
 
 _VARIANT_TO_DESCRIPTION_FILENAME: dict[Lite6Variant, str] = {
     Lite6Variant.VACUUM_GRIPPER: "lite6_robot_with_vacuum_gripper.urdf",
-    Lite6Variant.PARALLEL_GRIPPER: "lite6_robot_with_actuated_normal_parallel_gripper.urdf",
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: "lite6_robot_with_actuated_normal_parallel_gripper.urdf",
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: "lite6_robot_with_actuated_reverse_parallel_gripper.urdf",
 }
 
@@ -41,7 +41,7 @@ _VARIANT_TO_DESCRIPTION_FILENAME: dict[Lite6Variant, str] = {
 # parallel grippers add two prismatic joints.
 _VARIANT_TO_NUM_POSITIONS: dict[Lite6Variant, int] = {
     Lite6Variant.VACUUM_GRIPPER: LITE6_ARM_DOF,
-    Lite6Variant.PARALLEL_GRIPPER: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
 }
 
@@ -56,7 +56,7 @@ class Lite6Model(IManipulatorModel):
 
     @override
     def get_manipulator_type(self) -> ManipulatorType:
-        return ManipulatorType.LITE6
+        return self.variant.get_manipulator_type()
 
     @override
     def get_variant(self) -> Lite6Variant:
@@ -67,7 +67,7 @@ class Lite6Model(IManipulatorModel):
         return LITE6_ARM_DOF
 
     @override
-    def get_description_path(self) -> FilePath:
+    def get_description_filepath(self) -> FilePath:
         return os.path.join(
             get_robot_models_directory_path(),
             _LITE6_DESCRIPTION_DIRNAME,

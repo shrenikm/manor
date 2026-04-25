@@ -58,7 +58,7 @@ def _make_arm_mock(positions: np.ndarray | None = None, velocities: np.ndarray |
 
 @pytest.fixture
 def parallel_driver() -> Lite6Driver:
-    return Lite6Driver(model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER))
+    return Lite6Driver(model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL))
 
 
 @pytest.fixture

@@ -38,7 +38,7 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_description_path(self) -> FilePath:
+    def get_description_filepath(self) -> FilePath:
         """
         Absolute path to the description file (URDF today; SDF / MJCF
         later) that Drake's parser loads to build the MultibodyPlant.

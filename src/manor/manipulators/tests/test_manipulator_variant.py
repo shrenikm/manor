@@ -14,7 +14,7 @@ from manor.manipulators.manipulator_variant import (
     IManipulatorVariant,
     get_registered_manipulator_types,
     get_variant_class,
-    register_variant_for,
+    register_manipulator_variant,
 )
 
 
@@ -38,7 +38,7 @@ class TestVariantAlreadyRegistered:
         # must fail rather than silently overwriting.
         with pytest.raises(VariantAlreadyRegisteredError):
 
-            @register_variant_for(ManipulatorType.LITE6)
+            @register_manipulator_variant(ManipulatorType.LITE6)
             class _DummyDuplicate(IManipulatorVariant):
                 X = "x"
 

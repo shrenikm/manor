@@ -48,7 +48,7 @@ class TestLite6ModelShape:
         assert m.get_num_velocities() == LITE6_ARM_DOF
         assert m.get_num_states() == 2 * LITE6_ARM_DOF
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
     def test_parallel_gripper_variants_add_two_dofs(self, variant: Lite6Variant) -> None:
         m = _model(variant)
         expected_q = LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF
@@ -59,9 +59,9 @@ class TestLite6ModelShape:
 
 class TestLite6ModelDescription:
     @pytest.mark.parametrize("variant", list(Lite6Variant))
-    def test_description_path_exists(self, variant: Lite6Variant) -> None:
+    def test_description_filepath_exists(self, variant: Lite6Variant) -> None:
         # The robot_models submodule ships every URDF the variants reference.
-        assert os.path.isfile(_model(variant).get_description_path())
+        assert os.path.isfile(_model(variant).get_description_filepath())
 
     @pytest.mark.parametrize("variant", list(Lite6Variant))
     def test_frame_names_are_lite6_canonical(self, variant: Lite6Variant) -> None:

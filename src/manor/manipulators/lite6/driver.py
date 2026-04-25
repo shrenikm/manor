@@ -170,7 +170,7 @@ class Lite6Driver(IManipulatorDriver):
         return positions, velocities
 
     def _send_gripper_command(self, open_command: bool) -> None:
-        if self.model.variant in (Lite6Variant.PARALLEL_GRIPPER, Lite6Variant.PARALLEL_GRIPPER_REVERSE):
+        if self.model.variant in (Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE):
             ret_code = self._arm.open_lite6_gripper() if open_command else self._arm.close_lite6_gripper()
             self._check(ret_code, "open_lite6_gripper" if open_command else "close_lite6_gripper")
         elif self.model.variant is Lite6Variant.VACUUM_GRIPPER:
@@ -179,7 +179,7 @@ class Lite6Driver(IManipulatorDriver):
             raise Lite6DriverError(f"Unhandled Lite6 variant: {self.model.variant!r}")
 
     def _send_gripper_stop(self) -> None:
-        if self.model.variant in (Lite6Variant.PARALLEL_GRIPPER, Lite6Variant.PARALLEL_GRIPPER_REVERSE):
+        if self.model.variant in (Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE):
             self._check(self._arm.stop_lite6_gripper(), "stop_lite6_gripper")
         elif self.model.variant is Lite6Variant.VACUUM_GRIPPER:
             # Stopping a vacuum gripper just means turning it off.
