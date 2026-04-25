@@ -24,13 +24,11 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Context, Diagram, DiagramBuilder, LeafSystem
 from pydrake.systems.lcm import LcmInterfaceSystem
 
-from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter, AegisLCMPublisherAdapterPorts
-from manor.common.aegis.aegis_constants import AegisChannel
-from manor.common.definitions.utils.defaults import (
-    construct_default_action,
-    construct_default_proprioception,
-    construct_system_time_header,
-)
+from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter
+from manor.common.aegis.aegis_constants import AegisAdapterPorts, AegisChannel
+from manor.common.definitions.action import Action
+from manor.common.definitions.proprioception import Proprioception
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 _DEMO_NUM_JOINTS = 6
 _DEFAULT_PUBLISH_FREQUENCY_HZ = 10.0
@@ -53,28 +51,28 @@ class _FreshDefaultMessageSource(LeafSystem):
         super().__init__()
         self.DeclareAbstractOutputPort(
             _FreshDefaultMessageSourcePorts.OUTPUT_PROPRIOCEPTION,
-            alloc=lambda: AbstractValue.Make(construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS)),
+            alloc=lambda: AbstractValue.Make(Proprioception.construct_default(num_joints=_DEMO_NUM_JOINTS)),
             calc=self._calc_proprioception,
         )
         self.DeclareAbstractOutputPort(
             _FreshDefaultMessageSourcePorts.OUTPUT_ACTION,
-            alloc=lambda: AbstractValue.Make(construct_default_action(num_joints=_DEMO_NUM_JOINTS)),
+            alloc=lambda: AbstractValue.Make(Action.construct_default(num_joints=_DEMO_NUM_JOINTS)),
             calc=self._calc_action,
         )
 
     def _calc_proprioception(self, context: Context, output: AbstractValue) -> None:
         output.set_value(
             attr.evolve(
-                construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS),
-                header=construct_system_time_header(),
+                Proprioception.construct_default(num_joints=_DEMO_NUM_JOINTS),
+                header=TimestampHeader.from_system_time(),
             )
         )
 
     def _calc_action(self, context: Context, output: AbstractValue) -> None:
         output.set_value(
             attr.evolve(
-                construct_default_action(num_joints=_DEMO_NUM_JOINTS),
-                header=construct_system_time_header(),
+                Action.construct_default(num_joints=_DEMO_NUM_JOINTS),
+                header=TimestampHeader.from_system_time(),
             )
         )
 
@@ -95,7 +93,7 @@ def build_lcm_source_diagram(lcm: DrakeLcm, publish_frequency_hz: float) -> Diag
     publish_period_sec = 1.0 / publish_frequency_hz
     proprioception_publisher = builder.AddSystem(
         AegisLCMPublisherAdapter.from_lcm_type(
-            definition_model_value=construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS),
+            definition_cls=Proprioception,
             channel=AegisChannel.PROPRIOCEPTION,
             lcm=lcm,
             publish_period=publish_period_sec,
@@ -104,7 +102,7 @@ def build_lcm_source_diagram(lcm: DrakeLcm, publish_frequency_hz: float) -> Diag
 
     action_publisher = builder.AddSystem(
         AegisLCMPublisherAdapter.from_lcm_type(
-            definition_model_value=construct_default_action(num_joints=_DEMO_NUM_JOINTS),
+            definition_cls=Action,
             channel=AegisChannel.ACTION,
             lcm=lcm,
             publish_period=publish_period_sec,
@@ -113,11 +111,11 @@ def build_lcm_source_diagram(lcm: DrakeLcm, publish_frequency_hz: float) -> Diag
 
     builder.Connect(
         source.GetOutputPort(_FreshDefaultMessageSourcePorts.OUTPUT_PROPRIOCEPTION),
-        proprioception_publisher.GetInputPort(AegisLCMPublisherAdapterPorts.INPUT_DEFINITION),
+        proprioception_publisher.GetInputPort(AegisAdapterPorts.DEFINITION_INPUT),
     )
     builder.Connect(
         source.GetOutputPort(_FreshDefaultMessageSourcePorts.OUTPUT_ACTION),
-        action_publisher.GetInputPort(AegisLCMPublisherAdapterPorts.INPUT_DEFINITION),
+        action_publisher.GetInputPort(AegisAdapterPorts.DEFINITION_INPUT),
     )
 
     return builder.Build()

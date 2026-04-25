@@ -82,3 +82,12 @@ class EEFPose(DefinitionBase):
             translation=np.array(msg.translation, dtype=np.float64),
             orientation=np.array(msg.orientation, dtype=np.float64),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            translation=np.zeros(3, dtype=np.float64),
+            orientation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        )

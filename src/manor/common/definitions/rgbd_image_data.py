@@ -78,3 +78,12 @@ class RGBDImageData(DefinitionBase):
             rgb=RGBImageData.from_lcm_message(msg.rgb),
             depth=DepthImageData.from_lcm_message(msg.depth),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, height: int = 0, width: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            rgb=RGBImageData.construct_default(height=height, width=width),
+            depth=DepthImageData.construct_default(height=height, width=width),
+        )

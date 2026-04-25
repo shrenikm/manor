@@ -112,3 +112,14 @@ class Proprioception(DefinitionBase):
             eef_pose=EEFPose.from_lcm_message(msg.eef_pose) if msg.has_eef_pose else None,
             eef_twist=EEFTwist.from_lcm_message(msg.eef_twist) if msg.has_eef_twist else None,
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0, num_eef_dofs: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            joint_state=JointState.construct_default(num_joints=num_joints),
+            eef_state=EEFState.construct_default(num_eef_dofs=num_eef_dofs),
+            eef_pose=EEFPose.construct_default(),
+            eef_twist=EEFTwist.construct_default(),
+        )

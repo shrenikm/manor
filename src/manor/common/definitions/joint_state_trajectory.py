@@ -98,3 +98,13 @@ class JointStateTrajectory(DefinitionBase):
                 msg.num_steps, msg.num_joints
             ),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_steps: int = 0, num_joints: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            times=np.zeros(num_steps, dtype=np.float64),
+            joint_positions_array=np.zeros((num_steps, num_joints), dtype=np.float64),
+            joint_velocities_array=np.zeros((num_steps, num_joints), dtype=np.float64),
+        )

@@ -85,6 +85,17 @@ class DefinitionBase(ISerializable, ILcmMessage):
         """
         raise NotImplementedError
 
+    @classmethod
+    @abc.abstractmethod
+    def construct_default(cls) -> Self:
+        """
+        Return the canonical default instance: zero-shape arrays, identity
+        quaternions, sentinel-but-valid enum values. Used as the abstract
+        port allocator template for adapters and as the starting point for
+        any zero-initialized message.
+        """
+        ...
+
     def to_versioned_capnp(self, versioned_builder: Any) -> None:
         """
         Init the current-version arm of a VersionedX builder and fill it.

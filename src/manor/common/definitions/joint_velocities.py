@@ -74,3 +74,8 @@ class JointVelocities(DefinitionBase):
             header=TimestampHeader.from_lcm_message(msg.header),
             velocities=np.array(msg.velocities, dtype=np.float64),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0) -> Self:
+        return cls(header=TimestampHeader.construct_default(), velocities=np.zeros(num_joints, dtype=np.float64))

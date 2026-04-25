@@ -95,3 +95,15 @@ class DepthImageData(DefinitionBase):
             data=bytes(msg.data),
             depth_scale=float(msg.depth_scale),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, height: int = 0, width: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            height=height,
+            width=width,
+            encoding=DepthEncoding.RAW_FLOAT32_M,
+            data=b"",
+            depth_scale=1.0,
+        )

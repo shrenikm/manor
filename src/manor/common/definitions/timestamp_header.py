@@ -4,6 +4,7 @@ Timestamp header carried by every streaming definition.
 
 from __future__ import annotations
 
+import time
 from typing import Any, ClassVar, Self, override
 
 import attr
@@ -59,3 +60,16 @@ class TimestampHeader(DefinitionBase):
             monotonic_ns=int(msg.monotonic_ns),
             system_ns=int(msg.system_ns),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls) -> Self:
+        return cls(monotonic_ns=0, system_ns=0)
+
+    @classmethod
+    def from_system_time(cls) -> Self:
+        """
+        Build a header stamped with the current monotonic and system
+        times in nanoseconds.
+        """
+        return cls(monotonic_ns=time.monotonic_ns(), system_ns=time.time_ns())

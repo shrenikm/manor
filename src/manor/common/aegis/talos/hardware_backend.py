@@ -13,11 +13,7 @@ import attr
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.joint_state import JointState
-from manor.common.definitions.utils.defaults import (
-    construct_default_eef_state,
-    construct_default_joint_state,
-    construct_system_time_header,
-)
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 @attr.frozen
@@ -55,8 +51,14 @@ class HardwareManipulatorBackend:
 
     def read_joint_state(self) -> JointState:
         # TODO: query the SDK for joint angles + velocities.
-        return attr.evolve(construct_default_joint_state(self.config.num_joints), header=construct_system_time_header())
+        return attr.evolve(
+            JointState.construct_default(num_joints=self.config.num_joints),
+            header=TimestampHeader.from_system_time(),
+        )
 
     def read_eef_state(self) -> EEFState:
         # TODO: query the SDK for gripper state.
-        return attr.evolve(construct_default_eef_state(self.config.num_eef_dofs), header=construct_system_time_header())
+        return attr.evolve(
+            EEFState.construct_default(num_eef_dofs=self.config.num_eef_dofs),
+            header=TimestampHeader.from_system_time(),
+        )

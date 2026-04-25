@@ -96,3 +96,13 @@ class EEFStateTrajectory(DefinitionBase):
                 msg.num_steps, msg.num_coords
             ),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_steps: int = 0, num_eef_dofs: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            times=np.zeros(num_steps, dtype=np.float64),
+            eef_positions_array=np.zeros((num_steps, num_eef_dofs), dtype=np.float64),
+            eef_velocities_array=np.zeros((num_steps, num_eef_dofs), dtype=np.float64),
+        )

@@ -81,3 +81,12 @@ class EEFTwist(DefinitionBase):
             linear=np.array(msg.linear, dtype=np.float64),
             angular=np.array(msg.angular, dtype=np.float64),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            linear=np.zeros(3, dtype=np.float64),
+            angular=np.zeros(3, dtype=np.float64),
+        )

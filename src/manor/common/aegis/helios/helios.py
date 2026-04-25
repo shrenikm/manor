@@ -17,7 +17,6 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.definitions.utils.defaults import construct_default_depth_image, construct_default_rgb_image
 
 
 class HeliosPorts(StrEnum):
@@ -56,18 +55,18 @@ class Helios(LeafSystem):
         self._backend = backend
         self._publish_frequency = publish_frequency
 
-        self._rgb_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_rgb_image()))
-        self._depth_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_depth_image()))
+        self._rgb_state_index = self.DeclareAbstractState(AbstractValue.Make(RGBImageData.construct_default()))
+        self._depth_state_index = self.DeclareAbstractState(AbstractValue.Make(DepthImageData.construct_default()))
 
         self.DeclareAbstractOutputPort(
             HeliosPorts.OUTPUT_RGB_IMAGE,
-            alloc=lambda: AbstractValue.Make(construct_default_rgb_image()),
+            alloc=lambda: AbstractValue.Make(RGBImageData.construct_default()),
             calc=self._calc_rgb_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._rgb_state_index)},
         )
         self.DeclareAbstractOutputPort(
             HeliosPorts.OUTPUT_DEPTH_IMAGE,
-            alloc=lambda: AbstractValue.Make(construct_default_depth_image()),
+            alloc=lambda: AbstractValue.Make(DepthImageData.construct_default()),
             calc=self._calc_depth_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._depth_state_index)},
         )

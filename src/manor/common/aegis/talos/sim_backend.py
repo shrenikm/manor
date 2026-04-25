@@ -16,13 +16,10 @@ import attr
 
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_state import EEFState
+from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
-from manor.common.definitions.utils.defaults import (
-    construct_default_eef_state,
-    construct_default_joint_positions,
-    construct_default_joint_velocities,
-    construct_system_time_header,
-)
+from manor.common.definitions.joint_velocities import JointVelocities
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 @attr.frozen
@@ -67,21 +64,24 @@ class SimManipulatorBackend:
         positions = (
             self._latest_command.joint_positions.positions
             if self._latest_command is not None and self._latest_command.joint_positions is not None
-            else construct_default_joint_positions(self.config.num_joints).positions
+            else JointPositions.construct_default(num_joints=self.config.num_joints).positions
         )
         return JointState(
-            header=construct_system_time_header(),
+            header=TimestampHeader.from_system_time(),
             joint_positions=attr.evolve(
-                construct_default_joint_positions(self.config.num_joints),
-                header=construct_system_time_header(),
+                JointPositions.construct_default(num_joints=self.config.num_joints),
+                header=TimestampHeader.from_system_time(),
                 positions=positions,
             ),
             joint_velocities=attr.evolve(
-                construct_default_joint_velocities(self.config.num_joints),
-                header=construct_system_time_header(),
+                JointVelocities.construct_default(num_joints=self.config.num_joints),
+                header=TimestampHeader.from_system_time(),
             ),
         )
 
     def read_eef_state(self) -> EEFState:
         # TODO: derive from plant state or from a parallel-gripper model.
-        return attr.evolve(construct_default_eef_state(self.config.num_eef_dofs), header=construct_system_time_header())
+        return attr.evolve(
+            EEFState.construct_default(num_eef_dofs=self.config.num_eef_dofs),
+            header=TimestampHeader.from_system_time(),
+        )

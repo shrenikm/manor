@@ -92,3 +92,13 @@ class EEFTwistTrajectory(DefinitionBase):
             linear_array=np.array(msg.linear_array, dtype=np.float64).reshape(msg.num_steps, 3),
             angular_array=np.array(msg.angular_array, dtype=np.float64).reshape(msg.num_steps, 3),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_steps: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            times=np.zeros(num_steps, dtype=np.float64),
+            linear_array=np.zeros((num_steps, 3), dtype=np.float64),
+            angular_array=np.zeros((num_steps, 3), dtype=np.float64),
+        )

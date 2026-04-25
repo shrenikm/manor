@@ -93,3 +93,15 @@ class EEFPoseTrajectory(DefinitionBase):
             translations_array=np.array(msg.translations_array, dtype=np.float64).reshape(msg.num_steps, 3),
             orientations_array=np.array(msg.orientations_array, dtype=np.float64).reshape(msg.num_steps, 4),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_steps: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            times=np.zeros(num_steps, dtype=np.float64),
+            translations_array=np.zeros((num_steps, 3), dtype=np.float64),
+            orientations_array=np.tile(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64), (num_steps, 1))
+            if num_steps > 0
+            else np.zeros((0, 4), dtype=np.float64),
+        )

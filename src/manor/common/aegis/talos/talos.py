@@ -33,13 +33,7 @@ from manor.common.definitions.eef_state import EEFState
 from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
-from manor.common.definitions.utils.defaults import (
-    construct_default_command,
-    construct_default_eef_pose,
-    construct_default_eef_twist,
-    construct_default_proprioception,
-    construct_system_time_header,
-)
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 class TalosPorts(StrEnum):
@@ -95,16 +89,16 @@ class Talos(LeafSystem):
 
         self._command_input = self.DeclareAbstractInputPort(
             TalosPorts.INPUT_COMMAND,
-            AbstractValue.Make(construct_default_command()),
+            AbstractValue.Make(Command.construct_default()),
         )
 
         self._proprioception_state_index = self.DeclareAbstractState(
-            AbstractValue.Make(construct_default_proprioception()),
+            AbstractValue.Make(Proprioception.construct_default()),
         )
 
         self.DeclareAbstractOutputPort(
             TalosPorts.OUTPUT_PROPRIOCEPTION,
-            alloc=lambda: AbstractValue.Make(construct_default_proprioception()),
+            alloc=lambda: AbstractValue.Make(Proprioception.construct_default()),
             calc=self._calc_proprioception_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._proprioception_state_index)},
         )
@@ -138,7 +132,7 @@ class Talos(LeafSystem):
         eef_state = self._backend.read_eef_state()
 
         proprioception = Proprioception(
-            header=construct_system_time_header(),
+            header=TimestampHeader.from_system_time(),
             joint_state=joint_state,
             eef_state=eef_state,
             eef_pose=self._compute_eef_pose(joint_state),
@@ -150,9 +144,9 @@ class Talos(LeafSystem):
     def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
         # TODO: load the kinematic model from ``self._robot_model_path`` and run FK.
         del joint_state
-        return construct_default_eef_pose()
+        return EEFPose.construct_default()
 
     def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
         # TODO: spatial-Jacobian-based twist once the model is wired in.
         del joint_state
-        return construct_default_eef_twist()
+        return EEFTwist.construct_default()

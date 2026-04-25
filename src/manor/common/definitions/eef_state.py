@@ -74,3 +74,12 @@ class EEFState(DefinitionBase):
             eef_positions=EEFPositions.from_lcm_message(msg.eef_positions),
             eef_velocities=EEFVelocities.from_lcm_message(msg.eef_velocities),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_eef_dofs: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            eef_positions=EEFPositions.construct_default(num_eef_dofs=num_eef_dofs),
+            eef_velocities=EEFVelocities.construct_default(num_eef_dofs=num_eef_dofs),
+        )

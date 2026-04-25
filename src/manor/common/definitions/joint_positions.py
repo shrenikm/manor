@@ -74,3 +74,8 @@ class JointPositions(DefinitionBase):
             header=TimestampHeader.from_lcm_message(msg.header),
             positions=np.array(msg.positions, dtype=np.float64),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0) -> Self:
+        return cls(header=TimestampHeader.construct_default(), positions=np.zeros(num_joints, dtype=np.float64))

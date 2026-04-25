@@ -12,7 +12,6 @@ from manor.common.aegis.helios.helios import Helios, HeliosPorts, SensorBackend
 from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.definitions.utils.defaults import construct_default_depth_image, construct_default_rgb_image
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -23,11 +22,11 @@ class _CountingBackend:
 
     def read_rgb(self) -> RGBImageData:
         self.rgb_calls += 1
-        return construct_default_rgb_image(height=8, width=8)
+        return RGBImageData.construct_default(height=8, width=8)
 
     def read_depth(self) -> DepthImageData:
         self.depth_calls += 1
-        return construct_default_depth_image(height=8, width=8)
+        return DepthImageData.construct_default(height=8, width=8)
 
 
 class TestHeliosConstruction:

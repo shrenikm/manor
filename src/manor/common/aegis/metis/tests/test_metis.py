@@ -12,13 +12,14 @@ from pydrake.systems.analysis import Simulator
 from manor.common.aegis.metis.metis import Metis, MetisPorts, Policy
 from manor.common.aegis.metis.policies import IdentityPolicy
 from manor.common.definitions.action import Action
+from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
+from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.defaults import construct_default_depth_image, construct_default_rgb_image
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -82,10 +83,10 @@ class TestMetisPolicyFlow:
             context, AbstractValue.Make(_make_proprioception(positions))
         )
         metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE).FixValue(
-            context, AbstractValue.Make(construct_default_rgb_image())
+            context, AbstractValue.Make(RGBImageData.construct_default())
         )
         metis.GetInputPort(MetisPorts.INPUT_DEPTH_IMAGE).FixValue(
-            context, AbstractValue.Make(construct_default_depth_image())
+            context, AbstractValue.Make(DepthImageData.construct_default())
         )
 
         simulator = Simulator(metis, context)

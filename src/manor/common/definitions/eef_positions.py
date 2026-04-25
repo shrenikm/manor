@@ -77,3 +77,8 @@ class EEFPositions(DefinitionBase):
             header=TimestampHeader.from_lcm_message(msg.header),
             positions=np.array(msg.positions, dtype=np.float64),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_eef_dofs: int = 0) -> Self:
+        return cls(header=TimestampHeader.construct_default(), positions=np.zeros(num_eef_dofs, dtype=np.float64))

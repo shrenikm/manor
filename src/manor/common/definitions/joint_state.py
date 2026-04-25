@@ -74,3 +74,12 @@ class JointState(DefinitionBase):
             joint_positions=JointPositions.from_lcm_message(msg.joint_positions),
             joint_velocities=JointVelocities.from_lcm_message(msg.joint_velocities),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            joint_positions=JointPositions.construct_default(num_joints=num_joints),
+            joint_velocities=JointVelocities.construct_default(num_joints=num_joints),
+        )

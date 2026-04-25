@@ -16,11 +16,7 @@ import attr
 
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.definitions.utils.defaults import (
-    construct_default_depth_image,
-    construct_default_rgb_image,
-    construct_system_time_header,
-)
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 @attr.frozen
@@ -56,10 +52,10 @@ class SimSensorBackend:
 
     def read_rgb(self) -> RGBImageData:
         # TODO: render from an attached RgbdSensor and populate the bytes payload.
-        image = construct_default_rgb_image(height=self.config.rgb_height, width=self.config.rgb_width)
-        return attr.evolve(image, header=construct_system_time_header())
+        image = RGBImageData.construct_default(height=self.config.rgb_height, width=self.config.rgb_width)
+        return attr.evolve(image, header=TimestampHeader.from_system_time())
 
     def read_depth(self) -> DepthImageData:
         # TODO: render depth from an attached RgbdSensor and populate the bytes payload.
-        image = construct_default_depth_image(height=self.config.depth_height, width=self.config.depth_width)
-        return attr.evolve(image, header=construct_system_time_header())
+        image = DepthImageData.construct_default(height=self.config.depth_height, width=self.config.depth_width)
+        return attr.evolve(image, header=TimestampHeader.from_system_time())

@@ -91,3 +91,14 @@ class RGBImageData(DefinitionBase):
             encoding=ImageEncoding(msg.encoding),
             data=bytes(msg.data),
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, height: int = 0, width: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            height=height,
+            width=width,
+            encoding=ImageEncoding.RAW_RGB8,
+            data=b"",
+        )

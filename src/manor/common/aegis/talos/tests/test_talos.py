@@ -21,11 +21,6 @@ from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.definitions.utils.defaults import (
-    construct_default_command,
-    construct_default_eef_state,
-    construct_default_joint_state,
-)
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -39,10 +34,10 @@ class _RecordingBackend:
         self.commands.append(command)
 
     def read_joint_state(self) -> JointState:
-        return construct_default_joint_state(num_joints=3)
+        return JointState.construct_default(num_joints=3)
 
     def read_eef_state(self) -> EEFState:
-        return construct_default_eef_state(num_eef_dofs=1)
+        return EEFState.construct_default(num_eef_dofs=1)
 
     def start(self) -> None:
         self.started = True
@@ -97,7 +92,7 @@ class TestTalosPeriodic:
     def test_publishes_assembled_proprioception(self) -> None:
         talos = _make_talos()
         context = talos.CreateDefaultContext()
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(construct_default_command()))
+        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(Command.construct_default()))
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)

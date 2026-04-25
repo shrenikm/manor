@@ -16,19 +16,12 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram, DiagramBuilder
 from pydrake.systems.lcm import LcmInterfaceSystem
 
-from manor.common.aegis.aegis_adapters import (
-    AegisLCMPublisherAdapter,
-    AegisLCMPublisherAdapterPorts,
-    AegisLCMSubscriberAdapter,
-    AegisLCMSubscriberAdapterPorts,
-)
-from manor.common.aegis.aegis_constants import AegisChannel
+from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter, AegisLCMSubscriberAdapter
+from manor.common.aegis.aegis_constants import AegisAdapterPorts, AegisChannel
 from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
-from manor.common.definitions.utils.defaults import (
-    construct_default_action,
-    construct_default_command,
-    construct_default_proprioception,
-)
+from manor.common.definitions.action import Action
+from manor.common.definitions.command import Command
+from manor.common.definitions.proprioception import Proprioception
 
 _DEFAULT_KYBER_FREQUENCY_HZ = 50.0
 
@@ -47,7 +40,7 @@ def build_kyber_lcm_diagram(lcm: DrakeLcm, kyber_publish_frequency_hz: float) ->
 
     proprioception_subscriber = builder.AddSystem(
         AegisLCMSubscriberAdapter.from_lcm_type(
-            definition_model_value=construct_default_proprioception(),
+            definition_cls=Proprioception,
             channel=AegisChannel.PROPRIOCEPTION,
             lcm=lcm,
         )
@@ -55,7 +48,7 @@ def build_kyber_lcm_diagram(lcm: DrakeLcm, kyber_publish_frequency_hz: float) ->
 
     action_subscriber = builder.AddSystem(
         AegisLCMSubscriberAdapter.from_lcm_type(
-            definition_model_value=construct_default_action(),
+            definition_cls=Action,
             channel=AegisChannel.ACTION,
             lcm=lcm,
         )
@@ -65,7 +58,7 @@ def build_kyber_lcm_diagram(lcm: DrakeLcm, kyber_publish_frequency_hz: float) ->
 
     command_publisher = builder.AddSystem(
         AegisLCMPublisherAdapter.from_lcm_type(
-            definition_model_value=construct_default_command(),
+            definition_cls=Command,
             channel=AegisChannel.COMMAND,
             lcm=lcm,
             publish_period=1.0 / kyber_publish_frequency_hz,
@@ -73,16 +66,16 @@ def build_kyber_lcm_diagram(lcm: DrakeLcm, kyber_publish_frequency_hz: float) ->
     )
 
     builder.Connect(
-        proprioception_subscriber.GetOutputPort(AegisLCMSubscriberAdapterPorts.OUTPUT_DEFINITION),
+        proprioception_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
         kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION),
     )
     builder.Connect(
-        action_subscriber.GetOutputPort(AegisLCMSubscriberAdapterPorts.OUTPUT_DEFINITION),
+        action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
         kyber.GetInputPort(KyberPorts.INPUT_ACTION),
     )
     builder.Connect(
         kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
-        command_publisher.GetInputPort(AegisLCMPublisherAdapterPorts.INPUT_DEFINITION),
+        command_publisher.GetInputPort(AegisAdapterPorts.DEFINITION_INPUT),
     )
 
     return builder.Build()

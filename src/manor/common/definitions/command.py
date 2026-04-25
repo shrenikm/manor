@@ -136,3 +136,11 @@ class Command(DefinitionBase):
             header=TimestampHeader.from_lcm_message(msg.header),
             **{field.name: value},
         )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            joint_positions=JointPositions.construct_default(num_joints=num_joints),
+        )

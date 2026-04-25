@@ -21,16 +21,11 @@ from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.definitions.action import Action
+from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.definitions.utils.defaults import (
-    construct_default_action,
-    construct_default_depth_image,
-    construct_default_proprioception,
-    construct_default_rgb_image,
-    construct_system_time_header,
-)
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 class MetisPorts(StrEnum):
@@ -72,22 +67,22 @@ class Metis(LeafSystem):
 
         self._proprioception_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_PROPRIOCEPTION,
-            AbstractValue.Make(construct_default_proprioception()),
+            AbstractValue.Make(Proprioception.construct_default()),
         )
         self._rgb_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_RGB_IMAGE,
-            AbstractValue.Make(construct_default_rgb_image()),
+            AbstractValue.Make(RGBImageData.construct_default()),
         )
         self._depth_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_DEPTH_IMAGE,
-            AbstractValue.Make(construct_default_depth_image()),
+            AbstractValue.Make(DepthImageData.construct_default()),
         )
 
-        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(construct_default_action()))
+        self._action_state_index = self.DeclareAbstractState(AbstractValue.Make(Action.construct_default()))
 
         self.DeclareAbstractOutputPort(
             MetisPorts.OUTPUT_ACTION,
-            alloc=lambda: AbstractValue.Make(construct_default_action()),
+            alloc=lambda: AbstractValue.Make(Action.construct_default()),
             calc=self._calc_action_output,
             prerequisites_of_calc={self.abstract_state_ticket(self._action_state_index)},
         )
@@ -116,7 +111,7 @@ class Metis(LeafSystem):
         self._depth_input.Eval(context)
 
         observation = Observation(
-            header=construct_system_time_header(),
+            header=TimestampHeader.from_system_time(),
             proprioception=proprioception,
             rgb_image=rgb,
             rgbd_image=None,

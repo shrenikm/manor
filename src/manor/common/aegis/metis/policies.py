@@ -12,8 +12,9 @@ from __future__ import annotations
 import attr
 
 from manor.common.definitions.action import Action
+from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.observation import Observation
-from manor.common.definitions.utils.defaults import construct_default_joint_positions, construct_system_time_header
+from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 @attr.frozen
@@ -32,8 +33,8 @@ class IdentityPolicy:
     def step(self, observation: Observation) -> Action:
         if observation.proprioception is not None:
             joint_positions = observation.proprioception.joint_state.joint_positions
-            joint_positions = attr.evolve(joint_positions, header=construct_system_time_header())
+            joint_positions = attr.evolve(joint_positions, header=TimestampHeader.from_system_time())
         else:
-            joint_positions = construct_default_joint_positions(self.num_joints)
+            joint_positions = JointPositions.construct_default(num_joints=self.num_joints)
 
-        return Action(header=construct_system_time_header(), joint_positions=joint_positions)
+        return Action(header=TimestampHeader.from_system_time(), joint_positions=joint_positions)
