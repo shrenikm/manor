@@ -4,7 +4,7 @@ import numpy as np
 from pydrake.common.value import AbstractValue, Value
 from pydrake.systems.framework import Context, LeafSystem
 
-from manor.manipulators.lite6.utils.lite6_model_utils import Lite6GripperStatus
+from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import Lite6GripperStatus
 
 LITE6_GSS_OP_NAME = "gss_output"
 

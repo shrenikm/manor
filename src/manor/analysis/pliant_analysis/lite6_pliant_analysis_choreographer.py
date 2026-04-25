@@ -14,8 +14,8 @@ from manor.common.control.signals import ControlSignal, SineControlSignal, StepC
 from manor.common.custom_types import FilePath, JointPositionsVector
 from manor.common.exceptions import Lite6PliantChoreographerError, Lite6PliantError
 from manor.common.logging_utils import ManorLogger
-from manor.manipulators.lite6.pliant.lite6_pliant_utils import Lite6PliantConfig
-from manor.manipulators.lite6.utils.lite6_model_utils import LITE6_DOF, Lite6ControlType
+from manor.manipulators.deprecated_lite6.pliant.lite6_pliant_utils import Lite6PliantConfig
+from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import LITE6_DOF, Lite6ControlType
 
 CC_PE_INPUT_PORT = "cc_pe_input_port"
 CC_VE_INPUT_PORT = "cc_ve_input_port"

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.lite6.utils.lite6_model_utils import (
+from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import (
     LITE6_NP_GRIPPER_CLOSED_POSITIONS,
     LITE6_NP_GRIPPER_CLOSED_VELOCITIES,
     LITE6_NP_GRIPPER_OPEN_POSITIONS,
