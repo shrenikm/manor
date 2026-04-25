@@ -18,7 +18,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.lcm import LcmInterfaceSystem, LcmSubscriberSystem
 
-from manor.common.aegis.aegis_constants import AegisChannel
+from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.aegis.kyber.kyber_lcm import build_kyber_lcm_diagram
 from manor.common.aegis.kyber.lcm_source import build_lcm_source_diagram
 from manor.common.definitions.action import Action

@@ -16,6 +16,7 @@ template via ``definition_cls.construct_default()``.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Self
 
 from pydrake.common.value import AbstractValue
@@ -23,8 +24,25 @@ from pydrake.lcm import DrakeLcm
 from pydrake.systems.framework import Context, Diagram, DiagramBuilder, LeafSystem
 from pydrake.systems.lcm import LcmPublisherSystem, LcmSubscriberSystem
 
-from manor.common.aegis.aegis_constants import AegisAdapterPorts, AegisAdapterSystemRole, AegisChannel
+from manor.common.aegis.aegis_utils import AegisAdapterSystemRole, AegisChannel
 from manor.common.definitions.utils.interfaces import DefinitionBase
+
+
+class AegisAdapterPorts(StrEnum):
+    """
+    Shared port-name enum for all aegis adapters.
+
+    Subscriber adapters expose ``DEFINITION_OUTPUT``; publisher adapters
+    expose ``DEFINITION_INPUT``. The translator LeafSystems inside the
+    LCM adapter pair use the LCM_* members for their LCM-typed sides.
+    Future non-LCM adapters can add members here rather than introducing
+    parallel enums.
+    """
+
+    LCM_INPUT = "lcm_input"
+    LCM_OUTPUT = "lcm_output"
+    DEFINITION_INPUT = "definition_input"
+    DEFINITION_OUTPUT = "definition_output"
 
 
 class _LcmToDefinitionTranslator(LeafSystem):

@@ -20,8 +20,12 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Context, Diagram, DiagramBuilder, LeafSystem
 from pydrake.systems.lcm import LcmInterfaceSystem
 
-from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter, AegisLCMSubscriberAdapter
-from manor.common.aegis.aegis_constants import AegisAdapterPorts, AegisChannel
+from manor.common.aegis.aegis_adapters import (
+    AegisAdapterPorts,
+    AegisLCMPublisherAdapter,
+    AegisLCMSubscriberAdapter,
+)
+from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.depth_image_data import DepthImageData

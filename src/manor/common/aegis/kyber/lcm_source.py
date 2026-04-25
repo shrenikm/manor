@@ -24,8 +24,8 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Context, Diagram, DiagramBuilder, LeafSystem
 from pydrake.systems.lcm import LcmInterfaceSystem
 
-from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter
-from manor.common.aegis.aegis_constants import AegisAdapterPorts, AegisChannel
+from manor.common.aegis.aegis_adapters import AegisAdapterPorts, AegisLCMPublisherAdapter
+from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.definitions.action import Action
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
