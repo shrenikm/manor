@@ -10,36 +10,35 @@ lcm-spy or similar.
 The message bodies are zero-valued default instances whose TimestampHeaders
 are refreshed on every evaluation, so consumers can confirm that messages
 are actually being re-emitted rather than cached.
-
-Channels:
-    AEGIS_PROPRIOCEPTION   -> lcmt_proprioception
-    AEGIS_ACTION           -> lcmt_action
 """
 
 from __future__ import annotations
 
 import argparse
+from enum import StrEnum
 
 import attr
 from pydrake.common.value import AbstractValue
 from pydrake.lcm import DrakeLcm
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Context, Diagram, DiagramBuilder, LeafSystem
-from pydrake.systems.lcm import LcmInterfaceSystem, LcmPublisherSystem
+from pydrake.systems.lcm import LcmInterfaceSystem
 
-from manor.common.definitions.lcmtypes.lcmt_action import lcmt_action
-from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception
+from manor.common.aegis.aegis_adapters import AegisLCMPublisherAdapter, AegisLCMPublisherAdapterPorts
+from manor.common.aegis.aegis_constants import AegisChannel
 from manor.common.definitions.utils.defaults import (
     construct_default_action,
     construct_default_proprioception,
     construct_system_time_header,
 )
 
-AEGIS_PROPRIOCEPTION_CHANNEL = "AEGIS_PROPRIOCEPTION"
-AEGIS_ACTION_CHANNEL = "AEGIS_ACTION"
-
 _DEMO_NUM_JOINTS = 6
 _DEFAULT_PUBLISH_FREQUENCY_HZ = 10.0
+
+
+class _FreshDefaultMessageSourcePorts(StrEnum):
+    OUTPUT_PROPRIOCEPTION = "proprioception"
+    OUTPUT_ACTION = "action"
 
 
 class _FreshDefaultMessageSource(LeafSystem):
@@ -53,12 +52,12 @@ class _FreshDefaultMessageSource(LeafSystem):
     def __init__(self) -> None:
         super().__init__()
         self.DeclareAbstractOutputPort(
-            "proprioception",
+            _FreshDefaultMessageSourcePorts.OUTPUT_PROPRIOCEPTION,
             alloc=lambda: AbstractValue.Make(construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS)),
             calc=self._calc_proprioception,
         )
         self.DeclareAbstractOutputPort(
-            "action",
+            _FreshDefaultMessageSourcePorts.OUTPUT_ACTION,
             alloc=lambda: AbstractValue.Make(construct_default_action(num_joints=_DEMO_NUM_JOINTS)),
             calc=self._calc_action,
         )
@@ -80,28 +79,6 @@ class _FreshDefaultMessageSource(LeafSystem):
         )
 
 
-class _AegisToLcmMessageSystem(LeafSystem):
-    """
-    Translates an aegis attrs message to its LCM counterpart.
-
-    Input:  aegis message of the same concrete type as ``model_value``.
-    Output: generated LCM message produced via ``to_lcm_message()``.
-    """
-
-    def __init__(self, model_value) -> None:
-        super().__init__()
-        lcm_model_value = model_value.to_lcm_message()
-        self._input = self.DeclareAbstractInputPort("in", AbstractValue.Make(model_value))
-        self.DeclareAbstractOutputPort(
-            "out",
-            alloc=lambda: AbstractValue.Make(lcm_model_value),
-            calc=self._calc,
-        )
-
-    def _calc(self, context: Context, output: AbstractValue) -> None:
-        output.set_value(self._input.Eval(context).to_lcm_message())
-
-
 def build_lcm_source_diagram(lcm: DrakeLcm, publish_frequency_hz: float) -> Diagram:
     """
     Build the LCM source diagram.
@@ -114,41 +91,34 @@ def build_lcm_source_diagram(lcm: DrakeLcm, publish_frequency_hz: float) -> Diag
     builder = DiagramBuilder()
 
     source = builder.AddSystem(_FreshDefaultMessageSource())
-    source.set_name("fresh_default_source")
-
-    proprioception_to_lcm = builder.AddSystem(
-        _AegisToLcmMessageSystem(construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS))
-    )
-    proprioception_to_lcm.set_name("proprioception_to_lcm")
-
-    action_to_lcm = builder.AddSystem(_AegisToLcmMessageSystem(construct_default_action(num_joints=_DEMO_NUM_JOINTS)))
-    action_to_lcm.set_name("action_to_lcm")
 
     publish_period_sec = 1.0 / publish_frequency_hz
     proprioception_publisher = builder.AddSystem(
-        LcmPublisherSystem.Make(
-            channel=AEGIS_PROPRIOCEPTION_CHANNEL,
-            lcm_type=lcmt_proprioception,
+        AegisLCMPublisherAdapter.from_lcm_type(
+            definition_model_value=construct_default_proprioception(num_joints=_DEMO_NUM_JOINTS),
+            channel=AegisChannel.PROPRIOCEPTION,
             lcm=lcm,
             publish_period=publish_period_sec,
         )
     )
-    proprioception_publisher.set_name("proprioception_publisher")
 
     action_publisher = builder.AddSystem(
-        LcmPublisherSystem.Make(
-            channel=AEGIS_ACTION_CHANNEL,
-            lcm_type=lcmt_action,
+        AegisLCMPublisherAdapter.from_lcm_type(
+            definition_model_value=construct_default_action(num_joints=_DEMO_NUM_JOINTS),
+            channel=AegisChannel.ACTION,
             lcm=lcm,
             publish_period=publish_period_sec,
         )
     )
-    action_publisher.set_name("action_publisher")
 
-    builder.Connect(source.GetOutputPort("proprioception"), proprioception_to_lcm.GetInputPort("in"))
-    builder.Connect(source.GetOutputPort("action"), action_to_lcm.GetInputPort("in"))
-    builder.Connect(proprioception_to_lcm.GetOutputPort("out"), proprioception_publisher.get_input_port())
-    builder.Connect(action_to_lcm.GetOutputPort("out"), action_publisher.get_input_port())
+    builder.Connect(
+        source.GetOutputPort(_FreshDefaultMessageSourcePorts.OUTPUT_PROPRIOCEPTION),
+        proprioception_publisher.GetInputPort(AegisLCMPublisherAdapterPorts.INPUT_DEFINITION),
+    )
+    builder.Connect(
+        source.GetOutputPort(_FreshDefaultMessageSourcePorts.OUTPUT_ACTION),
+        action_publisher.GetInputPort(AegisLCMPublisherAdapterPorts.INPUT_DEFINITION),
+    )
 
     return builder.Build()
 
@@ -181,7 +151,7 @@ def main() -> None:
     simulator.set_target_realtime_rate(1.0)
     print(
         f"Publishing at {args.frequency} Hz on "
-        f"'{AEGIS_PROPRIOCEPTION_CHANNEL}' and '{AEGIS_ACTION_CHANNEL}'. "
+        f"'{AegisChannel.PROPRIOCEPTION}' and '{AegisChannel.ACTION}'. "
         "Ctrl+C to stop."
     )
     simulator.AdvanceTo(args.duration)

@@ -23,3 +23,6 @@ The project supports both: execution in simulation and real hardware
 ## Code Style
 
 - When writing tests, please add the function to run the tests (run_manor_tests()) at the end of every file
+- AVOID raw strings unless it absolutely doesn't make sense to do so (like in temporary scripts, etc)
+    - Try to create global variables for strings
+    - For Drake channel and port names, please create enums for the string values

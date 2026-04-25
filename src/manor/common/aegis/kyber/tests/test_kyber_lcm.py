@@ -18,15 +18,9 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.lcm import LcmInterfaceSystem, LcmSubscriberSystem
 
-from manor.common.aegis.kyber.kyber_lcm import (
-    AEGIS_COMMAND_CHANNEL,
-    build_kyber_lcm_diagram,
-)
-from manor.common.aegis.kyber.lcm_source import (
-    AEGIS_ACTION_CHANNEL,
-    AEGIS_PROPRIOCEPTION_CHANNEL,
-    build_lcm_source_diagram,
-)
+from manor.common.aegis.aegis_constants import AegisChannel
+from manor.common.aegis.kyber.kyber_lcm import build_kyber_lcm_diagram
+from manor.common.aegis.kyber.lcm_source import build_lcm_source_diagram
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.lcmtypes.lcmt_action import lcmt_action
@@ -55,21 +49,21 @@ def _build_combined_diagram(lcm: DrakeLcm):
 
     proprioception_probe = builder.AddSystem(
         LcmSubscriberSystem.Make(
-            channel=AEGIS_PROPRIOCEPTION_CHANNEL,
+            channel=AegisChannel.PROPRIOCEPTION,
             lcm_type=lcmt_proprioception,
             lcm=lcm,
         )
     )
     action_probe = builder.AddSystem(
         LcmSubscriberSystem.Make(
-            channel=AEGIS_ACTION_CHANNEL,
+            channel=AegisChannel.ACTION,
             lcm_type=lcmt_action,
             lcm=lcm,
         )
     )
     command_probe = builder.AddSystem(
         LcmSubscriberSystem.Make(
-            channel=AEGIS_COMMAND_CHANNEL,
+            channel=AegisChannel.COMMAND,
             lcm_type=lcmt_command,
             lcm=lcm,
         )
