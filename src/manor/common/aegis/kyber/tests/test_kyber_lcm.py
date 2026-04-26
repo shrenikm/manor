@@ -107,11 +107,10 @@ class TestLcmSourceToKyber:
         assert command_lcm.header.monotonic_ns > 0
 
         command = Command.from_lcm_message(command_lcm)
-        # Kyber's passthrough populates the joint_positions variant of Command
-        # from the incoming Action. The source emits 6-joint defaults, so the
-        # on-wire command should carry a 6-long position vector.
-        assert command.joint_positions is not None
-        assert command.joint_positions.positions.shape == (6,)
+        # Kyber's stub emits a zero ``JointVelocities`` command sized to the
+        # manipulator's actuated DOF count (6 for the Lite6 arm).
+        assert command.joint_velocities is not None
+        assert command.joint_velocities.velocities.shape == (6,)
 
     def test_command_publish_frequency_is_roughly_kyber_frequency(self) -> None:
         """

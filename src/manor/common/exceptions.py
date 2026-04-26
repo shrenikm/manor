@@ -72,6 +72,30 @@ class Lite6DriverError(ManipulatorDriverError):
     pass
 
 
+class AegisError(ManorError):
+    """
+    Base exception for the aegis sub-system.
+    """
+
+    pass
+
+
+class EnvironmentConfigError(AegisError):
+    """
+    Raised when an EnvironmentConfig cannot be parsed or is invalid.
+    """
+
+    pass
+
+
+class SimError(AegisError):
+    """
+    Raised when the Sim object encounters a runtime error.
+    """
+
+    pass
+
+
 class DefinitionError(ManorError):
     """
     Base exception for errors related to typed data-class definitions.

@@ -20,7 +20,11 @@ from manor.manipulators.deprecated_lite6.pliant.lite6_pliant_utils import (
     create_simulator_for_lite6_pliant,
     get_tuned_pid_gains_for_pliant_id_controller,
 )
-from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import Lite6ControlType, Lite6GripperStatus, Lite6ModelType
+from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import (
+    Lite6ControlType,
+    Lite6GripperStatus,
+    Lite6ModelType,
+)
 
 
 def analyze_lite6_pliant(

@@ -69,7 +69,12 @@ class TestHeliosPublishing:
 
 class TestSensorBackendProtocolCompliance:
     def test_sim_backend_satisfies_protocol(self) -> None:
-        backend = SimSensorBackend(config=SimSensorBackendConfig())
+        from manor.common.aegis.sim.sim import Sim
+        from manor.manipulators.lite6.model import Lite6Model
+        from manor.manipulators.lite6.variant import Lite6Variant
+
+        sim = Sim(manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL))
+        backend = SimSensorBackend(sim=sim, config=SimSensorBackendConfig())
         assert isinstance(backend, SensorBackend)
         assert isinstance(backend.read_rgb(), RGBImageData)
         assert isinstance(backend.read_depth(), DepthImageData)

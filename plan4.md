@@ -72,3 +72,89 @@ But I still want to set this up now for completeness and making sure that future
 * Also note that for sim, I want to use an environment similar to my actual set up which is the robot mounted on a table. If you notice, I've been using this table urdf in the old code, and I construct the drake multibodyplant with manipulator + table. I'd like to do it similar, but it needs to be more flexible/generic. I don't want to always do this table thing as it needs to be extendible to other environments and manipulators. So ideally we need to design some kind of configuration file (yaml or something?) which can define the environment the robot will be active in and we can use this in Kyber, Talos, etc.
 * This isn't super important for now, but it would be nice if our design choices now nicely allowed for the "both" option where we can run on real robot while also displaying the robot states in sim. 
 * Let me know your thoughts here.
+
+# Implementation
+
+## Design (decided)
+
+- **Sim-as-Python-object** (not a Drake LeafSystem). A `Sim` class lives at
+  `src/manor/common/aegis/sim/sim.py`. It owns its own internal `MultibodyPlant`,
+  `SceneGraph`, `RgbdSensor`s, `MeshcatVisualizer`, and an internal
+  `Simulator`. Its public API is plain Python:
+    - `apply_joint_position_command(positions)`
+    - `apply_joint_velocity_command(velocities)`
+    - `read_joint_state() -> JointState`
+    - `render_rgb(camera_id) -> RGBImageData`
+    - `render_depth(camera_id) -> DepthImageData`
+    - `advance_to(t)`
+    - `set_joint_positions(positions)`  (used by the future "both" mirror mode)
+- **Sim/hardware graph-shape parity.** The outer Aegis `Diagram` has the
+  same systems and same wiring in both modes. Only the backends (sim vs
+  hardware) and a sim-only `_SimAdvancer` differ.
+- **`_SimAdvancer` LeafSystem** (sim-mode only): one extra LeafSystem with
+  a fast (~500 Hz) periodic event that calls `sim.advance_to(context.get_time())`.
+  Sim is *driven* by the diagram's clock; backends just *read* it.
+- **`EnvironmentConfig`**: attrs class loaded from YAML. Describes the
+  manipulator's mounting frame and any extra static models welded into
+  the world. Default (no env): manipulator welded to world origin.
+  Lives at `src/manor/common/aegis/sim/env_config.py`.
+- **Each system owns its own plant.** Kyber holds an `IManipulatorModel`
+  to build its own MultibodyPlant for diff-IK / trajectory tracking.
+  Talos holds its own MultibodyPlant for FK (eef pose + twist). Sim has
+  its own physics plant. None are shared. Same URDFs, three independent
+  plant instances.
+- **Block 1/2/3 nomenclature is just for explanation** in the plan; the
+  code does not reflect it.
+
+## Stubs adopted in this phase
+
+To get the high-level wiring + architecture in place without front-loading
+the algorithmic work:
+
+- **Metis policy stub**: emits a zero-velocity `JointVelocities` action.
+- **Kyber controller stub**: emits a zero-velocity `JointVelocities`
+  command (passes the action through, conceptually). No diff-IK yet.
+- **Talos FK stub**: still returns identity pose + zero twist; the
+  per-Talos `MultibodyPlant` plumbing is added but FK math is deferred.
+- **Sim backend stubs**: render-paths return empty image buffers; physics
+  is zero-actuation (the position command is held but not yet applied to
+  the plant's actuation input). The Drake plant + `Simulator` *are*
+  constructed and `advance_to` *is* called every tick, so the structural
+  seam exists.
+
+## Wiring (final, both modes)
+
+Same in sim and hardware -- only the backends differ.
+
+```
+Helios.OUTPUT_RGB_IMAGE        --> AegisLCMPublisherAdapter[RGB_IMAGE]
+Helios.OUTPUT_DEPTH_IMAGE      --> AegisLCMPublisherAdapter[DEPTH_IMAGE]
+Talos.OUTPUT_PROPRIOCEPTION    --> AegisLCMPublisherAdapter[PROPRIOCEPTION]
+
+AegisLCMSubscriberAdapter[RGB_IMAGE]      --> Metis.INPUT_RGB_IMAGE
+AegisLCMSubscriberAdapter[DEPTH_IMAGE]    --> Metis.INPUT_DEPTH_IMAGE
+AegisLCMSubscriberAdapter[PROPRIOCEPTION] --> Metis.INPUT_PROPRIOCEPTION
+
+Metis.OUTPUT_ACTION                       --> AegisLCMPublisherAdapter[ACTION]
+AegisLCMSubscriberAdapter[ACTION]         --> Kyber.INPUT_ACTION
+
+Kyber.OUTPUT_COMMAND          --> Talos.INPUT_COMMAND   (direct, not LCM)
+```
+
+Sim-only: `_SimAdvancer` LeafSystem in the same diagram, no input/output
+ports, periodic event drives `sim.advance_to`.
+
+## Layout
+
+```
+src/manor/common/aegis/
+  ... (existing helios, talos, metis, kyber, adapters, builder)
+  sim/
+    __init__.py
+    sim.py            -- Sim class
+    env_config.py     -- EnvironmentConfig + YAML loader
+```
+
+The existing `src/manor/common/aegis/` (helios, talos, metis, kyber,
+adapters, builder) stays where it is; only the *backends* and the
+*builder* gain knowledge of Sim.

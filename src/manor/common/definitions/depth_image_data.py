@@ -87,6 +87,10 @@ class DepthImageData(DefinitionBase):
     @classmethod
     @override
     def from_lcm_message(cls, msg: Any) -> Self:
+        # Default-constructed lcmt before any traffic has been received
+        # has an empty encoding; surface that as a default DepthImageData.
+        if not msg.encoding:
+            return cls.construct_default(height=int(msg.height), width=int(msg.width))
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             height=int(msg.height),

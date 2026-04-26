@@ -26,6 +26,8 @@ from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.proprioception import Proprioception
+from manor.manipulators.lite6.model import Lite6Model
+from manor.manipulators.lite6.variant import Lite6Variant
 
 _DEFAULT_KYBER_FREQUENCY_HZ = 50.0
 
@@ -58,7 +60,12 @@ def build_kyber_lcm_diagram(lcm: DrakeLcm, kyber_publish_frequency_hz: float) ->
         )
     )
 
-    kyber = builder.AddSystem(Kyber(publish_frequency=kyber_publish_frequency_hz))
+    kyber = builder.AddSystem(
+        Kyber(
+            manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
+            publish_frequency=kyber_publish_frequency_hz,
+        )
+    )
 
     command_publisher = builder.AddSystem(
         AegisLCMPublisherAdapter.from_lcm_type(

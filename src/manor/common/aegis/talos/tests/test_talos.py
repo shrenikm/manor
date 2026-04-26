@@ -5,11 +5,14 @@ assembly, and backend protocol compliance.
 
 from __future__ import annotations
 
+from unittest import mock
+
 import numpy as np
 import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
+from manor.common.aegis.sim.sim import Sim
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
@@ -22,6 +25,9 @@ from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.testing_utils import run_manor_tests
+from manor.manipulators.lite6.driver import Lite6Driver
+from manor.manipulators.lite6.model import Lite6Model
+from manor.manipulators.lite6.variant import Lite6Variant
 
 
 class _RecordingBackend:
@@ -56,8 +62,16 @@ def _make_command(positions: np.ndarray) -> Command:
     )
 
 
+def _make_lite6_model() -> Lite6Model:
+    return Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+
+
 def _make_talos(**overrides) -> Talos:
-    defaults = dict(backend=_RecordingBackend(), robot_model_path=None, publish_frequency=100.0)
+    defaults = dict(
+        backend=_RecordingBackend(),
+        manipulator_model=_make_lite6_model(),
+        publish_frequency=100.0,
+    )
     defaults.update(overrides)
     return Talos(**defaults)
 
@@ -73,6 +87,10 @@ class TestTalosConstruction:
         assert talos.num_output_ports() == 1
         assert talos.GetInputPort(TalosPorts.INPUT_COMMAND) is not None
         assert talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION) is not None
+
+    def test_owns_a_finalized_plant(self) -> None:
+        talos = _make_talos()
+        assert talos.plant.is_finalized()
 
 
 class TestTalosPeriodic:
@@ -103,19 +121,32 @@ class TestTalosPeriodic:
         assert isinstance(proprioception.eef_state, EEFState)
         assert isinstance(proprioception.eef_pose, EEFPose)
         assert isinstance(proprioception.eef_twist, EEFTwist)
-        # Header is stamped via system time -- nonzero monotonic_ns confirms a
-        # real tick ran (default construction puts this at 0).
         assert proprioception.header.monotonic_ns > 0
 
 
 class TestManipulatorBackendProtocolCompliance:
     def test_sim_backend_satisfies_protocol(self) -> None:
-        backend = SimManipulatorBackend(config=SimManipulatorBackendConfig())
+        sim = Sim(manipulator_model=_make_lite6_model())
+        backend = SimManipulatorBackend(sim=sim, config=SimManipulatorBackendConfig())
         assert isinstance(backend, ManipulatorBackend)
 
     def test_hardware_backend_satisfies_protocol(self) -> None:
-        backend = HardwareManipulatorBackend(config=HardwareManipulatorBackendConfig())
+        driver = Lite6Driver(model=_make_lite6_model())
+        backend = HardwareManipulatorBackend(driver=driver, config=HardwareManipulatorBackendConfig())
         assert isinstance(backend, ManipulatorBackend)
+
+
+class TestSimManipulatorBackend:
+    def test_send_command_routes_joint_positions_to_sim(self) -> None:
+        sim = mock.MagicMock(spec=Sim)
+        backend = SimManipulatorBackend(sim=sim)
+        positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+        command = Command(
+            header=TimestampHeader.from_system_time(),
+            joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
+        )
+        backend.send_command(command)
+        sim.apply_joint_position_command.assert_called_once()
 
 
 if __name__ == "__main__":

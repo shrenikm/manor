@@ -1,5 +1,6 @@
 """
-Tests for Kyber: message passing, periodic publish cadence, and output hold.
+Tests for Kyber: port shape, plant ownership, and the zero-velocity
+stub controller.
 """
 
 from __future__ import annotations
@@ -18,6 +19,18 @@ from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.testing_utils import run_manor_tests
+from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
+from manor.manipulators.lite6.variant import Lite6Variant
+
+
+def _make_lite6() -> Lite6Model:
+    return Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+
+
+def _make_kyber(**overrides) -> Kyber:
+    defaults = dict(manipulator_model=_make_lite6(), publish_frequency=100.0)
+    defaults.update(overrides)
+    return Kyber(**defaults)
 
 
 def _make_action(positions: np.ndarray) -> Action:
@@ -59,45 +72,56 @@ def _read_command(kyber: Kyber, context) -> Command:
 class TestKyberConstruction:
     def test_rejects_non_positive_frequency(self) -> None:
         with pytest.raises(ValueError):
-            Kyber(publish_frequency=0.0)
+            _make_kyber(publish_frequency=0.0)
         with pytest.raises(ValueError):
-            Kyber(publish_frequency=-10.0)
+            _make_kyber(publish_frequency=-10.0)
 
     def test_declares_expected_ports(self) -> None:
-        kyber = Kyber(publish_frequency=100.0)
+        kyber = _make_kyber()
         assert kyber.num_input_ports() == 2
         assert kyber.num_output_ports() == 1
         assert kyber.GetInputPort(KyberPorts.INPUT_ACTION) is not None
         assert kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION) is not None
         assert kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND) is not None
 
+    def test_owns_a_finalized_plant(self) -> None:
+        kyber = _make_kyber()
+        assert kyber.plant.is_finalized()
+
     def test_stores_publish_frequency(self) -> None:
-        kyber = Kyber(publish_frequency=250.0)
+        kyber = _make_kyber(publish_frequency=250.0)
         assert kyber.publish_frequency == 250.0
 
 
-class TestKyberPassthrough:
-    def test_action_joint_positions_flow_to_command(self) -> None:
-        kyber = Kyber(publish_frequency=100.0)
+class TestKyberZeroVelocityStub:
+    def test_emits_zero_velocity_command_for_arm_dof(self) -> None:
+        kyber = _make_kyber()
         context = kyber.CreateDefaultContext()
-
-        positions = np.array([0.1, -0.2, 0.3, 0.4, -0.5, 0.6], dtype=np.float64)
-        _fix_inputs(kyber, context, _make_action(positions), _make_proprioception(n_joints=6))
+        _fix_inputs(
+            kyber,
+            context,
+            _make_action(np.array([0.1, -0.2, 0.3, 0.4, -0.5, 0.6, 0.7, -0.8], dtype=np.float64)),
+            _make_proprioception(n_joints=LITE6_ARM_DOF),
+        )
 
         simulator = Simulator(kyber, context)
         simulator.AdvanceTo(0.05)
 
         command = _read_command(kyber, simulator.get_context())
-        assert isinstance(command, Command)
-        assert command.joint_positions is not None
-        np.testing.assert_array_equal(command.joint_positions.positions, positions)
+        assert command.joint_velocities is not None
+        np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
     def test_command_header_is_system_time(self) -> None:
         import time as _time
 
-        kyber = Kyber(publish_frequency=100.0)
+        kyber = _make_kyber()
         context = kyber.CreateDefaultContext()
-        _fix_inputs(kyber, context, _make_action(np.zeros(3)), _make_proprioception(n_joints=3))
+        _fix_inputs(
+            kyber,
+            context,
+            _make_action(np.zeros(LITE6_ARM_DOF)),
+            _make_proprioception(n_joints=LITE6_ARM_DOF),
+        )
 
         before_mono = _time.monotonic_ns()
         before_sys = _time.time_ns()
@@ -109,44 +133,6 @@ class TestKyberPassthrough:
         command = _read_command(kyber, simulator.get_context())
         assert before_mono <= command.header.monotonic_ns <= after_mono
         assert before_sys <= command.header.system_ns <= after_sys
-
-
-class TestKyberPeriodicCadence:
-    def test_command_updates_when_action_changes(self) -> None:
-        kyber = Kyber(publish_frequency=100.0)
-        context = kyber.CreateDefaultContext()
-
-        first = np.array([1.0, 1.0, 1.0], dtype=np.float64)
-        _fix_inputs(kyber, context, _make_action(first), _make_proprioception(n_joints=3))
-
-        simulator = Simulator(kyber, context)
-        simulator.AdvanceTo(0.05)
-        cmd_first = _read_command(kyber, simulator.get_context())
-        np.testing.assert_array_equal(cmd_first.joint_positions.positions, first)
-
-        second = np.array([2.0, -2.0, 3.5], dtype=np.float64)
-        kyber.GetInputPort(KyberPorts.INPUT_ACTION).FixValue(
-            simulator.get_context(), AbstractValue.Make(_make_action(second))
-        )
-        simulator.AdvanceTo(0.10)
-        cmd_second = _read_command(kyber, simulator.get_context())
-        np.testing.assert_array_equal(cmd_second.joint_positions.positions, second)
-
-    def test_output_holds_between_ticks(self) -> None:
-        # At 10 Hz the period is 0.1s; advancing to 0.25s should trigger exactly
-        # three unrestricted updates (at t = 0.0, 0.1, 0.2). The output held
-        # between ticks must equal the most-recent tick's value, so a static
-        # input produces a stable output across the whole run.
-        kyber = Kyber(publish_frequency=10.0)
-        context = kyber.CreateDefaultContext()
-        positions = np.array([0.7, 0.8], dtype=np.float64)
-        _fix_inputs(kyber, context, _make_action(positions), _make_proprioception(n_joints=2))
-
-        simulator = Simulator(kyber, context)
-        simulator.AdvanceTo(0.25)
-
-        command = _read_command(kyber, simulator.get_context())
-        np.testing.assert_array_equal(command.joint_positions.positions, positions)
 
 
 if __name__ == "__main__":

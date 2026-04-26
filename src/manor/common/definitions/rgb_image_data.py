@@ -84,6 +84,12 @@ class RGBImageData(DefinitionBase):
     @classmethod
     @override
     def from_lcm_message(cls, msg: Any) -> Self:
+        # An LCM subscriber that hasn't yet received a message yields a
+        # default-constructed lcmt with an empty encoding string; treat
+        # it as the equivalent default RGBImageData so downstream
+        # consumers can Eval the port before any traffic arrives.
+        if not msg.encoding:
+            return cls.construct_default(height=int(msg.height), width=int(msg.width))
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             height=int(msg.height),

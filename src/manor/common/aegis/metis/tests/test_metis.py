@@ -10,7 +10,7 @@ from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
 from manor.common.aegis.metis.metis import Metis, MetisPorts, Policy
-from manor.common.aegis.metis.policies import IdentityPolicy
+from manor.common.aegis.metis.policies import IdentityPolicy, ZeroVelocityPolicy
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_positions import JointPositions
@@ -117,6 +117,29 @@ class TestIdentityPolicy:
         action = policy.step(observation)
         assert action.joint_positions is not None
         assert action.joint_positions.positions.shape == (4,)
+
+
+class TestZeroVelocityPolicy:
+    def test_is_a_policy(self) -> None:
+        assert isinstance(ZeroVelocityPolicy(), Policy)
+
+    def test_emits_zero_velocity_sized_to_proprioception(self) -> None:
+        policy = ZeroVelocityPolicy()
+        positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64)
+        observation = Observation(
+            header=TimestampHeader(monotonic_ns=1, system_ns=2),
+            proprioception=_make_proprioception(positions),
+        )
+        action = policy.step(observation)
+        assert action.joint_velocities is not None
+        np.testing.assert_array_equal(action.joint_velocities.velocities, np.zeros(5))
+
+    def test_emits_zero_velocity_using_num_joints_without_proprioception(self) -> None:
+        policy = ZeroVelocityPolicy(num_joints=6)
+        observation = Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2))
+        action = policy.step(observation)
+        assert action.joint_velocities is not None
+        np.testing.assert_array_equal(action.joint_velocities.velocities, np.zeros(6))
 
 
 if __name__ == "__main__":
