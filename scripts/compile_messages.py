@@ -15,9 +15,10 @@ with a fresh SchemaParser.
 
 When javac / jar / lcm.jar are all present, Java bindings for the same LCM
 schemas are also compiled and bundled into ``build/java/manor_lcmtypes.jar``
-for use with ``lcm-spy`` (see ``scripts/manor_lcm_spy.sh``). This step is
-optional -- it is soft-skipped with a warning when any of the tools is
-missing, so headless / install-only environments still succeed.
+for use with ``lcm-spy`` (exposed via the ``manor_lcm_spy`` console
+script). This step is optional -- it is soft-skipped with a warning when
+any of the tools is missing, so headless / install-only environments
+still succeed.
 """
 
 from __future__ import annotations

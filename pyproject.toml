@@ -49,6 +49,7 @@ ml = [
 
 [project.scripts]
 aegis = "manor.common.aegis.aegis_cli:cli"
+manor_lcm_spy = "manor.common.manor_lcm_spy:main"
 
 [tool.ruff]
 line-length = 120

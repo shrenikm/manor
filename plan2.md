@@ -158,7 +158,7 @@ The plan notes that some sub-systems (Metis especially) need to run on a separat
 ### lcm-spy with decoded Aegis messages
 
 - `scripts/compile_messages.py` was extended with `_compile_lcm_java_bindings()`. When `javac` + `jar` + `lcm.jar` are all available, it runs `lcm-gen --java`, compiles the Java sources, and bundles them into `build/java/manor_lcmtypes.jar`. Soft-skips with a warning when any tool is missing, so installs on headless / Java-less environments still succeed.
-- `scripts/manor_lcm_spy.sh` — wrapper that exports `CLASSPATH=build/java/manor_lcmtypes.jar` and execs `lcm-spy`. The conda-shipped `lcm-spy` script appends `$CLASSPATH` to its internal classpath, so this is enough for decoded message contents in the GUI.
+- `manor_lcm_spy` console script (`src/manor/common/manor_lcm_spy.py`, exposed via `[project.scripts]`) — exports `CLASSPATH=build/java/manor_lcmtypes.jar` and execs `lcm-spy`. The conda-shipped `lcm-spy` script appends `$CLASSPATH` to its internal classpath, so this is enough for decoded message contents in the GUI.
 
 ### Tests
 
