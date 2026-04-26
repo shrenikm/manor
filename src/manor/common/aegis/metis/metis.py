@@ -27,6 +27,7 @@ from manor.common.aegis.metis.policies.policy_manager import (
     MetisPolicyConfigBase,
     MetisPolicyManager,
 )
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.observation import Observation
@@ -45,15 +46,6 @@ class MetisPorts(StrEnum):
     INPUT_RGB_IMAGE = "rgb_image"
     INPUT_DEPTH_IMAGE = "depth_image"
     OUTPUT_ACTION = "action"
-
-
-class MetisYamlKey(StrEnum):
-    """
-    YAML field names for the ``metis:`` block of an aegis config.
-    """
-
-    PUBLISH_FREQUENCY_HZ = "publish_frequency_hz"
-    POLICY_CONFIG = "policy_config"
 
 
 @attr.frozen
@@ -76,23 +68,17 @@ class MetisConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``metis:`` block of an aegis YAML.
+        Parse the ``metis_config:`` block of an aegis YAML.
         """
-        allowed = {key.value for key in MetisYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"metis: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
-        if MetisYamlKey.POLICY_CONFIG not in d:
-            raise AegisConfigError(f"metis.{MetisYamlKey.POLICY_CONFIG} is required")
-
-        policy_config = MetisPolicyManager.config_from_yaml_dict(d[MetisYamlKey.POLICY_CONFIG])
-
-        publish_frequency_hz = d.get(MetisYamlKey.PUBLISH_FREQUENCY_HZ, 10.0)
-        if not isinstance(publish_frequency_hz, (int, float)) or isinstance(publish_frequency_hz, bool):
-            raise AegisConfigError(
-                f"metis.{MetisYamlKey.PUBLISH_FREQUENCY_HZ} must be a number; got {type(publish_frequency_hz).__name__}"
-            )
-        return cls(policy_config=policy_config, publish_frequency_hz=float(publish_frequency_hz))
+        assert_keys_match_attrs(cls, d, "metis_config")
+        if "policy_config" not in d:
+            raise AegisConfigError("metis_config.policy_config is required")
+        policy_config = MetisPolicyManager.config_from_yaml_dict(d["policy_config"])
+        publish_frequency_hz = require_number(
+            d.get("publish_frequency_hz", 10.0),
+            "metis_config.publish_frequency_hz",
+        )
+        return cls(policy_config=policy_config, publish_frequency_hz=publish_frequency_hz)
 
 
 class Metis(LeafSystem):

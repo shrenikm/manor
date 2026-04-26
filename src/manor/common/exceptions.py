@@ -80,18 +80,10 @@ class AegisError(ManorError):
     pass
 
 
-class EnvironmentConfigError(AegisError):
-    """
-    Raised when an EnvironmentConfig cannot be parsed or is invalid.
-    """
-
-    pass
-
-
 class AegisConfigError(AegisError):
     """
-    Raised when an aegis-level configuration (top-level or per-subsystem
-    YAML) cannot be parsed or fails validation.
+    Raised when any aegis configuration (top-level, per-subsystem,
+    or environment YAML) cannot be parsed or fails validation.
     """
 
     pass

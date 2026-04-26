@@ -9,10 +9,13 @@ back. Gaia is *not* advanced from here -- that's the
 
 from __future__ import annotations
 
+from typing import Self
+
 import attr
 import numpy as np
 
 from manor.common.aegis.gaia.gaia import Gaia
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_state import EEFState
@@ -27,6 +30,11 @@ class SimManipulatorBackendConfig:
     Configuration for the simulation manipulator backend. EEF DOF
     counts come from the manipulator model, not from this config.
     """
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        assert_keys_match_attrs(cls, d, "sim_backend_config")
+        return cls()
 
 
 @attr.define

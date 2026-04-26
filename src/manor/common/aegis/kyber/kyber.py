@@ -28,6 +28,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberControllerConfigBase,
     KyberControllerManager,
 )
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.proprioception import Proprioception
@@ -42,15 +43,6 @@ class KyberPorts(StrEnum):
     INPUT_ACTION = "action"
     INPUT_PROPRIOCEPTION = "proprioception"
     OUTPUT_COMMAND = "command"
-
-
-class KyberYamlKey(StrEnum):
-    """
-    YAML field names for the ``kyber:`` block of an aegis config.
-    """
-
-    PUBLISH_FREQUENCY_HZ = "publish_frequency_hz"
-    CONTROLLER_CONFIG = "controller_config"
 
 
 @attr.frozen
@@ -73,23 +65,17 @@ class KyberConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``kyber:`` block of an aegis YAML.
+        Parse the ``kyber_config:`` block of an aegis YAML.
         """
-        allowed = {key.value for key in KyberYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"kyber: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
-        if KyberYamlKey.CONTROLLER_CONFIG not in d:
-            raise AegisConfigError(f"kyber.{KyberYamlKey.CONTROLLER_CONFIG} is required")
-
-        controller_config = KyberControllerManager.config_from_yaml_dict(d[KyberYamlKey.CONTROLLER_CONFIG])
-
-        publish_frequency_hz = d.get(KyberYamlKey.PUBLISH_FREQUENCY_HZ, 500.0)
-        if not isinstance(publish_frequency_hz, (int, float)) or isinstance(publish_frequency_hz, bool):
-            raise AegisConfigError(
-                f"kyber.{KyberYamlKey.PUBLISH_FREQUENCY_HZ} must be a number; got {type(publish_frequency_hz).__name__}"
-            )
-        return cls(controller_config=controller_config, publish_frequency_hz=float(publish_frequency_hz))
+        assert_keys_match_attrs(cls, d, "kyber_config")
+        if "controller_config" not in d:
+            raise AegisConfigError("kyber_config.controller_config is required")
+        controller_config = KyberControllerManager.config_from_yaml_dict(d["controller_config"])
+        publish_frequency_hz = require_number(
+            d.get("publish_frequency_hz", 500.0),
+            "kyber_config.publish_frequency_hz",
+        )
+        return cls(controller_config=controller_config, publish_frequency_hz=publish_frequency_hz)
 
 
 class Kyber(LeafSystem):

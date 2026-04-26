@@ -9,21 +9,16 @@ When the observation lacks proprioception, the policy emits a zeroed
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import ClassVar, Self
 
 import attr
 
 from manor.common.aegis.metis.policies.policy_manager import MetisPolicyConfigBase, MetisPolicyType
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int
 from manor.common.definitions.action import Action
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError
-
-
-class _YamlKey(StrEnum):
-    NUM_JOINTS = "num_joints"
 
 
 @attr.frozen
@@ -39,18 +34,8 @@ class IdentityPolicyConfig(MetisPolicyConfigBase):
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        allowed = {key.value for key in _YamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(
-                f"IdentityPolicyConfig: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}"
-            )
-        num_joints_raw = d.get(_YamlKey.NUM_JOINTS, 0)
-        if isinstance(num_joints_raw, bool) or not isinstance(num_joints_raw, int):
-            raise AegisConfigError(
-                f"IdentityPolicyConfig.{_YamlKey.NUM_JOINTS} must be an int; got {type(num_joints_raw).__name__}"
-            )
-        return cls(num_joints=num_joints_raw)
+        assert_keys_match_attrs(cls, d, "IdentityPolicyConfig")
+        return cls(num_joints=require_int(d.get("num_joints", 0), "IdentityPolicyConfig.num_joints"))
 
 
 @attr.frozen

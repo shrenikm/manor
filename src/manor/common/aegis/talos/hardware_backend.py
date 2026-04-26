@@ -10,9 +10,12 @@ methods.
 
 from __future__ import annotations
 
+from typing import Self
+
 import attr
 import numpy as np
 
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_state import EEFState
@@ -28,6 +31,11 @@ class HardwareManipulatorBackendConfig:
     Hardware-specific knobs for the manipulator backend. DOF / EEF
     counts intentionally live on the driver, not here.
     """
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        assert_keys_match_attrs(cls, d, "hardware_backend_config")
+        return cls()
 
 
 @attr.define

@@ -23,9 +23,9 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackendConfig
 from manor.common.aegis.helios.sim_backend import SimSensorBackendConfig
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_dict, require_number
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.exceptions import AegisConfigError
 
 
 class HeliosPorts(StrEnum):
@@ -35,23 +35,6 @@ class HeliosPorts(StrEnum):
 
     OUTPUT_RGB_IMAGE = "rgb_image"
     OUTPUT_DEPTH_IMAGE = "depth_image"
-
-
-class HeliosYamlKey(StrEnum):
-    """
-    YAML field names for the ``helios:`` block of an aegis config.
-    """
-
-    PUBLISH_RGB_FREQUENCY_HZ = "publish_rgb_frequency_hz"
-    PUBLISH_DEPTH_FREQUENCY_HZ = "publish_depth_frequency_hz"
-    SIM_BACKEND_CONFIG = "sim_backend_config"
-    HARDWARE_BACKEND_CONFIG = "hardware_backend_config"
-
-
-def _require_number(value: object, field_name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise AegisConfigError(f"'{field_name}' must be a number; got {type(value).__name__}")
-    return float(value)
 
 
 @runtime_checkable
@@ -98,44 +81,32 @@ class HeliosConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``helios:`` block of an aegis YAML.
+        Parse the ``helios_config:`` block of an aegis YAML.
         """
-        allowed = {key.value for key in HeliosYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"helios: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
-        publish_rgb_frequency_hz = _require_number(
-            d.get(HeliosYamlKey.PUBLISH_RGB_FREQUENCY_HZ, 30.0),
-            f"helios.{HeliosYamlKey.PUBLISH_RGB_FREQUENCY_HZ}",
-        )
-        publish_depth_frequency_hz = _require_number(
-            d.get(HeliosYamlKey.PUBLISH_DEPTH_FREQUENCY_HZ, 30.0),
-            f"helios.{HeliosYamlKey.PUBLISH_DEPTH_FREQUENCY_HZ}",
-        )
-
-        sim_raw = d.get(HeliosYamlKey.SIM_BACKEND_CONFIG)
-        if sim_raw is None:
-            sim_backend_config = SimSensorBackendConfig()
-        elif isinstance(sim_raw, dict):
-            sim_backend_config = SimSensorBackendConfig.from_yaml_dict(sim_raw)
-        else:
-            raise AegisConfigError(
-                f"helios.{HeliosYamlKey.SIM_BACKEND_CONFIG} must be a mapping; got {type(sim_raw).__name__}"
+        assert_keys_match_attrs(cls, d, "helios_config")
+        sim_backend_config = (
+            SimSensorBackendConfig.from_yaml_dict(
+                require_dict(d["sim_backend_config"], "helios_config.sim_backend_config")
             )
-
-        hardware_raw = d.get(HeliosYamlKey.HARDWARE_BACKEND_CONFIG)
-        if hardware_raw is None:
-            hardware_backend_config = HardwareSensorBackendConfig()
-        elif isinstance(hardware_raw, dict):
-            hardware_backend_config = HardwareSensorBackendConfig.from_yaml_dict(hardware_raw)
-        else:
-            raise AegisConfigError(
-                f"helios.{HeliosYamlKey.HARDWARE_BACKEND_CONFIG} must be a mapping; got {type(hardware_raw).__name__}"
+            if "sim_backend_config" in d
+            else SimSensorBackendConfig()
+        )
+        hardware_backend_config = (
+            HardwareSensorBackendConfig.from_yaml_dict(
+                require_dict(d["hardware_backend_config"], "helios_config.hardware_backend_config")
             )
-
+            if "hardware_backend_config" in d
+            else HardwareSensorBackendConfig()
+        )
         return cls(
-            publish_rgb_frequency_hz=publish_rgb_frequency_hz,
-            publish_depth_frequency_hz=publish_depth_frequency_hz,
+            publish_rgb_frequency_hz=require_number(
+                d.get("publish_rgb_frequency_hz", 30.0),
+                "helios_config.publish_rgb_frequency_hz",
+            ),
+            publish_depth_frequency_hz=require_number(
+                d.get("publish_depth_frequency_hz", 30.0),
+                "helios_config.publish_depth_frequency_hz",
+            ),
             sim_backend_config=sim_backend_config,
             hardware_backend_config=hardware_backend_config,
         )

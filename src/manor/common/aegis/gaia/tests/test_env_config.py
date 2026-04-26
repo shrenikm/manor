@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig, StaticModelConfig
-from manor.common.exceptions import EnvironmentConfigError
+from manor.common.exceptions import AegisConfigError
 from manor.common.path_utils import create_temporary_file
 from manor.common.testing_utils import run_manor_tests
 
@@ -78,19 +78,19 @@ class TestFromYaml:
     def test_invalid_top_level_raises(self) -> None:
         with create_temporary_file(suffix=".yaml") as path:
             _write(path, "- not\n- a\n- mapping\n")
-            with pytest.raises(EnvironmentConfigError):
+            with pytest.raises(AegisConfigError):
                 EnvironmentConfig.from_yaml(path)
 
     def test_missing_required_static_model_field_raises(self) -> None:
         with create_temporary_file(suffix=".yaml") as path:
             _write(path, "extra_models:\n  - description_filepath: /tmp/x.urdf\n")
-            with pytest.raises(EnvironmentConfigError):
+            with pytest.raises(AegisConfigError):
                 EnvironmentConfig.from_yaml(path)
 
     def test_bad_xyz_length_raises(self) -> None:
         with create_temporary_file(suffix=".yaml") as path:
             _write(path, "manipulator_base_xyz: [1.0, 2.0]\n")
-            with pytest.raises(EnvironmentConfigError):
+            with pytest.raises(AegisConfigError):
                 EnvironmentConfig.from_yaml(path)
 
 

@@ -9,29 +9,14 @@ header.
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Self
 
 import attr
 
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int, require_str
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError
-
-
-class _YamlKey(StrEnum):
-    SERIAL_NUMBER = "serial_number"
-    RGB_HEIGHT = "rgb_height"
-    RGB_WIDTH = "rgb_width"
-    DEPTH_HEIGHT = "depth_height"
-    DEPTH_WIDTH = "depth_width"
-
-
-def _require_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise AegisConfigError(f"'{field_name}' must be an int; got {type(value).__name__}")
-    return value
 
 
 @attr.frozen
@@ -49,35 +34,17 @@ class HardwareSensorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        allowed = {key.value for key in _YamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(
-                f"hardware_backend_config: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}"
-            )
-        serial_number = d.get(_YamlKey.SERIAL_NUMBER, "")
-        if not isinstance(serial_number, str):
-            raise AegisConfigError(
-                f"hardware_backend_config.{_YamlKey.SERIAL_NUMBER} must be a string; got {type(serial_number).__name__}"
-            )
+        assert_keys_match_attrs(cls, d, "hardware_backend_config")
         return cls(
-            serial_number=serial_number,
-            rgb_height=_require_int(
-                d.get(_YamlKey.RGB_HEIGHT, 480),
-                f"hardware_backend_config.{_YamlKey.RGB_HEIGHT}",
+            serial_number=require_str(
+                d.get("serial_number", ""),
+                "hardware_backend_config.serial_number",
+                allow_empty=True,
             ),
-            rgb_width=_require_int(
-                d.get(_YamlKey.RGB_WIDTH, 640),
-                f"hardware_backend_config.{_YamlKey.RGB_WIDTH}",
-            ),
-            depth_height=_require_int(
-                d.get(_YamlKey.DEPTH_HEIGHT, 480),
-                f"hardware_backend_config.{_YamlKey.DEPTH_HEIGHT}",
-            ),
-            depth_width=_require_int(
-                d.get(_YamlKey.DEPTH_WIDTH, 640),
-                f"hardware_backend_config.{_YamlKey.DEPTH_WIDTH}",
-            ),
+            rgb_height=require_int(d.get("rgb_height", 480), "hardware_backend_config.rgb_height"),
+            rgb_width=require_int(d.get("rgb_width", 640), "hardware_backend_config.rgb_width"),
+            depth_height=require_int(d.get("depth_height", 480), "hardware_backend_config.depth_height"),
+            depth_width=require_int(d.get("depth_width", 640), "hardware_backend_config.depth_width"),
         )
 
 

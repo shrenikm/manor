@@ -39,6 +39,12 @@ from manor.common.definitions.proprioception import Proprioception
 from manor.common.exceptions import AegisConfigError
 from manor.manipulators.manipulator_model import IManipulatorModel
 
+# Tagged-union discriminator key used in the YAML body of a
+# ``controller_config`` block. Not an attrs field on any
+# per-controller config: the manager strips it before dispatching to
+# the matching subclass's ``from_yaml_dict``.
+_CONTROLLER_TYPE_YAML_KEY = "type"
+
 
 class KyberControllerType(StrEnum):
     """
@@ -48,14 +54,6 @@ class KyberControllerType(StrEnum):
 
     ZERO_VELOCITY = "zero_velocity"
     ACTION_PASSTHROUGH = "action_passthrough"
-
-
-class KyberControllerYamlKey(StrEnum):
-    """
-    Canonical YAML field names shared across controller configs.
-    """
-
-    TYPE = "type"
 
 
 @runtime_checkable
@@ -138,20 +136,20 @@ class KyberControllerManager:
 
         if not isinstance(raw, dict):
             raise AegisConfigError(f"controller_config must be a mapping; got {type(raw).__name__}")
-        type_value = raw.get(KyberControllerYamlKey.TYPE)
+        type_value = raw.get(_CONTROLLER_TYPE_YAML_KEY)
         if not isinstance(type_value, str) or not type_value:
             raise AegisConfigError(
-                f"controller_config.{KyberControllerYamlKey.TYPE} is required and must be a non-empty string"
+                f"controller_config.{_CONTROLLER_TYPE_YAML_KEY} is required and must be a non-empty string"
             )
         try:
             controller_type = KyberControllerType(type_value)
         except ValueError as e:
             raise AegisConfigError(
-                f"Unknown controller_config.{KyberControllerYamlKey.TYPE}: {type_value!r}; "
+                f"Unknown controller_config.{_CONTROLLER_TYPE_YAML_KEY}: {type_value!r}; "
                 f"expected one of {[t.value for t in KyberControllerType]}"
             ) from e
 
-        body = {k: v for k, v in raw.items() if k != KyberControllerYamlKey.TYPE}
+        body = {k: v for k, v in raw.items() if k != _CONTROLLER_TYPE_YAML_KEY}
         if controller_type is KyberControllerType.ZERO_VELOCITY:
             return ZeroVelocityControllerConfig.from_yaml_dict(body)
         if controller_type is KyberControllerType.ACTION_PASSTHROUGH:

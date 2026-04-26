@@ -2,12 +2,13 @@
 # in sim mode against the bundled lite6_table environment, with
 # zero-velocity policy + zero-velocity controller as the bring-up
 # default. Treat this file as the round-trip reference for the
-# AegisBuildConfig YAML schema -- adding a new top-level field means
-# adding it here too.
+# AegisConfig YAML schema -- top-level keys match the attrs field
+# names of AegisConfig so adding a new field means adding a new key
+# here too.
 
 mode: sim
 
-manipulator:
+manipulator_model:
   type: lite6
   variant: parallel_gripper_normal
 
@@ -19,7 +20,7 @@ environment_config:
       description_filepath: environment/lite6_table.urdf
       weld_to_world: false
 
-helios:
+helios_config:
   publish_rgb_frequency_hz: 30.0
   publish_depth_frequency_hz: 30.0
   sim_backend_config:
@@ -31,22 +32,22 @@ helios:
     depth_height: 480
     depth_width: 640
 
-talos:
+talos_config:
   publish_frequency_hz: 200.0
 
-metis:
+metis_config:
   publish_frequency_hz: 10.0
   policy_config:
     type: zero_velocity
     num_joints: 6
 
-kyber:
+kyber_config:
   publish_frequency_hz: 500.0
   controller_config:
     type: zero_velocity
     num_dof: 6
 
-gaia:
+gaia_config:
   time_step: 0.0
   enable_meshcat: false
   rgb_height: 480
@@ -54,5 +55,5 @@ gaia:
   depth_height: 480
   depth_width: 640
 
-gaia_advancer:
+gaia_advancer_config:
   advance_frequency_hz: 500.0

@@ -10,7 +10,6 @@ real low-level controller hasn't landed yet.
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import ClassVar, Self
 
 import attr
@@ -20,16 +19,12 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberControllerConfigBase,
     KyberControllerType,
 )
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError
-
-
-class _YamlKey(StrEnum):
-    NUM_DOF = "num_dof"
 
 
 @attr.frozen
@@ -46,18 +41,8 @@ class ActionPassthroughControllerConfig(KyberControllerConfigBase):
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        allowed = {key.value for key in _YamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(
-                f"ActionPassthroughControllerConfig: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}"
-            )
-        num_dof_raw = d.get(_YamlKey.NUM_DOF, 0)
-        if isinstance(num_dof_raw, bool) or not isinstance(num_dof_raw, int):
-            raise AegisConfigError(
-                f"ActionPassthroughControllerConfig.{_YamlKey.NUM_DOF} must be an int; got {type(num_dof_raw).__name__}"
-            )
-        return cls(num_dof=num_dof_raw)
+        assert_keys_match_attrs(cls, d, "ActionPassthroughControllerConfig")
+        return cls(num_dof=require_int(d.get("num_dof", 0), "ActionPassthroughControllerConfig.num_dof"))
 
 
 @attr.frozen

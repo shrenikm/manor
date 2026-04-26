@@ -14,24 +14,15 @@ reads land on a freshly stepped Gaia state.
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import ClassVar, Self
 
 import attr
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.gaia.gaia import Gaia
-from manor.common.exceptions import AegisConfigError
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
 
 _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ = 500.0
-
-
-class GaiaAdvancerYamlKey(StrEnum):
-    """
-    YAML field names for the ``gaia_advancer:`` block of an aegis config.
-    """
-
-    ADVANCE_FREQUENCY_HZ = "advance_frequency_hz"
 
 
 @attr.frozen
@@ -50,19 +41,15 @@ class GaiaAdvancerConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``gaia_advancer:`` block of an aegis YAML.
+        Parse the ``gaia_advancer_config:`` block of an aegis YAML.
         """
-        allowed = {key.value for key in GaiaAdvancerYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"gaia_advancer: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
-        advance_frequency_hz = d.get(GaiaAdvancerYamlKey.ADVANCE_FREQUENCY_HZ, _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ)
-        if isinstance(advance_frequency_hz, bool) or not isinstance(advance_frequency_hz, (int, float)):
-            raise AegisConfigError(
-                f"gaia_advancer.{GaiaAdvancerYamlKey.ADVANCE_FREQUENCY_HZ} must be a number; "
-                f"got {type(advance_frequency_hz).__name__}"
+        assert_keys_match_attrs(cls, d, "gaia_advancer_config")
+        return cls(
+            advance_frequency_hz=require_number(
+                d.get("advance_frequency_hz", _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ),
+                "gaia_advancer_config.advance_frequency_hz",
             )
-        return cls(advance_frequency_hz=float(advance_frequency_hz))
+        )
 
 
 class GaiaAdvancer(LeafSystem):

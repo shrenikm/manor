@@ -23,7 +23,6 @@ read / advance / render call. Calling read or advance methods before
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, Self
 
 import attr
@@ -36,6 +35,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram, DiagramBuilder
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_bool, require_int, require_number
 from manor.common.custom_types import JointPositionsVector
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_positions import JointPositions
@@ -43,7 +43,7 @@ from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError, GaiaError
+from manor.common.exceptions import GaiaError
 from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 
@@ -60,37 +60,6 @@ _DEFAULT_RGB_HEIGHT = 480
 _DEFAULT_RGB_WIDTH = 640
 _DEFAULT_DEPTH_HEIGHT = 480
 _DEFAULT_DEPTH_WIDTH = 640
-
-
-class GaiaYamlKey(StrEnum):
-    """
-    YAML field names for the ``gaia:`` block of an aegis config.
-    """
-
-    TIME_STEP = "time_step"
-    ENABLE_MESHCAT = "enable_meshcat"
-    RGB_HEIGHT = "rgb_height"
-    RGB_WIDTH = "rgb_width"
-    DEPTH_HEIGHT = "depth_height"
-    DEPTH_WIDTH = "depth_width"
-
-
-def _gaia_require_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise AegisConfigError(f"'{field_name}' must be an int; got {type(value).__name__}")
-    return value
-
-
-def _gaia_require_number(value: object, field_name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise AegisConfigError(f"'{field_name}' must be a number; got {type(value).__name__}")
-    return float(value)
-
-
-def _gaia_require_bool(value: object, field_name: str) -> bool:
-    if not isinstance(value, bool):
-        raise AegisConfigError(f"'{field_name}' must be a bool; got {type(value).__name__}")
-    return value
 
 
 @attr.frozen
@@ -114,37 +83,22 @@ class GaiaConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``gaia:`` block of an aegis YAML.
+        Parse the ``gaia_config:`` block of an aegis YAML.
         """
-        allowed = {key.value for key in GaiaYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"gaia: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
+        assert_keys_match_attrs(cls, d, "gaia_config")
         return cls(
-            time_step=_gaia_require_number(
-                d.get(GaiaYamlKey.TIME_STEP, _DEFAULT_PLANT_TIME_STEP_S),
-                f"gaia.{GaiaYamlKey.TIME_STEP}",
+            time_step=require_number(
+                d.get("time_step", _DEFAULT_PLANT_TIME_STEP_S),
+                "gaia_config.time_step",
             ),
-            enable_meshcat=_gaia_require_bool(
-                d.get(GaiaYamlKey.ENABLE_MESHCAT, False),
-                f"gaia.{GaiaYamlKey.ENABLE_MESHCAT}",
+            enable_meshcat=require_bool(
+                d.get("enable_meshcat", False),
+                "gaia_config.enable_meshcat",
             ),
-            rgb_height=_gaia_require_int(
-                d.get(GaiaYamlKey.RGB_HEIGHT, _DEFAULT_RGB_HEIGHT),
-                f"gaia.{GaiaYamlKey.RGB_HEIGHT}",
-            ),
-            rgb_width=_gaia_require_int(
-                d.get(GaiaYamlKey.RGB_WIDTH, _DEFAULT_RGB_WIDTH),
-                f"gaia.{GaiaYamlKey.RGB_WIDTH}",
-            ),
-            depth_height=_gaia_require_int(
-                d.get(GaiaYamlKey.DEPTH_HEIGHT, _DEFAULT_DEPTH_HEIGHT),
-                f"gaia.{GaiaYamlKey.DEPTH_HEIGHT}",
-            ),
-            depth_width=_gaia_require_int(
-                d.get(GaiaYamlKey.DEPTH_WIDTH, _DEFAULT_DEPTH_WIDTH),
-                f"gaia.{GaiaYamlKey.DEPTH_WIDTH}",
-            ),
+            rgb_height=require_int(d.get("rgb_height", _DEFAULT_RGB_HEIGHT), "gaia_config.rgb_height"),
+            rgb_width=require_int(d.get("rgb_width", _DEFAULT_RGB_WIDTH), "gaia_config.rgb_width"),
+            depth_height=require_int(d.get("depth_height", _DEFAULT_DEPTH_HEIGHT), "gaia_config.depth_height"),
+            depth_width=require_int(d.get("depth_width", _DEFAULT_DEPTH_WIDTH), "gaia_config.depth_width"),
         )
 
 

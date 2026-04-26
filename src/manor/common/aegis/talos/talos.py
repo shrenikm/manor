@@ -32,6 +32,7 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
+from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
@@ -39,7 +40,6 @@ from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError
 from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 
@@ -51,14 +51,6 @@ class TalosPorts(StrEnum):
 
     INPUT_COMMAND = "command"
     OUTPUT_PROPRIOCEPTION = "proprioception"
-
-
-class TalosYamlKey(StrEnum):
-    """
-    YAML field names for the ``talos:`` block of an aegis config.
-    """
-
-    PUBLISH_FREQUENCY_HZ = "publish_frequency_hz"
 
 
 @attr.frozen
@@ -80,20 +72,30 @@ class TalosConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``talos:`` block of an aegis YAML. The sim and
-        hardware backend configs currently carry no tunable fields,
-        so they aren't part of the YAML schema.
+        Parse the ``talos_config:`` block of an aegis YAML. Backend
+        configs currently carry no tunable fields but are still
+        accepted (as empty mappings) for schema symmetry with helios.
         """
-        allowed = {key.value for key in TalosYamlKey}
-        extras = set(d) - allowed
-        if extras:
-            raise AegisConfigError(f"talos: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
-        publish_frequency_hz = d.get(TalosYamlKey.PUBLISH_FREQUENCY_HZ, 200.0)
-        if isinstance(publish_frequency_hz, bool) or not isinstance(publish_frequency_hz, (int, float)):
-            raise AegisConfigError(
-                f"talos.{TalosYamlKey.PUBLISH_FREQUENCY_HZ} must be a number; got {type(publish_frequency_hz).__name__}"
-            )
-        return cls(publish_frequency_hz=float(publish_frequency_hz))
+        assert_keys_match_attrs(cls, d, "talos_config")
+        publish_frequency_hz = require_number(
+            d.get("publish_frequency_hz", 200.0),
+            "talos_config.publish_frequency_hz",
+        )
+        sim_backend_config = (
+            SimManipulatorBackendConfig.from_yaml_dict(d["sim_backend_config"])
+            if "sim_backend_config" in d
+            else SimManipulatorBackendConfig()
+        )
+        hardware_backend_config = (
+            HardwareManipulatorBackendConfig.from_yaml_dict(d["hardware_backend_config"])
+            if "hardware_backend_config" in d
+            else HardwareManipulatorBackendConfig()
+        )
+        return cls(
+            publish_frequency_hz=publish_frequency_hz,
+            sim_backend_config=sim_backend_config,
+            hardware_backend_config=hardware_backend_config,
+        )
 
 
 @runtime_checkable

@@ -30,6 +30,12 @@ from manor.common.definitions.action import Action
 from manor.common.definitions.observation import Observation
 from manor.common.exceptions import AegisConfigError
 
+# Tagged-union discriminator key used in the YAML body of a
+# ``policy_config`` block. Not an attrs field on any per-policy
+# config: the manager strips it before dispatching to the matching
+# subclass's ``from_yaml_dict``.
+_POLICY_TYPE_YAML_KEY = "type"
+
 
 class MetisPolicyType(StrEnum):
     """
@@ -39,14 +45,6 @@ class MetisPolicyType(StrEnum):
 
     ZERO_VELOCITY = "zero_velocity"
     IDENTITY = "identity"
-
-
-class MetisPolicyYamlKey(StrEnum):
-    """
-    Canonical YAML field names shared across policy configs.
-    """
-
-    TYPE = "type"
 
 
 @runtime_checkable
@@ -121,20 +119,18 @@ class MetisPolicyManager:
 
         if not isinstance(raw, dict):
             raise AegisConfigError(f"policy_config must be a mapping; got {type(raw).__name__}")
-        type_value = raw.get(MetisPolicyYamlKey.TYPE)
+        type_value = raw.get(_POLICY_TYPE_YAML_KEY)
         if not isinstance(type_value, str) or not type_value:
-            raise AegisConfigError(
-                f"policy_config.{MetisPolicyYamlKey.TYPE} is required and must be a non-empty string"
-            )
+            raise AegisConfigError(f"policy_config.{_POLICY_TYPE_YAML_KEY} is required and must be a non-empty string")
         try:
             policy_type = MetisPolicyType(type_value)
         except ValueError as e:
             raise AegisConfigError(
-                f"Unknown policy_config.{MetisPolicyYamlKey.TYPE}: {type_value!r}; "
+                f"Unknown policy_config.{_POLICY_TYPE_YAML_KEY}: {type_value!r}; "
                 f"expected one of {[t.value for t in MetisPolicyType]}"
             ) from e
 
-        body = {k: v for k, v in raw.items() if k != MetisPolicyYamlKey.TYPE}
+        body = {k: v for k, v in raw.items() if k != _POLICY_TYPE_YAML_KEY}
         if policy_type is MetisPolicyType.ZERO_VELOCITY:
             return ZeroVelocityPolicyConfig.from_yaml_dict(body)
         if policy_type is MetisPolicyType.IDENTITY:
