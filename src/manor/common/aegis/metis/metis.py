@@ -15,7 +15,7 @@ diffusion policies, VLAs) plug into.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -58,8 +58,11 @@ class MetisConfig:
     """
     Metis sub-system configuration. ``policy`` defaults to a
     ``ZeroVelocityPolicy`` sized to the manipulator's DOF count when
-    left as ``None`` (resolved by the aegis builder).
+    left as ``None`` (resolved by the aegis builder). ``SYSTEM_NAME``
+    is the name applied to the Metis LeafSystem in the diagram.
     """
+
+    SYSTEM_NAME: ClassVar[str] = "metis"
 
     publish_frequency_hz: float = 10.0
     policy: Policy | None = None

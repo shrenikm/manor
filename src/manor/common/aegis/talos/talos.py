@@ -22,7 +22,7 @@ once the per-system plant is consulted properly, only
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -58,8 +58,11 @@ class TalosConfig:
     Talos sub-system configuration.
 
     ``sim_backend_config`` and ``hardware_backend_config`` parametrise
-    the per-mode manipulator backends.
+    the per-mode manipulator backends. ``SYSTEM_NAME`` is the name
+    applied to the Talos LeafSystem in the diagram.
     """
+
+    SYSTEM_NAME: ClassVar[str] = "talos"
 
     publish_frequency_hz: float = 200.0
     sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)

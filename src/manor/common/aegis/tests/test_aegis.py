@@ -17,10 +17,10 @@ from pydrake.systems.framework import Diagram
 
 from manor.common.aegis.aegis import (
     AegisBuildConfig,
-    AegisSystemName,
     AegisSystems,
     build_aegis,
 )
+from manor.common.aegis.gaia.gaia_advancer import GaiaAdvancerConfig
 from manor.common.aegis.helios.helios import HeliosConfig
 from manor.common.aegis.kyber.kyber import KyberConfig
 from manor.common.aegis.metis.metis import MetisConfig
@@ -52,16 +52,16 @@ class TestBuildAegis:
         diagram, systems = _build(mode)
         assert isinstance(diagram, Diagram)
         assert isinstance(systems, AegisSystems)
-        assert systems.helios.get_name() == AegisSystemName.HELIOS
-        assert systems.talos.get_name() == AegisSystemName.TALOS
-        assert systems.metis.get_name() == AegisSystemName.METIS
-        assert systems.kyber.get_name() == AegisSystemName.KYBER
+        assert systems.helios.get_name() == HeliosConfig.SYSTEM_NAME
+        assert systems.talos.get_name() == TalosConfig.SYSTEM_NAME
+        assert systems.metis.get_name() == MetisConfig.SYSTEM_NAME
+        assert systems.kyber.get_name() == KyberConfig.SYSTEM_NAME
 
     def test_sim_mode_attaches_gaia_and_advancer(self) -> None:
         _, systems = _build(AegisMode.SIM)
         assert systems.gaia is not None
         assert systems.gaia_advancer is not None
-        assert systems.gaia_advancer.get_name() == AegisSystemName.GAIA_ADVANCER
+        assert systems.gaia_advancer.get_name() == GaiaAdvancerConfig.SYSTEM_NAME
 
     def test_hardware_mode_has_no_gaia(self) -> None:
         _, systems = _build(AegisMode.HARDWARE)

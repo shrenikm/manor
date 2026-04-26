@@ -15,7 +15,7 @@ rather than sharing one across systems.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -59,7 +59,11 @@ class KyberConfig:
     Kyber sub-system configuration. ``controller`` defaults to a
     ``ZeroVelocityController`` sized to the manipulator's DOF count
     when left as ``None`` (resolved by the aegis builder).
+    ``SYSTEM_NAME`` is the name applied to the Kyber LeafSystem in the
+    diagram.
     """
+
+    SYSTEM_NAME: ClassVar[str] = "kyber"
 
     publish_frequency_hz: float = 500.0
     controller: Controller | None = None

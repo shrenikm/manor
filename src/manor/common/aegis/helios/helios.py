@@ -15,7 +15,7 @@ Drake graph shape is identical in sim and on hardware.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -63,7 +63,14 @@ class HeliosConfig:
     ``sim_backend_config`` and ``hardware_backend_config`` parametrise
     the per-mode backends; only the matching one is used in any given
     aegis build.
+
+    ``SYSTEM_NAME`` is the name applied to the Helios LeafSystem in the
+    diagram; pinning it as a class attribute keeps the name and the rest
+    of the sub-system's parametrisation in one place without making it
+    settable per instance.
     """
+
+    SYSTEM_NAME: ClassVar[str] = "helios"
 
     publish_rgb_frequency_hz: float = 30.0
     publish_depth_frequency_hz: float = 30.0

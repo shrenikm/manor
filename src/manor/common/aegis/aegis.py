@@ -23,7 +23,6 @@ itself; ``AegisBuildConfig`` collects them plus mode + manipulator model
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Self
 
 import attr
@@ -60,19 +59,6 @@ from manor.manipulators.lite6.driver import Lite6Driver
 from manor.manipulators.lite6.model import Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.manipulator_model import IManipulatorModel
-
-
-class AegisSystemName(StrEnum):
-    """
-    Diagram-level system names for each aegis sub-system. Used for
-    ``set_name`` so no aegis assembly code embeds raw name strings.
-    """
-
-    HELIOS = "helios"
-    TALOS = "talos"
-    METIS = "metis"
-    KYBER = "kyber"
-    GAIA_ADVANCER = "gaia_advancer"
 
 
 @attr.frozen
@@ -174,10 +160,10 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
         )
     )
 
-    helios.set_name(AegisSystemName.HELIOS)
-    talos.set_name(AegisSystemName.TALOS)
-    metis.set_name(AegisSystemName.METIS)
-    kyber.set_name(AegisSystemName.KYBER)
+    helios.set_name(HeliosConfig.SYSTEM_NAME)
+    talos.set_name(TalosConfig.SYSTEM_NAME)
+    metis.set_name(MetisConfig.SYSTEM_NAME)
+    kyber.set_name(KyberConfig.SYSTEM_NAME)
 
     # LCM publisher / subscriber adapters. RGB / depth are conditional
     # on the matching Helios stream being enabled (frequency > 0).
@@ -250,7 +236,7 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
         gaia_advancer = builder.AddSystem(
             GaiaAdvancer(gaia=gaia, advance_frequency_hz=config.gaia_advancer_config.advance_frequency_hz)
         )
-        gaia_advancer.set_name(AegisSystemName.GAIA_ADVANCER)
+        gaia_advancer.set_name(GaiaAdvancerConfig.SYSTEM_NAME)
 
     diagram = builder.Build()
     diagram.set_name(f"aegis_{config.mode.value}")
