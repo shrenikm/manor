@@ -76,12 +76,12 @@ class AegisBuildConfig:
 
     mode: AegisMode
     manipulator_model: IManipulatorModel
+    environment_config: EnvironmentConfig | None = None
     helios_config: HeliosConfig = attr.field(factory=HeliosConfig)
     talos_config: TalosConfig = attr.field(factory=TalosConfig)
     metis_config: MetisConfig = attr.field(factory=MetisConfig)
     kyber_config: KyberConfig = attr.field(factory=KyberConfig)
     gaia_advancer_config: GaiaAdvancerConfig = attr.field(factory=GaiaAdvancerConfig)
-    environment_config: EnvironmentConfig | None = None
     gaia_config: GaiaConfig | None = None
     lcm: DrakeLcm | None = None
 
