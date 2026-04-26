@@ -1,6 +1,6 @@
 """
 Tests for Helios: port shape, periodic publish, backend delegation,
-and the publish_rgb / publish_depth flag matrix.
+and the per-stream frequency knobs.
 """
 
 from __future__ import annotations
@@ -34,28 +34,44 @@ class _CountingBackend:
 
 
 class TestHeliosConstruction:
-    def test_rejects_non_positive_frequency(self) -> None:
+    def test_rejects_negative_rgb_frequency(self) -> None:
         with pytest.raises(ValueError):
-            Helios(backend=_CountingBackend(), publish_frequency=0.0)
+            Helios(backend=_CountingBackend(), publish_rgb_frequency_hz=-1.0)
 
-    def test_declares_expected_ports_when_both_streams_enabled(self) -> None:
-        helios = Helios(backend=_CountingBackend(), publish_frequency=30.0)
+    def test_rejects_negative_depth_frequency(self) -> None:
+        with pytest.raises(ValueError):
+            Helios(backend=_CountingBackend(), publish_depth_frequency_hz=-1.0)
+
+    def test_declares_both_streams_when_both_frequencies_positive(self) -> None:
+        helios = Helios(
+            backend=_CountingBackend(),
+            publish_rgb_frequency_hz=30.0,
+            publish_depth_frequency_hz=30.0,
+        )
         assert helios.num_input_ports() == 0
         assert helios.num_output_ports() == 2
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE) is not None
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE) is not None
 
 
-class TestHeliosPublishFlags:
-    def test_publish_rgb_only_omits_depth_port(self) -> None:
-        helios = Helios(backend=_CountingBackend(), publish_frequency=30.0, publish_depth=False)
+class TestHeliosFrequencyFlags:
+    def test_zero_depth_frequency_omits_depth_port(self) -> None:
+        helios = Helios(
+            backend=_CountingBackend(),
+            publish_rgb_frequency_hz=30.0,
+            publish_depth_frequency_hz=0.0,
+        )
         assert helios.num_output_ports() == 1
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE) is not None
         with pytest.raises(RuntimeError):
             helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE)
 
-    def test_publish_depth_only_omits_rgb_port(self) -> None:
-        helios = Helios(backend=_CountingBackend(), publish_frequency=30.0, publish_rgb=False)
+    def test_zero_rgb_frequency_omits_rgb_port(self) -> None:
+        helios = Helios(
+            backend=_CountingBackend(),
+            publish_rgb_frequency_hz=0.0,
+            publish_depth_frequency_hz=30.0,
+        )
         assert helios.num_output_ports() == 1
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE) is not None
         with pytest.raises(RuntimeError):
@@ -64,9 +80,8 @@ class TestHeliosPublishFlags:
     def test_dummy_helios_has_no_ports(self) -> None:
         helios = Helios(
             backend=_CountingBackend(),
-            publish_frequency=30.0,
-            publish_rgb=False,
-            publish_depth=False,
+            publish_rgb_frequency_hz=0.0,
+            publish_depth_frequency_hz=0.0,
         )
         assert helios.num_input_ports() == 0
         assert helios.num_output_ports() == 0
@@ -75,7 +90,7 @@ class TestHeliosPublishFlags:
 class TestHeliosPublishing:
     def test_periodic_update_polls_backend(self) -> None:
         backend = _CountingBackend()
-        helios = Helios(backend=backend, publish_frequency=100.0)
+        helios = Helios(backend=backend, publish_rgb_frequency_hz=100.0, publish_depth_frequency_hz=100.0)
         context = helios.CreateDefaultContext()
         simulator = Simulator(helios, context)
         simulator.AdvanceTo(0.05)
@@ -83,8 +98,19 @@ class TestHeliosPublishing:
         assert backend.rgb_calls >= 1
         assert backend.depth_calls >= 1
 
+    def test_independent_stream_rates(self) -> None:
+        # Drive RGB much faster than depth and confirm RGB is polled
+        # more often. A slow CI machine could drift, so use loose
+        # multiples rather than exact ratios.
+        backend = _CountingBackend()
+        helios = Helios(backend=backend, publish_rgb_frequency_hz=200.0, publish_depth_frequency_hz=20.0)
+        context = helios.CreateDefaultContext()
+        simulator = Simulator(helios, context)
+        simulator.AdvanceTo(0.2)
+        assert backend.rgb_calls > backend.depth_calls
+
     def test_output_ports_carry_backend_frames(self) -> None:
-        helios = Helios(backend=_CountingBackend(), publish_frequency=50.0)
+        helios = Helios(backend=_CountingBackend(), publish_rgb_frequency_hz=50.0, publish_depth_frequency_hz=50.0)
         context = helios.CreateDefaultContext()
         simulator = Simulator(helios, context)
         simulator.AdvanceTo(0.05)

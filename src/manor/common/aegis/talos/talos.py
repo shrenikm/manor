@@ -24,11 +24,14 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+import attr
 from pydrake.common.value import AbstractValue
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
+from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
+from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
@@ -47,6 +50,20 @@ class TalosPorts(StrEnum):
 
     INPUT_COMMAND = "command"
     OUTPUT_PROPRIOCEPTION = "proprioception"
+
+
+@attr.frozen
+class TalosConfig:
+    """
+    Talos sub-system configuration.
+
+    ``sim_backend_config`` and ``hardware_backend_config`` parametrise
+    the per-mode manipulator backends.
+    """
+
+    publish_frequency_hz: float = 200.0
+    sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
+    hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
 
 
 @runtime_checkable

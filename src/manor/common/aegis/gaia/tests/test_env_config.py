@@ -46,20 +46,34 @@ class TestFromYaml:
             np.testing.assert_allclose(cfg.manipulator_base_xyz, [0.1, 0.2, 0.3])
             np.testing.assert_allclose(cfg.manipulator_base_rpy, [0.0, 0.0, 1.5707])
 
-    def test_loads_extra_models(self) -> None:
+    def test_loads_extra_models_with_absolute_path(self) -> None:
+        from manor.common.model_utils import get_models_directory_path
+
+        absolute_urdf = os.path.join(get_models_directory_path(), "environment", "lite6_table.urdf")
         with create_temporary_file(suffix=".yaml") as path:
             _write(
                 path,
                 "extra_models:\n"
                 "  - name: table\n"
-                f"    description_filepath: {os.path.abspath('models/environment/lite6_table.urdf')}\n"
+                f"    description_filepath: {absolute_urdf}\n"
                 "    weld_to_world: false\n",
             )
             cfg = EnvironmentConfig.from_yaml(path)
             assert len(cfg.extra_models) == 1
             assert isinstance(cfg.extra_models[0], StaticModelConfig)
-            assert cfg.extra_models[0].name == "table"
-            assert cfg.extra_models[0].weld_to_world is False
+            assert cfg.extra_models[0].description_filepath == absolute_urdf
+
+    def test_relative_path_resolves_against_models_directory(self) -> None:
+        from manor.common.model_utils import get_models_directory_path
+
+        with create_temporary_file(suffix=".yaml") as path:
+            _write(
+                path,
+                "extra_models:\n  - name: table\n    description_filepath: environment/lite6_table.urdf\n",
+            )
+            cfg = EnvironmentConfig.from_yaml(path)
+            expected = os.path.normpath(os.path.join(get_models_directory_path(), "environment/lite6_table.urdf"))
+            assert cfg.extra_models[0].description_filepath == expected
 
     def test_invalid_top_level_raises(self) -> None:
         with create_temporary_file(suffix=".yaml") as path:

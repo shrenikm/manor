@@ -17,6 +17,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+import attr
 from pydrake.common.value import AbstractValue
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
@@ -50,6 +51,18 @@ class Controller(Protocol):
     """
 
     def step(self, action: Action, proprioception: Proprioception) -> Command: ...
+
+
+@attr.frozen
+class KyberConfig:
+    """
+    Kyber sub-system configuration. ``controller`` defaults to a
+    ``ZeroVelocityController`` sized to the manipulator's DOF count
+    when left as ``None`` (resolved by the aegis builder).
+    """
+
+    publish_frequency_hz: float = 500.0
+    controller: Controller | None = None
 
 
 class Kyber(LeafSystem):

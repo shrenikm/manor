@@ -17,6 +17,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+import attr
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
@@ -50,6 +51,18 @@ class Policy(Protocol):
     """
 
     def step(self, observation: Observation) -> Action: ...
+
+
+@attr.frozen
+class MetisConfig:
+    """
+    Metis sub-system configuration. ``policy`` defaults to a
+    ``ZeroVelocityPolicy`` sized to the manipulator's DOF count when
+    left as ``None`` (resolved by the aegis builder).
+    """
+
+    publish_frequency_hz: float = 10.0
+    policy: Policy | None = None
 
 
 class Metis(LeafSystem):

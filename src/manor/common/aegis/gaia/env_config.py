@@ -7,6 +7,11 @@ authored as YAML and loaded through ``EnvironmentConfig.from_yaml``; the
 default config (no extras, manipulator welded to the world origin) is
 also available via ``EnvironmentConfig.default()``.
 
+Relative ``description_filepath`` values are resolved against the
+project's ``models/`` directory at load time, so a YAML can reference
+``environment/lite6_table.urdf`` regardless of where the YAML itself
+lives. Absolute paths pass through unchanged.
+
 YAML schema (all fields optional):
 
 ```yaml
@@ -14,7 +19,7 @@ manipulator_base_xyz: [0.0, 0.0, 0.0]
 manipulator_base_rpy: [0.0, 0.0, 0.0]
 extra_models:
   - name: table
-    description_filepath: /abs/path/to/table.urdf
+    description_filepath: environment/lite6_table.urdf
     base_xyz: [0.0, 0.0, 0.0]
     base_rpy: [0.0, 0.0, 0.0]
     weld_to_world: true
@@ -33,6 +38,7 @@ import yaml
 
 from manor.common.custom_types import FilePath, NpVector3f64
 from manor.common.exceptions import EnvironmentConfigError
+from manor.common.model_utils import get_models_directory_path
 
 
 class _YamlKey(StrEnum):
@@ -94,7 +100,7 @@ def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
         raise EnvironmentConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
 
 
-def _parse_static_model(raw: object, idx: int, base_dir: FilePath) -> StaticModelConfig:
+def _parse_static_model(raw: object, idx: int) -> StaticModelConfig:
     item_label = f"{_YamlKey.EXTRA_MODELS}[{idx}]"
     if not isinstance(raw, dict):
         raise EnvironmentConfigError(f"{item_label} must be a mapping; got {type(raw).__name__}")
@@ -113,23 +119,24 @@ def _parse_static_model(raw: object, idx: int, base_dir: FilePath) -> StaticMode
         )
     return StaticModelConfig(
         name=name,
-        description_filepath=_resolve_filepath(description_filepath, base_dir),
+        description_filepath=_resolve_filepath(description_filepath),
         base_xyz=_parse_xyz(raw.get(_YamlKey.BASE_XYZ), f"{item_label}.{_YamlKey.BASE_XYZ}"),
         base_rpy=_parse_xyz(raw.get(_YamlKey.BASE_RPY), f"{item_label}.{_YamlKey.BASE_RPY}"),
         weld_to_world=weld_to_world,
     )
 
 
-def _resolve_filepath(path: FilePath, base_dir: FilePath) -> FilePath:
+def _resolve_filepath(path: FilePath) -> FilePath:
     """
-    Relative description_filepath values resolve against the YAML's
-    directory; absolute paths pass through unchanged. Project-relative
-    layouts (e.g. ``models/environment/foo.urdf`` from a YAML stored
-    elsewhere) should still use absolute paths.
+    Relative ``description_filepath`` values resolve against the
+    project's ``models/`` directory; absolute paths pass through
+    unchanged. So a YAML can reference ``environment/foo.urdf`` and
+    Gaia will find it at ``<project_root>/models/environment/foo.urdf``
+    regardless of where the YAML itself sits.
     """
     if os.path.isabs(path):
         return path
-    return os.path.normpath(os.path.join(base_dir, path))
+    return os.path.normpath(os.path.join(get_models_directory_path(), path))
 
 
 @attr.frozen
@@ -161,7 +168,7 @@ class EnvironmentConfig:
 
         Missing fields fall back to the defaults from ``default()``.
         Relative ``description_filepath`` values inside ``extra_models``
-        are resolved against the YAML file's own directory.
+        are resolved against the project's ``models/`` directory.
         """
         try:
             with open(filepath, "r") as fp:
@@ -184,8 +191,7 @@ class EnvironmentConfig:
             raise EnvironmentConfigError(
                 f"'{_YamlKey.EXTRA_MODELS}' must be a list; got {type(extra_models_raw).__name__}"
             )
-        base_dir = os.path.dirname(os.path.abspath(filepath))
-        extra_models = tuple(_parse_static_model(item, idx, base_dir) for idx, item in enumerate(extra_models_raw))
+        extra_models = tuple(_parse_static_model(item, idx) for idx, item in enumerate(extra_models_raw))
 
         return cls(
             manipulator_base_xyz=manipulator_base_xyz,

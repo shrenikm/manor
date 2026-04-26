@@ -14,11 +14,23 @@ reads land on a freshly stepped Gaia state.
 
 from __future__ import annotations
 
+import attr
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.gaia.gaia import Gaia
 
 _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ = 500.0
+
+
+@attr.frozen
+class GaiaAdvancerConfig:
+    """
+    ``GaiaAdvancer`` configuration. ``advance_frequency_hz`` is the
+    cadence at which the diagram clock is forwarded into
+    ``Gaia.advance_to``.
+    """
+
+    advance_frequency_hz: float = _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ
 
 
 class GaiaAdvancer(LeafSystem):

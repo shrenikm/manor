@@ -9,5 +9,5 @@ manipulator_base_rpy: [0.0, 0.0, 0.0]
 
 extra_models:
   - name: lite6_table
-    description_filepath: ../environment/lite6_table.urdf
+    description_filepath: environment/lite6_table.urdf
     weld_to_world: false

@@ -15,10 +15,10 @@ Logical data flow (LCM channels):
     Metis.action              --LCM(ACTION)------> Kyber.action
     Kyber.command             --direct----------> Talos.command
 
-Every subsystem has its own ``*Config`` aggregator (publish frequency,
-backend choice, behavioural knobs); ``AegisBuildConfig`` collects them
-plus mode + manipulator model + an optional environment / Gaia config
-for sim mode.
+Each sub-system owns its own ``*Config`` aggregator (publish frequency,
+backend choice, behavioural knobs) declared alongside the sub-system
+itself; ``AegisBuildConfig`` collects them plus mode + manipulator model
++ an optional environment / Gaia config for sim mode.
 """
 
 from __future__ import annotations
@@ -39,18 +39,18 @@ from manor.common.aegis.aegis_adapters import (
 from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.gaia.gaia import Gaia, GaiaConfig
-from manor.common.aegis.gaia.gaia_advancer import GaiaAdvancer
-from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend, HardwareSensorBackendConfig
-from manor.common.aegis.helios.helios import Helios, HeliosPorts, SensorBackend
-from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
+from manor.common.aegis.gaia.gaia_advancer import GaiaAdvancer, GaiaAdvancerConfig
+from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend
+from manor.common.aegis.helios.helios import Helios, HeliosConfig, HeliosPorts, SensorBackend
+from manor.common.aegis.helios.sim_backend import SimSensorBackend
 from manor.common.aegis.kyber.controllers import ZeroVelocityController
-from manor.common.aegis.kyber.kyber import Controller, Kyber, KyberPorts
-from manor.common.aegis.metis.metis import Metis, MetisPorts, Policy
+from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
+from manor.common.aegis.metis.metis import Metis, MetisConfig, MetisPorts
 from manor.common.aegis.metis.policies import ZeroVelocityPolicy
 from manor.common.aegis.mode import AegisMode
-from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
-from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
-from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
+from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
+from manor.common.aegis.talos.sim_backend import SimManipulatorBackend
+from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosConfig, TalosPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.proprioception import Proprioception
@@ -76,76 +76,6 @@ class AegisSystemName(StrEnum):
 
 
 @attr.frozen
-class HeliosConfig:
-    """
-    Helios sub-system configuration.
-
-    ``publish_rgb`` / ``publish_depth`` toggle the corresponding output
-    streams; setting both to false yields a dummy Helios that doesn't
-    declare any output ports (the LCM publisher adapters for those
-    streams are also skipped).
-
-    ``sim_backend_config`` and ``hardware_backend_config`` parametrise
-    the per-mode backends; only the matching one is used in any given
-    build.
-    """
-
-    publish_frequency_hz: float = 30.0
-    publish_rgb: bool = True
-    publish_depth: bool = True
-    sim_backend_config: SimSensorBackendConfig = attr.field(factory=SimSensorBackendConfig)
-    hardware_backend_config: HardwareSensorBackendConfig = attr.field(factory=HardwareSensorBackendConfig)
-
-
-@attr.frozen
-class TalosConfig:
-    """
-    Talos sub-system configuration.
-
-    ``sim_backend_config`` and ``hardware_backend_config`` parametrise
-    the per-mode manipulator backends.
-    """
-
-    publish_frequency_hz: float = 200.0
-    sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
-    hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
-
-
-@attr.frozen
-class MetisConfig:
-    """
-    Metis sub-system configuration. ``policy`` defaults to a
-    ``ZeroVelocityPolicy`` sized to the manipulator's DOF count when
-    left as ``None``.
-    """
-
-    publish_frequency_hz: float = 10.0
-    policy: Policy | None = None
-
-
-@attr.frozen
-class KyberConfig:
-    """
-    Kyber sub-system configuration. ``controller`` defaults to a
-    ``ZeroVelocityController`` sized to the manipulator's DOF count
-    when left as ``None``.
-    """
-
-    publish_frequency_hz: float = 500.0
-    controller: Controller | None = None
-
-
-@attr.frozen
-class GaiaAdvancerConfig:
-    """
-    Sim-only ``GaiaAdvancer`` configuration (cadence at which the
-    diagram clock is forwarded into Gaia.advance_to).
-    """
-
-    advance_frequency_hz: float = 500.0
-
-
-@attr.frozen
 class AegisBuildConfig:
     """
     Top-level configuration for ``build_aegis``.
@@ -160,24 +90,27 @@ class AegisBuildConfig:
 
     mode: AegisMode
     manipulator_model: IManipulatorModel
-    helios: HeliosConfig = attr.field(factory=HeliosConfig)
-    talos: TalosConfig = attr.field(factory=TalosConfig)
-    metis: MetisConfig = attr.field(factory=MetisConfig)
-    kyber: KyberConfig = attr.field(factory=KyberConfig)
-    gaia_advancer: GaiaAdvancerConfig = attr.field(factory=GaiaAdvancerConfig)
+    helios_config: HeliosConfig = attr.field(factory=HeliosConfig)
+    talos_config: TalosConfig = attr.field(factory=TalosConfig)
+    metis_config: MetisConfig = attr.field(factory=MetisConfig)
+    kyber_config: KyberConfig = attr.field(factory=KyberConfig)
+    gaia_advancer_config: GaiaAdvancerConfig = attr.field(factory=GaiaAdvancerConfig)
     environment_config: EnvironmentConfig | None = None
     gaia_config: GaiaConfig | None = None
     lcm: DrakeLcm | None = None
 
     @classmethod
-    def default_lite6(cls, mode: AegisMode) -> Self:
+    def from_lite6(cls, mode: AegisMode, variant: Lite6Variant) -> Self:
         """
-        Convenience: build config with a default Lite6 + zero-velocity
-        policy / controller stubs.
+        Convenience: build config wrapping a Lite6Model of the given
+        variant. The variant is required because both the normal and
+        reverse parallel-gripper trims (and the vacuum trim) are real
+        deployment options; defaulting one over the other would only
+        bury the choice.
         """
         return cls(
             mode=mode,
-            manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
+            manipulator_model=Lite6Model(variant=variant),
         )
 
 
@@ -207,8 +140,10 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
     """
 
     lcm = config.lcm if config.lcm is not None else DrakeLcm()
-    policy = config.metis.policy or ZeroVelocityPolicy(num_joints=config.manipulator_model.get_num_dof())
-    controller = config.kyber.controller or ZeroVelocityController(num_dof=config.manipulator_model.get_num_dof())
+    policy = config.metis_config.policy or ZeroVelocityPolicy(num_joints=config.manipulator_model.get_num_dof())
+    controller = config.kyber_config.controller or ZeroVelocityController(
+        num_dof=config.manipulator_model.get_num_dof()
+    )
 
     gaia, sensor_backend, manipulator_backend = _build_backends(config)
 
@@ -219,24 +154,23 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
     helios = builder.AddSystem(
         Helios(
             backend=sensor_backend,
-            publish_frequency=config.helios.publish_frequency_hz,
-            publish_rgb=config.helios.publish_rgb,
-            publish_depth=config.helios.publish_depth,
+            publish_rgb_frequency_hz=config.helios_config.publish_rgb_frequency_hz,
+            publish_depth_frequency_hz=config.helios_config.publish_depth_frequency_hz,
         )
     )
     talos = builder.AddSystem(
         Talos(
             backend=manipulator_backend,
             manipulator_model=config.manipulator_model,
-            publish_frequency=config.talos.publish_frequency_hz,
+            publish_frequency=config.talos_config.publish_frequency_hz,
         )
     )
-    metis = builder.AddSystem(Metis(policy=policy, publish_frequency=config.metis.publish_frequency_hz))
+    metis = builder.AddSystem(Metis(policy=policy, publish_frequency=config.metis_config.publish_frequency_hz))
     kyber = builder.AddSystem(
         Kyber(
             controller=controller,
             manipulator_model=config.manipulator_model,
-            publish_frequency=config.kyber.publish_frequency_hz,
+            publish_frequency=config.kyber_config.publish_frequency_hz,
         )
     )
 
@@ -246,18 +180,19 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
     kyber.set_name(AegisSystemName.KYBER)
 
     # LCM publisher / subscriber adapters. RGB / depth are conditional
-    # on the Helios publish flags so a dummy Helios doesn't leave
-    # dangling adapters in the diagram.
+    # on the matching Helios stream being enabled (frequency > 0).
     proprioception_publisher = _add_publisher(
-        builder, Proprioception, AegisChannel.PROPRIOCEPTION, lcm, config.talos.publish_frequency_hz
+        builder, Proprioception, AegisChannel.PROPRIOCEPTION, lcm, config.talos_config.publish_frequency_hz
     )
-    action_publisher = _add_publisher(builder, Action, AegisChannel.ACTION, lcm, config.metis.publish_frequency_hz)
+    action_publisher = _add_publisher(
+        builder, Action, AegisChannel.ACTION, lcm, config.metis_config.publish_frequency_hz
+    )
     proprioception_subscriber = _add_subscriber(builder, Proprioception, AegisChannel.PROPRIOCEPTION, lcm)
     action_subscriber = _add_subscriber(builder, Action, AegisChannel.ACTION, lcm)
 
-    if config.helios.publish_rgb:
+    if config.helios_config.publish_rgb_frequency_hz > 0.0:
         rgb_publisher = _add_publisher(
-            builder, RGBImageData, AegisChannel.RGB_IMAGE, lcm, config.helios.publish_frequency_hz
+            builder, RGBImageData, AegisChannel.RGB_IMAGE, lcm, config.helios_config.publish_rgb_frequency_hz
         )
         rgb_subscriber = _add_subscriber(builder, RGBImageData, AegisChannel.RGB_IMAGE, lcm)
         builder.Connect(
@@ -269,9 +204,9 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
             metis.GetInputPort(MetisPorts.INPUT_RGB_IMAGE),
         )
 
-    if config.helios.publish_depth:
+    if config.helios_config.publish_depth_frequency_hz > 0.0:
         depth_publisher = _add_publisher(
-            builder, DepthImageData, AegisChannel.DEPTH_IMAGE, lcm, config.helios.publish_frequency_hz
+            builder, DepthImageData, AegisChannel.DEPTH_IMAGE, lcm, config.helios_config.publish_depth_frequency_hz
         )
         depth_subscriber = _add_subscriber(builder, DepthImageData, AegisChannel.DEPTH_IMAGE, lcm)
         builder.Connect(
@@ -313,7 +248,7 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
     gaia_advancer: GaiaAdvancer | None = None
     if gaia is not None:
         gaia_advancer = builder.AddSystem(
-            GaiaAdvancer(gaia=gaia, advance_frequency_hz=config.gaia_advancer.advance_frequency_hz)
+            GaiaAdvancer(gaia=gaia, advance_frequency_hz=config.gaia_advancer_config.advance_frequency_hz)
         )
         gaia_advancer.set_name(AegisSystemName.GAIA_ADVANCER)
 
@@ -373,9 +308,9 @@ def _build_backends(
             config=config.gaia_config or GaiaConfig(),
         )
         gaia.finalize()
-        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios.sim_backend_config)
+        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)
         manipulator_backend: ManipulatorBackend = SimManipulatorBackend(
-            gaia=gaia, config=config.talos.sim_backend_config
+            gaia=gaia, config=config.talos_config.sim_backend_config
         )
         return gaia, sensor_backend, manipulator_backend
 
@@ -388,8 +323,10 @@ def _build_backends(
                 f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
             )
         driver = Lite6Driver(model=config.manipulator_model)
-        manipulator_backend = HardwareManipulatorBackend(driver=driver, config=config.talos.hardware_backend_config)
-        sensor_backend = HardwareSensorBackend(config=config.helios.hardware_backend_config)
+        manipulator_backend = HardwareManipulatorBackend(
+            driver=driver, config=config.talos_config.hardware_backend_config
+        )
+        sensor_backend = HardwareSensorBackend(config=config.helios_config.hardware_backend_config)
         return None, sensor_backend, manipulator_backend
 
     raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")
