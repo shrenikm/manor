@@ -1,10 +1,10 @@
 """
 Tests for ``Lite6Driver``.
 
-The xarm SDK is not assumed to be installed (the package is sandbox-blocked
-in CI); these tests inject a ``MagicMock`` arm in place of the real
-``XArmAPI`` to exercise the read/write code paths against the SDK contract
-the deprecated codebase used.
+xarm-python-sdk is a hard dependency, but the tests inject a
+``MagicMock`` arm in place of the real ``XArmAPI`` so the read/write
+paths can be exercised against the SDK contract without needing a
+physical robot on the network.
 """
 
 from __future__ import annotations
@@ -89,11 +89,6 @@ class TestDofAccessors:
 
 
 class TestPrimeUnprime:
-    def test_prime_without_xarm_sdk_raises(self, parallel_driver: Lite6Driver) -> None:
-        with mock.patch.object(driver_module, "XArmAPI", None):
-            with pytest.raises(Lite6DriverError):
-                parallel_driver.prime()
-
     def test_prime_invokes_expected_setup_calls(self, parallel_driver: Lite6Driver) -> None:
         arm = _make_arm_mock()
         _prime_with_mock(parallel_driver, arm)

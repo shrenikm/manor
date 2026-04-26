@@ -9,14 +9,12 @@ read/write semantics on the Lite6 are limited by the SDK:
   ``None``.
 * Gripper actuation is binary (open / close / stop). ``write_eef_*``
   methods threshold the supplied EEF vector to map onto those calls.
-
-The xarm SDK is an optional install -- the constructor and connection
-happen in ``prime`` so a Lite6Driver instance can be constructed (and
-unit-tested) without the SDK present.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 from typing import Any, override
 
 import attr
@@ -32,10 +30,14 @@ from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 
-try:
+# The xarm SDK prints ``SDK_VERSION: <ver>`` to stdout on import, with
+# no off switch. Swallow it with a stdout redirect during the import so
+# every aegis CLI / runner invocation isn't preceded by that banner.
+# xarm is now a hard dependency (pyproject.toml) -- if the import
+# fails, that's a real environment problem and we want the
+# ``ImportError`` to surface, not be swallowed into a stub ``None``.
+with contextlib.redirect_stdout(io.StringIO()):
     from xarm.wrapper import XArmAPI
-except ImportError:
-    XArmAPI = None
 
 # Default IP that the deprecated codebase used. Override per-instance.
 _LITE6_DEFAULT_IP = "192.168.1.178"
@@ -75,11 +77,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def prime(self) -> None:
-        if XArmAPI is None:
-            raise Lite6DriverError(
-                "xarm-python-sdk is not installed; install via `uv pip install --no-cache-dir -e .` "
-                "after ensuring xarm-python-sdk is in pyproject.toml."
-            )
         self._arm = XArmAPI(port=self.ip, is_radian=True)
         self._check(self._arm.clean_error(), "clean_error")
         self._check(self._arm.motion_enable(enable=True), "motion_enable")
