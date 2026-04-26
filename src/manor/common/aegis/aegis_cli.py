@@ -370,7 +370,7 @@ def status(
         return
     state = _require_state()
     allowed = _MODE_BLOCKS[state.config.mode]
-    typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.CYAN, bold=True)
+    typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.MAGENTA, bold=True)
     for b in sorted(allowed, key=lambda x: x.value):
         typer.echo(f"  {_format_block_state(b.value, _read_pid(b))}")
 
