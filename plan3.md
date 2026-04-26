@@ -103,6 +103,68 @@ Please figure out:
 1. If the xarm API has methods to do these things (reading/writing joint/eef positions/velocities). I have some old code in the repo that you can use for reference, but it was also using a very old API version so you might wanna look up the latest API docs to see if there are any changes.
 2. Figure out how (and if possible) to wrap the API calls into the above interface.
 
+# Implemented
+
+## Final state
+
+The new structure lives at `src/manor/manipulators/`; the old code stays untouched under `src/manor/manipulators/deprecated_lite6/` and will be removed once the rest of the project migrates off it.
+
+### Top-level types
+
+- `manipulator_type.py` — `ManipulatorType(StrEnum)`, currently with one member: `LITE6`.
+- `manipulator_variant.py` — `IManipulatorVariant(StrEnum)`, an empty parent enum that declares an abstract `get_manipulator_type()` for subclass enums. Plus:
+  - `register_manipulator_variant(manipulator_type)` — class decorator that registers a variant enum class against a `ManipulatorType`. Uses a bound `TypeVar` (`_VariantT = TypeVar("_VariantT", bound=IManipulatorVariant)`) so pyright preserves the concrete class type after decoration (otherwise `Lite6Variant.VACUUM_GRIPPER` member access errored against `type[IManipulatorVariant]`).
+  - `get_variant_class(manipulator_type)` — registry lookup; raises `UnknownManipulatorTypeError` if the corresponding manipulator package was never imported.
+  - `get_registered_manipulator_types()` — for cross-manipulator iteration.
+- `manipulator_model.py` — `IManipulatorModel(ABC)` with: `get_manipulator_type`, `get_variant`, `get_num_dof`, `get_description_filepath`, `get_base_frame_name`, `get_eef_tip_frame_name`, `get_num_positions`, `get_num_velocities`, `get_num_states`. Position / velocity / state counts map directly to Drake's `MultibodyPlant.num_positions()` / `.num_velocities()` for state-vector slicing.
+- `manipulator_driver.py` — `IManipulatorDriver(ABC)` with `prime` / `unprime` plus the eight read/write methods (joint + EEF positions / velocities). EEF read methods are typed `-> ... | None` so manipulators without continuous-actuation EEFs can return `None`.
+
+### Lite6 implementation
+
+Under `src/manor/manipulators/lite6/`:
+
+- `variant.py` — `Lite6Variant`, decorated with `@register_manipulator_variant(ManipulatorType.LITE6)`. Three trims: `VACUUM_GRIPPER`, `PARALLEL_GRIPPER_NORMAL`, `PARALLEL_GRIPPER_REVERSE`. Vacuum-only and unactuated parallel-gripper trims from the deprecated codebase were intentionally dropped.
+- `model.py` — `Lite6Model(IManipulatorModel)`, frozen attrs class with `variant: Lite6Variant`. Module-level constants: `LITE6_ARM_DOF = 6`, `LITE6_PARALLEL_GRIPPER_DOF = 2`. Two dicts map each variant to its URDF filename and position count. Frame names (`link_base`, `link_eef_tip`) are constant across all three variants. Description files come from `robot_models/lite6_description/drake_urdf/robot_with_gripper/`. `get_manipulator_type()` delegates to `self.variant.get_manipulator_type()` rather than hardcoding a return.
+- `driver.py` — `Lite6Driver(IManipulatorDriver)`. Wraps `xarm.wrapper.XArmAPI`. Uses lazy import (`try: from xarm.wrapper import XArmAPI; except ImportError: XArmAPI = None`) so the class can be instantiated without the SDK installed; `prime()` raises `Lite6DriverError` with an install hint if `XArmAPI is None`.
+
+### Exceptions
+
+Added to `src/manor/common/exceptions.py`:
+- `ManipulatorError` (base, extends `ManorError`)
+- `UnknownManipulatorTypeError`, `VariantAlreadyRegisteredError`
+- `ManipulatorDriverError`, `Lite6DriverError`
+
+## Deviations from the plan
+
+- **Naming**: `ManipulatorModelType` → `IManipulatorVariant` (and `Lite6ModelType` → `Lite6Variant`); `Lite6Model.model_type` → `Lite6Model.variant`. The "model type" name conflicted with `IManipulatorModel`; "variant" matches the trim/configuration vocabulary.
+- `get_description_path` → `get_description_filepath` for clarity.
+- `register_variant_for` → `register_manipulator_variant` (more searchable).
+- `Lite6Variant.PARALLEL_GRIPPER` was renamed to `PARALLEL_GRIPPER_NORMAL` so it parallels `PARALLEL_GRIPPER_REVERSE`.
+- `Lite6Model.get_manipulator_type()` delegates to the variant rather than hardcoding `ManipulatorType.LITE6` (the variant already encodes this).
+- Variant registry implemented via decorator (`@register_manipulator_variant(ManipulatorType.LITE6)`) rather than imperative `register_variant_class(...)` calls — declarative, registers at class-definition time.
+- No top-level `ManipulatorModelType` alias / Union added: the abstract base `IManipulatorVariant` is itself a sufficient supertype for cross-manipulator typing.
+
+## Beyond the plan
+
+- **Tests**: ~46 pytest tests under `manipulators/tests/` and `manipulators/lite6/tests/`. Coverage:
+  - `test_manipulator_variant.py` — registry round-trip, unknown-type lookup raises, double-registration raises.
+  - `test_variant.py` — `Lite6Variant` is an `IManipulatorVariant` subclass; `get_manipulator_type()` returns LITE6 for every member; string values are stable.
+  - `test_model.py` — Lite6Model is an IManipulatorModel; arm DOF constant; vacuum has no extra DOFs; parallel grippers add two DOFs; description file actually exists on disk; frame names match.
+  - `test_driver.py` — patches `XArmAPI` with a `MagicMock`; covers prime/unprime sequencing, joint read/write API surface, EEF gripper-command dispatch (binary heuristic for both parallel and vacuum), SDK-error propagation.
+- **EEF read/write semantics on Lite6** (since the xarm SDK doesn't expose continuous gripper state/control):
+  - `read_eef_positions` / `read_eef_velocities` return `None`.
+  - `write_eef_positions` thresholds at `|p| > 0.004 m` (half of the 0.008 m URDF range) → open / close.
+  - `write_eef_velocities` uses sign of max element; zero → stop.
+  - Module docstring documents the limitation; revisit when a continuously-actuated EEF enters the picture.
+- xarm SDK calls (`set_servo_angle_j`, `vc_set_joint_velocity`, `get_joint_states`, `open/close/stop_lite6_gripper`, `set_vacuum_gripper`) all go through a `_check(ret_code, op)` helper that raises `Lite6DriverError` on non-zero status and triggers `emergency_stop()` first.
+
+## Stubs / explicit TODOs
+
+- **xarm SDK install** — pinned in `pyproject.toml` under `[project.optional-dependencies] hardware = ["xarm-python-sdk==1.13.0"]`. Not installed by `uv pip install --no-cache-dir -e .`; needs `uv pip install --no-cache-dir -e ".[hardware]"`. Bump the pin to `1.17.3` (current as of the time of writing) when actually moving to hardware.
+- **xarm API verification against 1.17** — the driver's calls match the 1.13-era patterns from the deprecated code. The 1.17 changelog should be skimmed before driving real hardware; in particular, `set_vacuum_gripper` semantics on the Lite6 specifically.
+- **Drake plant integration** — `Lite6Model` exposes the description path / frame names / DOF counts, but no helpers yet for "construct a `MultibodyPlant` from this model and weld it to the world / a mounting frame". That belongs in a follow-up plan focused on sim integration.
+- **Old code** — `deprecated_lite6/` remains in place. Its tests still pass and are still in the suite; remove when all consumers (Talos backends, etc.) have migrated to the new model + driver.
+
   
 
 
