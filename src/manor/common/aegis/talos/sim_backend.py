@@ -15,7 +15,7 @@ import attr
 import numpy as np
 
 from manor.common.aegis.gaia.gaia import Gaia
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_state import EEFState
@@ -33,8 +33,7 @@ class SimManipulatorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "sim_backend_config")
-        return cls()
+        return cls(**parse_attrs_yaml(cls, d, "sim_backend_config"))
 
 
 @attr.define

@@ -29,7 +29,7 @@ classmethods to keep the import graph acyclic.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Protocol, Self, runtime_checkable
 
 import attr
 
@@ -77,9 +77,20 @@ class KyberControllerConfigBase:
     value; that pinning is what lets ``KyberControllerManager``
     round-trip a YAML tag through to a concrete controller without a
     parallel registry to keep in sync.
+
+    The base also carries a ``from_yaml_dict`` that delegates to the
+    manager. That makes it possible for ``parse_attrs_yaml`` to recurse
+    into a ``controller_config`` field by type alone -- the helper sees
+    ``KyberControllerConfigBase``, calls its ``from_yaml_dict``, and
+    the manager dispatches to the concrete subclass off the ``type:``
+    tag.
     """
 
     CONTROLLER_TYPE: ClassVar[KyberControllerType]
+
+    @classmethod
+    def from_yaml_dict(cls, raw: object) -> Self:
+        return KyberControllerManager.config_from_yaml_dict(raw)
 
 
 class KyberControllerManager:

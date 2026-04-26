@@ -35,7 +35,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram, DiagramBuilder
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_bool, require_int, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.custom_types import JointPositionsVector
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_positions import JointPositions
@@ -85,21 +85,7 @@ class GaiaConfig:
         """
         Parse the ``gaia_config:`` block of an aegis YAML.
         """
-        assert_keys_match_attrs(cls, d, "gaia_config")
-        return cls(
-            time_step=require_number(
-                d.get("time_step", _DEFAULT_PLANT_TIME_STEP_S),
-                "gaia_config.time_step",
-            ),
-            enable_meshcat=require_bool(
-                d.get("enable_meshcat", False),
-                "gaia_config.enable_meshcat",
-            ),
-            rgb_height=require_int(d.get("rgb_height", _DEFAULT_RGB_HEIGHT), "gaia_config.rgb_height"),
-            rgb_width=require_int(d.get("rgb_width", _DEFAULT_RGB_WIDTH), "gaia_config.rgb_width"),
-            depth_height=require_int(d.get("depth_height", _DEFAULT_DEPTH_HEIGHT), "gaia_config.depth_height"),
-            depth_width=require_int(d.get("depth_width", _DEFAULT_DEPTH_WIDTH), "gaia_config.depth_width"),
-        )
+        return cls(**parse_attrs_yaml(cls, d, "gaia_config"))
 
 
 @attr.define

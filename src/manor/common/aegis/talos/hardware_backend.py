@@ -15,7 +15,7 @@ from typing import Self
 import attr
 import numpy as np
 
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_positions import EEFPositions
 from manor.common.definitions.eef_state import EEFState
@@ -34,8 +34,7 @@ class HardwareManipulatorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "hardware_backend_config")
-        return cls()
+        return cls(**parse_attrs_yaml(cls, d, "hardware_backend_config"))
 
 
 @attr.define

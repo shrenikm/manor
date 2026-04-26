@@ -22,7 +22,7 @@ acyclic.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Protocol, Self, runtime_checkable
 
 import attr
 
@@ -68,9 +68,19 @@ class MetisPolicyConfigBase:
     pinning is what lets ``MetisPolicyManager`` round-trip a YAML tag
     through to a concrete policy without a parallel registry to keep
     in sync.
+
+    The base also carries a ``from_yaml_dict`` that delegates to the
+    manager. That makes it possible for ``parse_attrs_yaml`` to recurse
+    into a ``policy_config`` field by type alone -- the helper sees
+    ``MetisPolicyConfigBase``, calls its ``from_yaml_dict``, and the
+    manager dispatches to the concrete subclass off the ``type:`` tag.
     """
 
     POLICY_TYPE: ClassVar[MetisPolicyType]
+
+    @classmethod
+    def from_yaml_dict(cls, raw: object) -> Self:
+        return MetisPolicyManager.config_from_yaml_dict(raw)
 
 
 class MetisPolicyManager:

@@ -16,7 +16,7 @@ import attr
 import numpy as np
 
 from manor.common.aegis.metis.policies.policy_manager import MetisPolicyConfigBase, MetisPolicyType
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.observation import Observation
@@ -37,8 +37,7 @@ class ZeroVelocityPolicyConfig(MetisPolicyConfigBase):
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "ZeroVelocityPolicyConfig")
-        return cls(num_joints=require_int(d.get("num_joints", 0), "ZeroVelocityPolicyConfig.num_joints"))
+        return cls(**parse_attrs_yaml(cls, d, "ZeroVelocityPolicyConfig"))
 
 
 @attr.frozen

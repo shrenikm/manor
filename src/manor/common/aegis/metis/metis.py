@@ -25,16 +25,14 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 from manor.common.aegis.metis.policies.policy_manager import (
     MetisPolicy,
     MetisPolicyConfigBase,
-    MetisPolicyManager,
 )
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
-from manor.common.exceptions import AegisConfigError
 
 
 class MetisPorts(StrEnum):
@@ -70,15 +68,7 @@ class MetisConfig:
         """
         Parse the ``metis_config:`` block of an aegis YAML.
         """
-        assert_keys_match_attrs(cls, d, "metis_config")
-        if "policy_config" not in d:
-            raise AegisConfigError("metis_config.policy_config is required")
-        policy_config = MetisPolicyManager.config_from_yaml_dict(d["policy_config"])
-        publish_frequency_hz = require_number(
-            d.get("publish_frequency_hz", 10.0),
-            "metis_config.publish_frequency_hz",
-        )
-        return cls(policy_config=policy_config, publish_frequency_hz=publish_frequency_hz)
+        return cls(**parse_attrs_yaml(cls, d, "metis_config"))
 
 
 class Metis(LeafSystem):

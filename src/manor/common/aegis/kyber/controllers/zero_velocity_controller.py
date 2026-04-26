@@ -17,7 +17,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberControllerConfigBase,
     KyberControllerType,
 )
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -39,8 +39,7 @@ class ZeroVelocityControllerConfig(KyberControllerConfigBase):
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "ZeroVelocityControllerConfig")
-        return cls(num_dof=require_int(d.get("num_dof", 0), "ZeroVelocityControllerConfig.num_dof"))
+        return cls(**parse_attrs_yaml(cls, d, "ZeroVelocityControllerConfig"))
 
 
 @attr.frozen

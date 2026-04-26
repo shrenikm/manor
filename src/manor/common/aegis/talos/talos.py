@@ -32,7 +32,7 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.command import Command
 from manor.common.definitions.eef_pose import EEFPose
 from manor.common.definitions.eef_state import EEFState
@@ -76,26 +76,7 @@ class TalosConfig:
         configs currently carry no tunable fields but are still
         accepted (as empty mappings) for schema symmetry with helios.
         """
-        assert_keys_match_attrs(cls, d, "talos_config")
-        publish_frequency_hz = require_number(
-            d.get("publish_frequency_hz", 200.0),
-            "talos_config.publish_frequency_hz",
-        )
-        sim_backend_config = (
-            SimManipulatorBackendConfig.from_yaml_dict(d["sim_backend_config"])
-            if "sim_backend_config" in d
-            else SimManipulatorBackendConfig()
-        )
-        hardware_backend_config = (
-            HardwareManipulatorBackendConfig.from_yaml_dict(d["hardware_backend_config"])
-            if "hardware_backend_config" in d
-            else HardwareManipulatorBackendConfig()
-        )
-        return cls(
-            publish_frequency_hz=publish_frequency_hz,
-            sim_backend_config=sim_backend_config,
-            hardware_backend_config=hardware_backend_config,
-        )
+        return cls(**parse_attrs_yaml(cls, d, "talos_config"))
 
 
 @runtime_checkable

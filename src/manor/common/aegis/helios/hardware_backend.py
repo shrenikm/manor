@@ -13,7 +13,7 @@ from typing import Self
 
 import attr
 
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_int, require_str
+from manor.common.aegis.yaml_utils import parse_attrs_yaml, require_str
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -34,17 +34,17 @@ class HardwareSensorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "hardware_backend_config")
+        # ``serial_number`` accepts an empty string (sentinel for "no
+        # device pinned"), which the default ``require_str`` rejects.
         return cls(
-            serial_number=require_str(
-                d.get("serial_number", ""),
-                "hardware_backend_config.serial_number",
-                allow_empty=True,
-            ),
-            rgb_height=require_int(d.get("rgb_height", 480), "hardware_backend_config.rgb_height"),
-            rgb_width=require_int(d.get("rgb_width", 640), "hardware_backend_config.rgb_width"),
-            depth_height=require_int(d.get("depth_height", 480), "hardware_backend_config.depth_height"),
-            depth_width=require_int(d.get("depth_width", 640), "hardware_backend_config.depth_width"),
+            **parse_attrs_yaml(
+                cls,
+                d,
+                "hardware_backend_config",
+                custom_parsers={
+                    "serial_number": lambda v, ctx: require_str(v, ctx, allow_empty=True),
+                },
+            )
         )
 
 

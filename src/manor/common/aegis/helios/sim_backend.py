@@ -14,7 +14,7 @@ from typing import Self
 import attr
 
 from manor.common.aegis.gaia.gaia import Gaia
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_str
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
 
@@ -31,8 +31,7 @@ class SimSensorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        assert_keys_match_attrs(cls, d, "sim_backend_config")
-        return cls(camera_id=require_str(d.get("camera_id", "default"), "sim_backend_config.camera_id"))
+        return cls(**parse_attrs_yaml(cls, d, "sim_backend_config"))
 
 
 @attr.define

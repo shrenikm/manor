@@ -26,13 +26,11 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberController,
     KyberControllerConfigBase,
-    KyberControllerManager,
 )
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.proprioception import Proprioception
-from manor.common.exceptions import AegisConfigError
 
 
 class KyberPorts(StrEnum):
@@ -67,15 +65,7 @@ class KyberConfig:
         """
         Parse the ``kyber_config:`` block of an aegis YAML.
         """
-        assert_keys_match_attrs(cls, d, "kyber_config")
-        if "controller_config" not in d:
-            raise AegisConfigError("kyber_config.controller_config is required")
-        controller_config = KyberControllerManager.config_from_yaml_dict(d["controller_config"])
-        publish_frequency_hz = require_number(
-            d.get("publish_frequency_hz", 500.0),
-            "kyber_config.publish_frequency_hz",
-        )
-        return cls(controller_config=controller_config, publish_frequency_hz=publish_frequency_hz)
+        return cls(**parse_attrs_yaml(cls, d, "kyber_config"))
 
 
 class Kyber(LeafSystem):

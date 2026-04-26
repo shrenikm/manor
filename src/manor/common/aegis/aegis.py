@@ -54,7 +54,7 @@ from manor.common.aegis.mode import AegisMode
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosConfig, TalosPorts
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_dict, require_str
+from manor.common.aegis.yaml_utils import parse_attrs_yaml, require_str
 from manor.common.custom_types import FilePath
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
@@ -127,69 +127,27 @@ class AegisConfig:
         """
         Build an ``AegisConfig`` from an already-parsed YAML mapping.
         Each subsystem block is delegated to that subsystem's
-        ``from_yaml_dict``.
+        ``from_yaml_dict`` -- which the helper finds automatically by
+        looking at the field type, except for ``manipulator_model``
+        (a Protocol with no YAML schema of its own; needs a custom
+        parser) and ``lcm`` (a runtime-only Drake handle, never set
+        from YAML).
         """
-        assert_keys_match_attrs(cls, raw, "aegis")
-
-        if "mode" not in raw:
-            raise AegisConfigError("aegis.mode is required")
-        mode_value = require_str(raw["mode"], "aegis.mode")
-        try:
-            mode = AegisMode(mode_value)
-        except ValueError as e:
-            raise AegisConfigError(
-                f"Unknown aegis.mode: {mode_value!r}; expected one of {[m.value for m in AegisMode]}"
-            ) from e
-
-        if "manipulator_model" not in raw:
-            raise AegisConfigError("aegis.manipulator_model is required")
-        manipulator_model = _parse_manipulator_model(require_dict(raw["manipulator_model"], "aegis.manipulator_model"))
-
-        if "metis_config" not in raw:
-            raise AegisConfigError("aegis.metis_config is required")
-        metis_config = MetisConfig.from_yaml_dict(require_dict(raw["metis_config"], "aegis.metis_config"))
-
-        if "kyber_config" not in raw:
-            raise AegisConfigError("aegis.kyber_config is required")
-        kyber_config = KyberConfig.from_yaml_dict(require_dict(raw["kyber_config"], "aegis.kyber_config"))
-
-        environment_config = (
-            EnvironmentConfig.from_yaml_dict(require_dict(raw["environment_config"], "aegis.environment_config"))
-            if "environment_config" in raw
-            else None
-        )
-        helios_config = (
-            HeliosConfig.from_yaml_dict(require_dict(raw["helios_config"], "aegis.helios_config"))
-            if "helios_config" in raw
-            else HeliosConfig()
-        )
-        talos_config = (
-            TalosConfig.from_yaml_dict(require_dict(raw["talos_config"], "aegis.talos_config"))
-            if "talos_config" in raw
-            else TalosConfig()
-        )
-        gaia_advancer_config = (
-            GaiaAdvancerConfig.from_yaml_dict(require_dict(raw["gaia_advancer_config"], "aegis.gaia_advancer_config"))
-            if "gaia_advancer_config" in raw
-            else GaiaAdvancerConfig()
-        )
-        gaia_config = (
-            GaiaConfig.from_yaml_dict(require_dict(raw["gaia_config"], "aegis.gaia_config"))
-            if "gaia_config" in raw
-            else None
-        )
-
         return cls(
-            mode=mode,
-            manipulator_model=manipulator_model,
-            metis_config=metis_config,
-            kyber_config=kyber_config,
-            environment_config=environment_config,
-            helios_config=helios_config,
-            talos_config=talos_config,
-            gaia_advancer_config=gaia_advancer_config,
-            gaia_config=gaia_config,
+            **parse_attrs_yaml(
+                cls,
+                raw,
+                "aegis",
+                custom_parsers={"manipulator_model": _parse_manipulator_model_field},
+                skip_fields={"lcm"},
+            )
         )
+
+
+def _parse_manipulator_model_field(value: object, context: str) -> IManipulatorModel:
+    if not isinstance(value, dict):
+        raise AegisConfigError(f"'{context}' must be a mapping; got {type(value).__name__}")
+    return _parse_manipulator_model(value)
 
 
 # Discriminated reference to a specific manipulator + variant; lives

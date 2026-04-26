@@ -23,7 +23,7 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackendConfig
 from manor.common.aegis.helios.sim_backend import SimSensorBackendConfig
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_dict, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
 
@@ -83,33 +83,7 @@ class HeliosConfig:
         """
         Parse the ``helios_config:`` block of an aegis YAML.
         """
-        assert_keys_match_attrs(cls, d, "helios_config")
-        sim_backend_config = (
-            SimSensorBackendConfig.from_yaml_dict(
-                require_dict(d["sim_backend_config"], "helios_config.sim_backend_config")
-            )
-            if "sim_backend_config" in d
-            else SimSensorBackendConfig()
-        )
-        hardware_backend_config = (
-            HardwareSensorBackendConfig.from_yaml_dict(
-                require_dict(d["hardware_backend_config"], "helios_config.hardware_backend_config")
-            )
-            if "hardware_backend_config" in d
-            else HardwareSensorBackendConfig()
-        )
-        return cls(
-            publish_rgb_frequency_hz=require_number(
-                d.get("publish_rgb_frequency_hz", 30.0),
-                "helios_config.publish_rgb_frequency_hz",
-            ),
-            publish_depth_frequency_hz=require_number(
-                d.get("publish_depth_frequency_hz", 30.0),
-                "helios_config.publish_depth_frequency_hz",
-            ),
-            sim_backend_config=sim_backend_config,
-            hardware_backend_config=hardware_backend_config,
-        )
+        return cls(**parse_attrs_yaml(cls, d, "helios_config"))
 
 
 class Helios(LeafSystem):

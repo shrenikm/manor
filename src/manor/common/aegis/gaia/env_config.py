@@ -35,7 +35,7 @@ import attr
 import numpy as np
 import yaml
 
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_bool, require_str
+from manor.common.aegis.yaml_utils import parse_attrs_yaml, require_str
 from manor.common.custom_types import FilePath, NpVector3f64
 from manor.common.exceptions import AegisConfigError
 from manor.common.model_utils import get_models_directory_path
@@ -72,20 +72,22 @@ class StaticModelConfig:
     weld_to_world: bool = True
 
     @classmethod
-    def from_yaml_dict(cls, raw: dict, context: str) -> Self:
+    def from_yaml_dict(cls, raw: dict, context: str = "extra_model") -> Self:
         """
         Parse a single ``extra_models[i]`` mapping. ``context`` is
         used for error messages (e.g. ``"extra_models[0]"``).
         """
-        assert_keys_match_attrs(cls, raw, context)
         return cls(
-            name=require_str(raw.get("name"), f"{context}.name"),
-            description_filepath=_resolve_filepath(
-                require_str(raw.get("description_filepath"), f"{context}.description_filepath")
-            ),
-            base_xyz=_parse_xyz(raw.get("base_xyz"), f"{context}.base_xyz"),
-            base_rpy=_parse_xyz(raw.get("base_rpy"), f"{context}.base_rpy"),
-            weld_to_world=require_bool(raw.get("weld_to_world", True), f"{context}.weld_to_world"),
+            **parse_attrs_yaml(
+                cls,
+                raw,
+                context,
+                custom_parsers={
+                    "description_filepath": lambda v, ctx: _resolve_filepath(require_str(v, ctx)),
+                    "base_xyz": _parse_xyz,
+                    "base_rpy": _parse_xyz,
+                },
+            )
         )
 
 
@@ -163,20 +165,29 @@ class EnvironmentConfig:
         """
         Build an EnvironmentConfig from an already-parsed YAML mapping.
         """
-        assert_keys_match_attrs(cls, raw, "environment_config")
-
-        extra_models_raw = raw.get("extra_models") or []
-        if not isinstance(extra_models_raw, list):
-            raise AegisConfigError(f"'extra_models' must be a list; got {type(extra_models_raw).__name__}")
-        extra_models: list[StaticModelConfig] = []
-        for idx, item in enumerate(extra_models_raw):
-            context = f"extra_models[{idx}]"
-            if not isinstance(item, dict):
-                raise AegisConfigError(f"{context} must be a mapping; got {type(item).__name__}")
-            extra_models.append(StaticModelConfig.from_yaml_dict(item, context))
-
         return cls(
-            manipulator_base_xyz=_parse_xyz(raw.get("manipulator_base_xyz"), "manipulator_base_xyz"),
-            manipulator_base_rpy=_parse_xyz(raw.get("manipulator_base_rpy"), "manipulator_base_rpy"),
-            extra_models=tuple(extra_models),
+            **parse_attrs_yaml(
+                cls,
+                raw,
+                "environment_config",
+                custom_parsers={
+                    "manipulator_base_xyz": _parse_xyz,
+                    "manipulator_base_rpy": _parse_xyz,
+                    "extra_models": _parse_extra_models,
+                },
+            )
         )
+
+
+def _parse_extra_models(value: object, context: str) -> tuple[StaticModelConfig, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise AegisConfigError(f"'{context}' must be a list; got {type(value).__name__}")
+    parsed: list[StaticModelConfig] = []
+    for idx, item in enumerate(value):
+        item_context = f"{context}[{idx}]"
+        if not isinstance(item, dict):
+            raise AegisConfigError(f"{item_context} must be a mapping; got {type(item).__name__}")
+        parsed.append(StaticModelConfig.from_yaml_dict(item, item_context))
+    return tuple(parsed)

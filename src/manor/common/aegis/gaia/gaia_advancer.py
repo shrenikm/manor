@@ -20,7 +20,7 @@ import attr
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.gaia.gaia import Gaia
-from manor.common.aegis.yaml_utils import assert_keys_match_attrs, require_number
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 
 _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ = 500.0
 
@@ -43,13 +43,7 @@ class GaiaAdvancerConfig:
         """
         Parse the ``gaia_advancer_config:`` block of an aegis YAML.
         """
-        assert_keys_match_attrs(cls, d, "gaia_advancer_config")
-        return cls(
-            advance_frequency_hz=require_number(
-                d.get("advance_frequency_hz", _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ),
-                "gaia_advancer_config.advance_frequency_hz",
-            )
-        )
+        return cls(**parse_attrs_yaml(cls, d, "gaia_advancer_config"))
 
 
 class GaiaAdvancer(LeafSystem):
