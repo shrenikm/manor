@@ -126,6 +126,67 @@ class AegisBuildConfig:
         )
 
 
+def _add_publisher(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+    publish_frequency_hz: float,
+) -> AegisLCMPublisherAdapter:
+    return builder.AddSystem(
+        AegisLCMPublisherAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+            publish_period=1.0 / publish_frequency_hz,
+        )
+    )
+
+
+def _add_subscriber(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+) -> AegisLCMSubscriberAdapter:
+    return builder.AddSystem(
+        AegisLCMSubscriberAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+        )
+    )
+
+
+def _build_backends(
+    config: AegisBuildConfig,
+) -> tuple[Sim | None, SensorBackend, ManipulatorBackend]:
+    if config.mode == AegisMode.SIM:
+        sim = Sim(
+            manipulator_model=config.manipulator_model,
+            environment_config=config.environment_config,
+            config=config.sim_config,
+        )
+        sensor_backend: SensorBackend = SimSensorBackend(sim=sim, config=SimSensorBackendConfig())
+        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(sim=sim, config=SimManipulatorBackendConfig())
+        return sim, sensor_backend, manipulator_backend
+
+    if config.mode == AegisMode.HARDWARE:
+        # Lite6 is the only manipulator currently supported on hardware;
+        # additional manipulators will need their own driver factories
+        # plumbed in alongside this branch.
+        if not isinstance(config.manipulator_model, Lite6Model):
+            raise InvalidDefinitionError(
+                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
+            )
+        driver = Lite6Driver(model=config.manipulator_model)
+        manipulator_backend = HardwareManipulatorBackend(driver=driver, config=HardwareManipulatorBackendConfig())
+        sensor_backend = HardwareSensorBackend(config=HardwareSensorBackendConfig())
+        return None, sensor_backend, manipulator_backend
+
+    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")
+
+
 def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
     """
     Build and wire the full aegis diagram.
@@ -250,64 +311,3 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
         sim=sim,
         sim_advancer=sim_advancer,
     )
-
-
-def _add_publisher(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-    publish_frequency_hz: float,
-) -> AegisLCMPublisherAdapter:
-    return builder.AddSystem(
-        AegisLCMPublisherAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-            publish_period=1.0 / publish_frequency_hz,
-        )
-    )
-
-
-def _add_subscriber(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-) -> AegisLCMSubscriberAdapter:
-    return builder.AddSystem(
-        AegisLCMSubscriberAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-        )
-    )
-
-
-def _build_backends(
-    config: AegisBuildConfig,
-) -> tuple[Sim | None, SensorBackend, ManipulatorBackend]:
-    if config.mode == AegisMode.SIM:
-        sim = Sim(
-            manipulator_model=config.manipulator_model,
-            environment_config=config.environment_config,
-            config=config.sim_config,
-        )
-        sensor_backend: SensorBackend = SimSensorBackend(sim=sim, config=SimSensorBackendConfig())
-        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(sim=sim, config=SimManipulatorBackendConfig())
-        return sim, sensor_backend, manipulator_backend
-
-    if config.mode == AegisMode.HARDWARE:
-        # Lite6 is the only manipulator currently supported on hardware;
-        # additional manipulators will need their own driver factories
-        # plumbed in alongside this branch.
-        if not isinstance(config.manipulator_model, Lite6Model):
-            raise InvalidDefinitionError(
-                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
-            )
-        driver = Lite6Driver(model=config.manipulator_model)
-        manipulator_backend = HardwareManipulatorBackend(driver=driver, config=HardwareManipulatorBackendConfig())
-        sensor_backend = HardwareSensorBackend(config=HardwareSensorBackendConfig())
-        return None, sensor_backend, manipulator_backend
-
-    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")

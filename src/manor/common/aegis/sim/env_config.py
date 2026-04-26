@@ -64,6 +64,42 @@ class StaticModelConfig:
     weld_to_world: bool = True
 
 
+def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
+    if value is None:
+        return np.zeros(3, dtype=np.float64)
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise EnvironmentConfigError(f"'{field_name}' must be a length-3 list of floats; got {value!r}")
+    try:
+        return np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as e:
+        raise EnvironmentConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
+
+
+def _parse_static_model(raw: object, idx: int) -> StaticModelConfig:
+    if not isinstance(raw, dict):
+        raise EnvironmentConfigError(f"extra_models[{idx}] must be a mapping; got {type(raw).__name__}")
+    name = raw.get("name")
+    description_filepath = raw.get("description_filepath")
+    if not isinstance(name, str) or not name:
+        raise EnvironmentConfigError(f"extra_models[{idx}].name is required and must be a non-empty string")
+    if not isinstance(description_filepath, str) or not description_filepath:
+        raise EnvironmentConfigError(
+            f"extra_models[{idx}].description_filepath is required and must be a non-empty string"
+        )
+    weld_to_world = raw.get("weld_to_world", True)
+    if not isinstance(weld_to_world, bool):
+        raise EnvironmentConfigError(
+            f"extra_models[{idx}].weld_to_world must be a bool; got {type(weld_to_world).__name__}"
+        )
+    return StaticModelConfig(
+        name=name,
+        description_filepath=description_filepath,
+        base_xyz=_parse_xyz(raw.get("base_xyz"), f"extra_models[{idx}].base_xyz"),
+        base_rpy=_parse_xyz(raw.get("base_rpy"), f"extra_models[{idx}].base_rpy"),
+        weld_to_world=weld_to_world,
+    )
+
+
 @attr.frozen
 class EnvironmentConfig:
     """
@@ -119,39 +155,3 @@ class EnvironmentConfig:
             manipulator_base_rpy=manipulator_base_rpy,
             extra_models=extra_models,
         )
-
-
-def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
-    if value is None:
-        return np.zeros(3, dtype=np.float64)
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        raise EnvironmentConfigError(f"'{field_name}' must be a length-3 list of floats; got {value!r}")
-    try:
-        return np.asarray(value, dtype=np.float64)
-    except (TypeError, ValueError) as e:
-        raise EnvironmentConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
-
-
-def _parse_static_model(raw: object, idx: int) -> StaticModelConfig:
-    if not isinstance(raw, dict):
-        raise EnvironmentConfigError(f"extra_models[{idx}] must be a mapping; got {type(raw).__name__}")
-    name = raw.get("name")
-    description_filepath = raw.get("description_filepath")
-    if not isinstance(name, str) or not name:
-        raise EnvironmentConfigError(f"extra_models[{idx}].name is required and must be a non-empty string")
-    if not isinstance(description_filepath, str) or not description_filepath:
-        raise EnvironmentConfigError(
-            f"extra_models[{idx}].description_filepath is required and must be a non-empty string"
-        )
-    weld_to_world = raw.get("weld_to_world", True)
-    if not isinstance(weld_to_world, bool):
-        raise EnvironmentConfigError(
-            f"extra_models[{idx}].weld_to_world must be a bool; got {type(weld_to_world).__name__}"
-        )
-    return StaticModelConfig(
-        name=name,
-        description_filepath=description_filepath,
-        base_xyz=_parse_xyz(raw.get("base_xyz"), f"extra_models[{idx}].base_xyz"),
-        base_rpy=_parse_xyz(raw.get("base_rpy"), f"extra_models[{idx}].base_rpy"),
-        weld_to_world=weld_to_world,
-    )
