@@ -18,6 +18,8 @@ environment_config:
   extra_models:
     - name: lite6_table
       description_filepath: environment/lite6_table.urdf
+      base_xyz: [0.0, 0.0, 0.0]
+      base_rpy: [0.0, 0.0, 0.0]
       weld_to_world: false
 
 helios_config:
@@ -34,6 +36,8 @@ helios_config:
 
 talos_config:
   publish_frequency_hz: 200.0
+  sim_backend_config: {}
+  hardware_backend_config: {}
 
 metis_config:
   publish_frequency_hz: 10.0
@@ -50,6 +54,7 @@ kyber_config:
 gaia_config:
   time_step: 0.0
   enable_meshcat: true
+  target_realtime_rate: 1.0
   rgb_height: 480
   rgb_width: 640
   depth_height: 480

@@ -10,14 +10,14 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.kyber.controllers.action_passthrough_controller import (
-    ActionPassthroughController,
-    ActionPassthroughControllerConfig,
-)
 from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberController,
     KyberControllerManager,
     KyberControllerType,
+)
+from manor.common.aegis.kyber.controllers.passthrough_controller import (
+    PassthroughController,
+    PassthroughControllerConfig,
 )
 from manor.common.aegis.kyber.controllers.zero_velocity_controller import (
     ZeroVelocityController,
@@ -178,12 +178,12 @@ class TestZeroVelocityController:
         np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
 
-class TestActionPassthroughController:
+class TestPassthroughController:
     def test_is_a_controller(self) -> None:
-        assert isinstance(ActionPassthroughController(num_dof=LITE6_ARM_DOF), KyberController)
+        assert isinstance(PassthroughController(num_dof=LITE6_ARM_DOF), KyberController)
 
     def test_passes_joint_positions_through(self) -> None:
-        controller = ActionPassthroughController(num_dof=LITE6_ARM_DOF)
+        controller = PassthroughController(num_dof=LITE6_ARM_DOF)
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float64)
         action = _make_action(positions)
         command = controller.step(action, _make_proprioception(n_joints=LITE6_ARM_DOF))
@@ -195,8 +195,8 @@ class TestKyberControllerConfigs:
     def test_zero_velocity_config_pins_enum(self) -> None:
         assert ZeroVelocityControllerConfig.CONTROLLER_TYPE is KyberControllerType.ZERO_VELOCITY
 
-    def test_action_passthrough_config_pins_enum(self) -> None:
-        assert ActionPassthroughControllerConfig.CONTROLLER_TYPE is KyberControllerType.ACTION_PASSTHROUGH
+    def test_passthrough_config_pins_enum(self) -> None:
+        assert PassthroughControllerConfig.CONTROLLER_TYPE is KyberControllerType.PASSTHROUGH
 
 
 class TestKyberControllerManager:
@@ -208,21 +208,21 @@ class TestKyberControllerManager:
         assert isinstance(controller, ZeroVelocityController)
         assert controller.num_dof == LITE6_ARM_DOF
 
-    def test_from_config_action_passthrough(self) -> None:
+    def test_from_config_passthrough(self) -> None:
         controller = KyberControllerManager.from_config(
-            ActionPassthroughControllerConfig(num_dof=LITE6_ARM_DOF),
+            PassthroughControllerConfig(num_dof=LITE6_ARM_DOF),
             manipulator_model=_make_lite6(),
         )
-        assert isinstance(controller, ActionPassthroughController)
+        assert isinstance(controller, PassthroughController)
 
     def test_config_from_yaml_dict_zero_velocity(self) -> None:
         config = KyberControllerManager.config_from_yaml_dict({"type": "zero_velocity", "num_dof": 6})
         assert isinstance(config, ZeroVelocityControllerConfig)
         assert config.num_dof == 6
 
-    def test_config_from_yaml_dict_action_passthrough(self) -> None:
-        config = KyberControllerManager.config_from_yaml_dict({"type": "action_passthrough", "num_dof": 8})
-        assert isinstance(config, ActionPassthroughControllerConfig)
+    def test_config_from_yaml_dict_passthrough(self) -> None:
+        config = KyberControllerManager.config_from_yaml_dict({"type": "passthrough", "num_dof": 8})
+        assert isinstance(config, PassthroughControllerConfig)
         assert config.num_dof == 8
 
     def test_config_from_yaml_dict_rejects_missing_type(self) -> None:
@@ -248,11 +248,11 @@ class TestKyberConfigYaml:
         config = KyberConfig.from_yaml_dict(
             {
                 "publish_frequency_hz": 250.0,
-                "controller_config": {"type": "action_passthrough", "num_dof": 7},
+                "controller_config": {"type": "passthrough", "num_dof": 7},
             }
         )
         assert config.publish_frequency_hz == 250.0
-        assert isinstance(config.controller_config, ActionPassthroughControllerConfig)
+        assert isinstance(config.controller_config, PassthroughControllerConfig)
         assert config.controller_config.num_dof == 7
 
     def test_rejects_missing_controller_config(self) -> None:

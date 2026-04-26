@@ -1,5 +1,5 @@
 """
-``ActionPassthroughController``: forwards a joint-positions or
+``PassthroughController``: forwards a joint-positions or
 joint-velocities Action through as the matching Command variant.
 
 Falls back to a zero-velocity command if the Action carries an
@@ -28,24 +28,24 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 
 
 @attr.frozen
-class ActionPassthroughControllerConfig(KyberControllerConfigBase):
+class PassthroughControllerConfig(KyberControllerConfigBase):
     """
-    Config for ``ActionPassthroughController``. ``num_dof`` sizes the
+    Config for ``PassthroughController``. ``num_dof`` sizes the
     fallback zero-velocity command emitted when an EEF-space Action
     arrives.
     """
 
-    CONTROLLER_TYPE: ClassVar[KyberControllerType] = KyberControllerType.ACTION_PASSTHROUGH
+    CONTROLLER_TYPE: ClassVar[KyberControllerType] = KyberControllerType.PASSTHROUGH
 
     num_dof: int = 0
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        return cls(**parse_attrs_yaml(cls, d, "ActionPassthroughControllerConfig"))
+        return cls(**parse_attrs_yaml(cls, d, "PassthroughControllerConfig"))
 
 
 @attr.frozen
-class ActionPassthroughController:
+class PassthroughController:
     """
     Forward joint-space Actions through as the matching Command, with
     an EEF-space fallback to a zero-velocity command sized to
