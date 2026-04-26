@@ -65,10 +65,16 @@ class TestAegisCli:
         assert result.exit_code != 0
         assert "refusing to run" in result.output
 
-    def test_status_with_no_arg_lists(self, sandboxed_pid_dir: Path) -> None:
+    def test_status_requires_block_argument(self, sandboxed_pid_dir: Path) -> None:
         result = _run_cli(["status"])
+        # ``status`` now requires <block>; no fallback to listing.
+        assert result.exit_code != 0
+
+    def test_status_reports_stopped_for_known_block(self, sandboxed_pid_dir: Path) -> None:
+        result = _run_cli(["status", "metis"])
         assert result.exit_code == 0
-        assert "mode: sim" in result.output
+        assert "metis" in result.output
+        assert "stopped" in result.output
 
     def test_pid_file_path_is_block_specific(self, sandboxed_pid_dir: Path) -> None:
         path = cli_module._pid_file_path(AegisBlock.METIS)

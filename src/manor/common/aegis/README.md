@@ -423,8 +423,8 @@ Commands:
 | command                | what it does                                                          |
 | ---------------------- | --------------------------------------------------------------------- |
 | `run <block>`          | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. |
-| `kill <block>`         | SIGTERM `<block>`'s subprocess.                                       |
-| `status [<block>]`     | report `<block>`'s state (alive + PID, or stopped). With no arg, equivalent to `list`. |
+| `kill <block>`         | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. |
+| `status <block>`       | report `<block>`'s state (running + PID, or stopped).                 |
 | `list`                 | list every block applicable to the current mode + state.              |
 | `repl`                 | drop into an interactive prompt_toolkit shell.                        |
 

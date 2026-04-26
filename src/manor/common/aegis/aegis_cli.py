@@ -32,6 +32,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Optional
@@ -43,6 +44,7 @@ import yaml
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 
 from manor.common.aegis.aegis import AegisConfig
@@ -146,6 +148,41 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+# After SIGTERM, wait this long for the child to actually exit before
+# returning. Without this, the child's own ``stopping`` print races
+# against the REPL's next prompt redraw and lands on top of it.
+_KILL_WAIT_TIMEOUT_S = 2.0
+_KILL_WAIT_POLL_INTERVAL_S = 0.02
+
+
+def _wait_for_exit(pid: int, timeout_s: float = _KILL_WAIT_TIMEOUT_S) -> None:
+    """
+    Block until ``pid`` is gone (or ``timeout_s`` elapses), so any
+    last-gasp output the child writes lands before our caller redraws.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and _process_alive(pid):
+        time.sleep(_KILL_WAIT_POLL_INTERVAL_S)
+
+
+def _echo_success(msg: str) -> None:
+    typer.secho(msg, fg=typer.colors.GREEN)
+
+
+def _echo_warn(msg: str) -> None:
+    typer.secho(msg, fg=typer.colors.YELLOW)
+
+
+def _echo_error(msg: str) -> None:
+    typer.secho(msg, fg=typer.colors.RED, err=True)
+
+
+def _format_block_state(name: str, pid: Optional[int]) -> str:
+    if pid is None:
+        return f"{name}: {typer.style('stopped', fg=typer.colors.RED)}"
+    return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
+
+
 def _load_config(config_path: Path) -> tuple[AegisConfig, dict]:
     """
     Read + validate the YAML once. Returns the parsed ``AegisConfig``
@@ -234,15 +271,14 @@ def run_block(
     state = _require_state()
     allowed = _MODE_BLOCKS[state.config.mode]
     if block not in allowed:
-        typer.echo(
+        _echo_error(
             f"refusing to run {block.value!r} in mode {state.config.mode.value!r}; "
-            f"this mode supports {sorted(b.value for b in allowed)}",
-            err=True,
+            f"this mode supports {sorted(b.value for b in allowed)}"
         )
         raise typer.Exit(code=1)
 
     if (existing := _read_pid(block)) is not None:
-        typer.echo(f"{block.value} already running (pid {existing})", err=True)
+        _echo_error(f"{block.value} already running (pid {existing})")
         raise typer.Exit(code=1)
 
     payload = json.dumps(state.raw_config).encode("utf-8")
@@ -259,7 +295,7 @@ def run_block(
     proc.stdin.write(payload)
     proc.stdin.close()
     _write_pid(block, proc.pid)
-    typer.echo(f"started {block.value} (pid {proc.pid})")
+    _echo_success(f"started {block.value} (pid {proc.pid})")
 
 
 @app.command("kill")
@@ -272,38 +308,33 @@ def kill_block(
     """
     pid = _read_pid(block)
     if pid is None:
-        typer.echo(f"{block.value} is not running", err=True)
+        _echo_error(f"{block.value} is not running")
         raise typer.Exit(code=1)
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         # Race: process exited between the read_pid check and the kill.
         _clear_pid(block)
-        typer.echo(f"{block.value} already exited", err=True)
+        _echo_warn(f"{block.value} already exited")
         return
     _clear_pid(block)
-    typer.echo(f"signalled {block.value} (pid {pid})")
+    # Block until the child is gone so its own SIGTERM-handler print
+    # ("received signal 15; stopping") lands before the REPL redraws
+    # the next prompt. Without this the child's last line writes onto
+    # the line where ``aegis>`` already is and strands the cursor.
+    _wait_for_exit(pid)
+    _echo_warn(f"signalled {block.value} (pid {pid})")
 
 
 @app.command("status")
 def status(
-    block: Annotated[
-        Optional[AegisBlock],
-        typer.Argument(help="Which block to query (omit to list every block)."),
-    ] = None,
+    block: Annotated[AegisBlock, typer.Argument(help="Which block to query.")],
 ) -> None:
     """
-    Report whether ``block`` is alive. With no argument, equivalent
-    to ``aegis list``.
+    Report whether ``block`` is alive. Use ``aegis list`` to see every
+    block at once.
     """
-    if block is None:
-        list_blocks()
-        return
-    pid = _read_pid(block)
-    if pid is None:
-        typer.echo(f"{block.value}: stopped")
-    else:
-        typer.echo(f"{block.value}: running (pid {pid})")
+    typer.echo(_format_block_state(block.value, _read_pid(block)))
 
 
 @app.command("list")
@@ -314,13 +345,9 @@ def list_blocks() -> None:
     """
     state = _require_state()
     allowed = _MODE_BLOCKS[state.config.mode]
-    typer.echo(f"mode: {state.config.mode.value}")
+    typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.CYAN, bold=True)
     for block in sorted(allowed, key=lambda b: b.value):
-        pid = _read_pid(block)
-        if pid is None:
-            typer.echo(f"  {block.value}: stopped")
-        else:
-            typer.echo(f"  {block.value}: running (pid {pid})")
+        typer.echo(f"  {_format_block_state(block.value, _read_pid(block))}")
 
 
 # Where the REPL stores its history (~/.aegis_history). Persistent
@@ -334,7 +361,11 @@ def repl() -> None:
     Start an interactive shell. All subcommands are available in it.
     """
     state = _require_state()
-    typer.echo(f"aegis repl -- mode={state.config.mode.value}, config={state.config_path}")
+    typer.secho(
+        f"aegis repl -- mode={state.config.mode.value}, config={state.config_path}",
+        fg=typer.colors.CYAN,
+        bold=True,
+    )
     typer.echo("type 'help' for commands, 'exit' or Ctrl-D to leave (children keep running).")
 
     completer = _build_completer()
@@ -344,13 +375,14 @@ def repl() -> None:
         completer=completer,
         complete_while_typing=True,
     )
+    prompt_text = HTML("<ansicyan><b>aegis&gt;</b></ansicyan> ")
 
     # Inside the REPL we re-dispatch each line through the same click
     # group, but skip the top-level callback (which would otherwise
     # re-parse the YAML on every line). The state is already loaded.
     while True:
         try:
-            line = session.prompt("aegis> ").strip()
+            line = session.prompt(prompt_text).strip()
         except EOFError:
             typer.echo()
             return
@@ -381,7 +413,7 @@ def _print_repl_help() -> None:
     typer.echo("commands:")
     typer.echo("  run <block>      spawn the named block as a subprocess")
     typer.echo("  kill <block>     SIGTERM a running block")
-    typer.echo("  status [block]   report block state (no arg = list all)")
+    typer.echo("  status <block>   report block state")
     typer.echo("  list             list every block applicable to this mode")
     typer.echo("  help             show this message")
     typer.echo("  exit | quit      leave the REPL (children keep running)")
@@ -405,7 +437,7 @@ def _dispatch_repl_line(line: str, config_path: Path) -> None:
     if not argv:
         return
     if argv[0] == "repl":
-        typer.echo("already in REPL", err=True)
+        _echo_error("already in REPL")
         return
     full_argv = ["--config", str(config_path), *argv]
     try:
@@ -413,7 +445,7 @@ def _dispatch_repl_line(line: str, config_path: Path) -> None:
         # its own; we handle the SystemExit it raises on --help / etc.
         cli.main(args=full_argv, standalone_mode=False, prog_name="aegis")
     except click.UsageError as e:
-        typer.echo(f"usage: {e.format_message()}", err=True)
+        _echo_error(f"usage: {e.format_message()}")
     except click.exceptions.Exit:
         # ``raise typer.Exit`` from a subcommand -- already echoed
         # whatever it needed to.
