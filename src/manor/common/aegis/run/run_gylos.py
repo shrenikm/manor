@@ -16,7 +16,7 @@ Wiring (kyber/talos run as a tight loop with no LCM hop in between):
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.gylos < lite6_default.yaml.json
+    python -m manor.common.aegis.run.run_gylos < lite6_default.yaml.json
 
 The JSON payload is the full parsed-AegisConfig dict (the same shape
 the YAML produces). gylos just ignores ``metis_config``; everything

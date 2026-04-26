@@ -6,14 +6,14 @@ LeafSystem driving a ``HardwareSensorBackend``, with LCM publishers
 on the RGB / depth channels. There are no inputs.
 
 In sim mode the helios role is fulfilled by the gylos process
-(see ``run.gylos``), because ``SimSensorBackend`` closes over a
+(see ``run.run_gylos``), because ``SimSensorBackend`` closes over a
 shared in-process ``Gaia`` handle that can't cross a process
 boundary -- so a separate helios process in sim would be a
 passthrough subscriber. Don't launch this runner in sim.
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.helios < lite6_default.yaml.json
+    python -m manor.common.aegis.run.run_helios < lite6_default.yaml.json
 """
 
 from __future__ import annotations

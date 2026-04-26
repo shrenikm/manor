@@ -6,7 +6,7 @@ diagram that lives inside one process and runs it forever (until
 SIGTERM / SIGINT). The CLI / REPL spawns these as subprocesses --
 they are also runnable standalone for dev iteration:
 
-    python -m manor.common.aegis.run.metis < <(jq .metis_config configs/aegis/lite6_default.yaml)
+    python -m manor.common.aegis.run.run_metis < configs/aegis/lite6_default.yaml.json
 
 Each per-block module exposes a ``run_<block>(...)`` function that
 takes already-parsed config(s) and a ``DrakeLcm`` handle, plus a

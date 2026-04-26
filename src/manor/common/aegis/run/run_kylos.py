@@ -7,11 +7,11 @@ over LCM. Kyber and Talos are wired directly to each other -- no
 intermediate LCM hop on the action -> command -> motor path.
 
 In sim mode the kylos role is fulfilled by the gylos process (see
-``run.gylos``); don't launch this runner in sim.
+``run.run_gylos``); don't launch this runner in sim.
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.kylos < lite6_default.yaml.json
+    python -m manor.common.aegis.run.run_kylos < lite6_default.yaml.json
 """
 
 from __future__ import annotations

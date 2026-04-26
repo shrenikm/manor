@@ -6,7 +6,7 @@ block: ``metis``, ``gylos`` in sim; ``metis``, ``kylos``, ``helios``
 on hardware). This module is the supervisor for those processes:
 
 * ``aegis run <block>`` spawns a child running
-  ``python -m manor.common.aegis.run.<block>`` with the parsed +
+  ``python -m manor.common.aegis.run.run_<block>`` with the parsed +
   validated config piped in over stdin as JSON.
 * ``aegis kill <block>`` sends SIGTERM to the child.
 * ``aegis status [block]`` reports whether the child is alive.
@@ -79,10 +79,10 @@ class AegisBlock(StrEnum):
 
 # Per-block run-module path (the ``-m`` argument we hand to python).
 _BLOCK_RUN_MODULE: dict[AegisBlock, str] = {
-    AegisBlock.METIS: "manor.common.aegis.run.metis",
-    AegisBlock.GYLOS: "manor.common.aegis.run.gylos",
-    AegisBlock.KYLOS: "manor.common.aegis.run.kylos",
-    AegisBlock.HELIOS: "manor.common.aegis.run.helios",
+    AegisBlock.METIS: "manor.common.aegis.run.run_metis",
+    AegisBlock.GYLOS: "manor.common.aegis.run.run_gylos",
+    AegisBlock.KYLOS: "manor.common.aegis.run.run_kylos",
+    AegisBlock.HELIOS: "manor.common.aegis.run.run_helios",
 }
 
 

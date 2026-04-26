@@ -108,7 +108,7 @@ class TestGylosRunner:
     def test_run_gylos_function_builds(self) -> None:
         # Import lazily so a hard failure in gylos's import path
         # surfaces as a test failure rather than a collection error.
-        from manor.common.aegis.run.gylos import run_gylos  # noqa: F401
+        from manor.common.aegis.run.run_gylos import run_gylos  # noqa: F401
 
     def test_gylos_diagram_builds_and_advances(self) -> None:
         # Reproduce gylos's wiring up to the simulator init step.
@@ -209,10 +209,10 @@ class TestGylosRunner:
 @pytest.mark.parametrize(
     "module",
     [
-        "manor.common.aegis.run.metis",
-        "manor.common.aegis.run.gylos",
-        "manor.common.aegis.run.helios",
-        "manor.common.aegis.run.kylos",
+        "manor.common.aegis.run.run_metis",
+        "manor.common.aegis.run.run_gylos",
+        "manor.common.aegis.run.run_helios",
+        "manor.common.aegis.run.run_kylos",
     ],
 )
 def test_runner_module_imports_cleanly(module: str) -> None:
