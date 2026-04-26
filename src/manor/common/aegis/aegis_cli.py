@@ -187,6 +187,10 @@ app = typer.Typer(
     name="aegis",
     add_completion=False,
     help="Supervisor / REPL for the aegis robotics stack.",
+    # Accept ``-h`` as a shorthand for ``--help`` everywhere; click
+    # propagates this context_settings dict down to every subcommand
+    # so the alias works on ``aegis -h``, ``aegis run -h``, etc.
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 
