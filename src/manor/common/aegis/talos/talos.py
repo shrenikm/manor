@@ -22,7 +22,7 @@ once the per-system plant is consulted properly, only
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Protocol, Self, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -39,6 +39,7 @@ from manor.common.definitions.eef_twist import EEFTwist
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.exceptions import AegisConfigError
 from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 
@@ -50,6 +51,14 @@ class TalosPorts(StrEnum):
 
     INPUT_COMMAND = "command"
     OUTPUT_PROPRIOCEPTION = "proprioception"
+
+
+class TalosYamlKey(StrEnum):
+    """
+    YAML field names for the ``talos:`` block of an aegis config.
+    """
+
+    PUBLISH_FREQUENCY_HZ = "publish_frequency_hz"
 
 
 @attr.frozen
@@ -67,6 +76,24 @@ class TalosConfig:
     publish_frequency_hz: float = 200.0
     sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
     hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        """
+        Parse the ``talos:`` block of an aegis YAML. The sim and
+        hardware backend configs currently carry no tunable fields,
+        so they aren't part of the YAML schema.
+        """
+        allowed = {key.value for key in TalosYamlKey}
+        extras = set(d) - allowed
+        if extras:
+            raise AegisConfigError(f"talos: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
+        publish_frequency_hz = d.get(TalosYamlKey.PUBLISH_FREQUENCY_HZ, 200.0)
+        if isinstance(publish_frequency_hz, bool) or not isinstance(publish_frequency_hz, (int, float)):
+            raise AegisConfigError(
+                f"talos.{TalosYamlKey.PUBLISH_FREQUENCY_HZ} must be a number; got {type(publish_frequency_hz).__name__}"
+            )
+        return cls(publish_frequency_hz=float(publish_frequency_hz))
 
 
 @runtime_checkable

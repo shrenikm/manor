@@ -182,7 +182,17 @@ class EnvironmentConfig:
             raise EnvironmentConfigError(
                 f"Environment config {filepath!r} must be a mapping at the top level; got {type(raw).__name__}"
             )
+        return cls.from_yaml_dict(raw)
 
+    @classmethod
+    def from_yaml_dict(cls, raw: dict) -> Self:
+        """
+        Build an EnvironmentConfig from an already-parsed YAML mapping.
+
+        The dict-based entry point lets a top-level aegis YAML embed an
+        environment block inline; ``from_yaml`` is the file-based
+        wrapper around it.
+        """
         manipulator_base_xyz = _parse_xyz(raw.get(_YamlKey.MANIPULATOR_BASE_XYZ), _YamlKey.MANIPULATOR_BASE_XYZ)
         manipulator_base_rpy = _parse_xyz(raw.get(_YamlKey.MANIPULATOR_BASE_RPY), _YamlKey.MANIPULATOR_BASE_RPY)
 

@@ -88,6 +88,15 @@ class EnvironmentConfigError(AegisError):
     pass
 
 
+class AegisConfigError(AegisError):
+    """
+    Raised when an aegis-level configuration (top-level or per-subsystem
+    YAML) cannot be parsed or fails validation.
+    """
+
+    pass
+
+
 class GaiaError(AegisError):
     """
     Raised when the Gaia simulator encounters a runtime error.

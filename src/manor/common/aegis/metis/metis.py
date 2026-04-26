@@ -7,26 +7,33 @@ On every periodic tick Metis:
   3. calls ``policy.step(observation)`` to produce an Action,
   4. writes the Action into abstract state.
 
-The output port is a zero-order hold on that state. The Policy protocol
-is what downstream algorithm implementations (motion planners,
-diffusion policies, VLAs) plug into.
+The output port is a zero-order hold on that state. The ``MetisPolicy``
+protocol (defined in ``metis/policies/policy_manager.py``) is what
+downstream algorithm implementations (motion planners, diffusion
+policies, VLAs) plug into.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Self
 
 import attr
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
+from manor.common.aegis.metis.policies.policy_manager import (
+    MetisPolicy,
+    MetisPolicyConfigBase,
+    MetisPolicyManager,
+)
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.exceptions import AegisConfigError
 
 
 class MetisPorts(StrEnum):
@@ -40,40 +47,60 @@ class MetisPorts(StrEnum):
     OUTPUT_ACTION = "action"
 
 
-@runtime_checkable
-class Policy(Protocol):
+class MetisYamlKey(StrEnum):
     """
-    Protocol for an observation-to-action policy.
-
-    Concrete implementations may be purely functional (classical
-    planners, trajopt) or stateful (learned policies with internal
-    recurrence); the ``step`` interface accommodates both.
+    YAML field names for the ``metis:`` block of an aegis config.
     """
 
-    def step(self, observation: Observation) -> Action: ...
+    PUBLISH_FREQUENCY_HZ = "publish_frequency_hz"
+    POLICY_CONFIG = "policy_config"
 
 
 @attr.frozen
 class MetisConfig:
     """
-    Metis sub-system configuration. ``policy`` defaults to a
-    ``ZeroVelocityPolicy`` sized to the manipulator's DOF count when
-    left as ``None`` (resolved by the aegis builder). ``SYSTEM_NAME``
-    is the name applied to the Metis LeafSystem in the diagram.
+    Metis sub-system configuration.
+
+    ``policy_config`` is required: it pins which ``MetisPolicy`` runs
+    on the robot. Defaulting it would silently swap behaviour at the
+    most consequential layer of the stack, so aegis refuses to build
+    without an explicit choice. ``SYSTEM_NAME`` is the name applied to
+    the Metis LeafSystem in the diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "metis"
 
+    policy_config: MetisPolicyConfigBase
     publish_frequency_hz: float = 10.0
-    policy: Policy | None = None
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        """
+        Parse the ``metis:`` block of an aegis YAML.
+        """
+        allowed = {key.value for key in MetisYamlKey}
+        extras = set(d) - allowed
+        if extras:
+            raise AegisConfigError(f"metis: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}")
+        if MetisYamlKey.POLICY_CONFIG not in d:
+            raise AegisConfigError(f"metis.{MetisYamlKey.POLICY_CONFIG} is required")
+
+        policy_config = MetisPolicyManager.config_from_yaml_dict(d[MetisYamlKey.POLICY_CONFIG])
+
+        publish_frequency_hz = d.get(MetisYamlKey.PUBLISH_FREQUENCY_HZ, 10.0)
+        if not isinstance(publish_frequency_hz, (int, float)) or isinstance(publish_frequency_hz, bool):
+            raise AegisConfigError(
+                f"metis.{MetisYamlKey.PUBLISH_FREQUENCY_HZ} must be a number; got {type(publish_frequency_hz).__name__}"
+            )
+        return cls(policy_config=policy_config, publish_frequency_hz=float(publish_frequency_hz))
 
 
 class Metis(LeafSystem):
     """
-    Runs a Policy on Observations and publishes Actions.
+    Runs a MetisPolicy on Observations and publishes Actions.
     """
 
-    def __init__(self, policy: Policy, publish_frequency: float) -> None:
+    def __init__(self, policy: MetisPolicy, publish_frequency: float) -> None:
         super().__init__()
         if publish_frequency <= 0.0:
             raise ValueError(f"publish_frequency must be positive, got {publish_frequency}")

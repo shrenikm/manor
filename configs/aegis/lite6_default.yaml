@@ -1,0 +1,58 @@
+# Canonical aegis config: Lite6 (parallel-gripper, normal trim) running
+# in sim mode against the bundled lite6_table environment, with
+# zero-velocity policy + zero-velocity controller as the bring-up
+# default. Treat this file as the round-trip reference for the
+# AegisBuildConfig YAML schema -- adding a new top-level field means
+# adding it here too.
+
+mode: sim
+
+manipulator:
+  type: lite6
+  variant: parallel_gripper_normal
+
+environment_config:
+  manipulator_base_xyz: [0.0, 0.0, 0.7366]
+  manipulator_base_rpy: [0.0, 0.0, 0.0]
+  extra_models:
+    - name: lite6_table
+      description_filepath: environment/lite6_table.urdf
+      weld_to_world: false
+
+helios:
+  publish_rgb_frequency_hz: 30.0
+  publish_depth_frequency_hz: 30.0
+  sim_backend_config:
+    camera_id: default
+  hardware_backend_config:
+    serial_number: ""
+    rgb_height: 480
+    rgb_width: 640
+    depth_height: 480
+    depth_width: 640
+
+talos:
+  publish_frequency_hz: 200.0
+
+metis:
+  publish_frequency_hz: 10.0
+  policy_config:
+    type: zero_velocity
+    num_joints: 6
+
+kyber:
+  publish_frequency_hz: 500.0
+  controller_config:
+    type: zero_velocity
+    num_dof: 6
+
+gaia:
+  time_step: 0.0
+  enable_meshcat: false
+  rgb_height: 480
+  rgb_width: 640
+  depth_height: 480
+  depth_width: 640
+
+gaia_advancer:
+  advance_frequency_hz: 500.0

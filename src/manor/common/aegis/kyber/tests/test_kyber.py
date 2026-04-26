@@ -1,5 +1,6 @@
 """
-Tests for Kyber: port shape, plant ownership, and Controller dispatch.
+Tests for Kyber: port shape, controller dispatch, and YAML
+round-tripping for ``KyberConfig``.
 """
 
 from __future__ import annotations
@@ -9,8 +10,20 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.kyber.controllers import ZeroVelocityController
-from manor.common.aegis.kyber.kyber import Controller, Kyber, KyberPorts
+from manor.common.aegis.kyber.controllers.action_passthrough_controller import (
+    ActionPassthroughController,
+    ActionPassthroughControllerConfig,
+)
+from manor.common.aegis.kyber.controllers.controller_manager import (
+    KyberController,
+    KyberControllerManager,
+    KyberControllerType,
+)
+from manor.common.aegis.kyber.controllers.zero_velocity_controller import (
+    ZeroVelocityController,
+    ZeroVelocityControllerConfig,
+)
+from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.joint_positions import JointPositions
@@ -18,6 +31,7 @@ from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.exceptions import AegisConfigError
 from manor.common.testing_utils import run_manor_tests
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
@@ -30,7 +44,6 @@ def _make_lite6() -> Lite6Model:
 def _make_kyber(**overrides) -> Kyber:
     defaults = dict(
         controller=ZeroVelocityController(num_dof=LITE6_ARM_DOF),
-        manipulator_model=_make_lite6(),
         publish_frequency=100.0,
     )
     defaults.update(overrides)
@@ -98,9 +111,9 @@ class TestKyberConstruction:
         assert kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION) is not None
         assert kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND) is not None
 
-    def test_owns_a_finalized_plant(self) -> None:
+    def test_owns_no_plant(self) -> None:
         kyber = _make_kyber()
-        assert kyber.plant.is_finalized()
+        assert not hasattr(kyber, "plant")
 
     def test_stores_publish_frequency(self) -> None:
         kyber = _make_kyber(publish_frequency=250.0)
@@ -154,7 +167,7 @@ class TestKyberControllerDispatch:
 
 class TestZeroVelocityController:
     def test_is_a_controller(self) -> None:
-        assert isinstance(ZeroVelocityController(num_dof=LITE6_ARM_DOF), Controller)
+        assert isinstance(ZeroVelocityController(num_dof=LITE6_ARM_DOF), KyberController)
 
     def test_emits_zero_velocity_regardless_of_inputs(self) -> None:
         controller = ZeroVelocityController(num_dof=LITE6_ARM_DOF)
@@ -163,6 +176,88 @@ class TestZeroVelocityController:
         command = controller.step(action, proprioception)
         assert command.joint_velocities is not None
         np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
+
+
+class TestActionPassthroughController:
+    def test_is_a_controller(self) -> None:
+        assert isinstance(ActionPassthroughController(num_dof=LITE6_ARM_DOF), KyberController)
+
+    def test_passes_joint_positions_through(self) -> None:
+        controller = ActionPassthroughController(num_dof=LITE6_ARM_DOF)
+        positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float64)
+        action = _make_action(positions)
+        command = controller.step(action, _make_proprioception(n_joints=LITE6_ARM_DOF))
+        assert command.joint_positions is not None
+        np.testing.assert_array_equal(command.joint_positions.positions, positions)
+
+
+class TestKyberControllerConfigs:
+    def test_zero_velocity_config_pins_enum(self) -> None:
+        assert ZeroVelocityControllerConfig.CONTROLLER_TYPE is KyberControllerType.ZERO_VELOCITY
+
+    def test_action_passthrough_config_pins_enum(self) -> None:
+        assert ActionPassthroughControllerConfig.CONTROLLER_TYPE is KyberControllerType.ACTION_PASSTHROUGH
+
+
+class TestKyberControllerManager:
+    def test_from_config_zero_velocity(self) -> None:
+        controller = KyberControllerManager.from_config(
+            ZeroVelocityControllerConfig(num_dof=LITE6_ARM_DOF),
+            manipulator_model=_make_lite6(),
+        )
+        assert isinstance(controller, ZeroVelocityController)
+        assert controller.num_dof == LITE6_ARM_DOF
+
+    def test_from_config_action_passthrough(self) -> None:
+        controller = KyberControllerManager.from_config(
+            ActionPassthroughControllerConfig(num_dof=LITE6_ARM_DOF),
+            manipulator_model=_make_lite6(),
+        )
+        assert isinstance(controller, ActionPassthroughController)
+
+    def test_config_from_yaml_dict_zero_velocity(self) -> None:
+        config = KyberControllerManager.config_from_yaml_dict({"type": "zero_velocity", "num_dof": 6})
+        assert isinstance(config, ZeroVelocityControllerConfig)
+        assert config.num_dof == 6
+
+    def test_config_from_yaml_dict_action_passthrough(self) -> None:
+        config = KyberControllerManager.config_from_yaml_dict({"type": "action_passthrough", "num_dof": 8})
+        assert isinstance(config, ActionPassthroughControllerConfig)
+        assert config.num_dof == 8
+
+    def test_config_from_yaml_dict_rejects_missing_type(self) -> None:
+        with pytest.raises(AegisConfigError):
+            KyberControllerManager.config_from_yaml_dict({"num_dof": 6})
+
+    def test_config_from_yaml_dict_rejects_unknown_type(self) -> None:
+        with pytest.raises(AegisConfigError):
+            KyberControllerManager.config_from_yaml_dict({"type": "made_up", "num_dof": 6})
+
+    def test_config_from_yaml_dict_rejects_unknown_keys(self) -> None:
+        with pytest.raises(AegisConfigError):
+            KyberControllerManager.config_from_yaml_dict({"type": "zero_velocity", "garbage": 7})
+
+
+class TestKyberConfigYaml:
+    def test_round_trips_minimal_block(self) -> None:
+        config = KyberConfig.from_yaml_dict({"controller_config": {"type": "zero_velocity", "num_dof": 6}})
+        assert isinstance(config.controller_config, ZeroVelocityControllerConfig)
+        assert config.publish_frequency_hz == 500.0
+
+    def test_round_trips_full_block(self) -> None:
+        config = KyberConfig.from_yaml_dict(
+            {
+                "publish_frequency_hz": 250.0,
+                "controller_config": {"type": "action_passthrough", "num_dof": 7},
+            }
+        )
+        assert config.publish_frequency_hz == 250.0
+        assert isinstance(config.controller_config, ActionPassthroughControllerConfig)
+        assert config.controller_config.num_dof == 7
+
+    def test_rejects_missing_controller_config(self) -> None:
+        with pytest.raises(AegisConfigError):
+            KyberConfig.from_yaml_dict({"publish_frequency_hz": 500.0})
 
 
 if __name__ == "__main__":
