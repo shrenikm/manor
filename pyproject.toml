@@ -37,6 +37,8 @@ dependencies = [
     "mock==5.1.0",
     "ruff==0.15.10",
     "pyyaml==6.0.2",
+    "typer==0.25.0",
+    "prompt-toolkit==3.0.48",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +48,9 @@ hardware = [
 ml = [
     "torch==2.4.0",
 ]
+
+[project.scripts]
+aegis = "manor.common.aegis.cli:cli"
 
 [tool.ruff]
 line-length = 120

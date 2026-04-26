@@ -119,11 +119,12 @@ class AegisConfig:
     independent ``MultibodyPlant`` from it; controllers that need a
     plant build their own through ``KyberControllerManager``.
 
-    ``metis_config`` and ``kyber_config`` are required: they pin the
-    policy and controller that run on the robot, and aegis refuses to
-    default either of those at the top level.
-    ``environment_config`` and ``gaia_config`` are sim-mode only; both
-    are ignored in hardware mode.
+    Every sub-config is required -- the YAML is the explicit source
+    of truth for the full schema. Sim-only blocks
+    (``environment_config``, ``gaia_config``, ``gaia_advancer_config``)
+    must still be present in hardware-mode YAMLs (their fields all
+    default cleanly, so an empty mapping ``{}`` is valid); aegis just
+    ignores them when building the hardware diagram.
 
     The canonical construction path is ``AegisConfig.from_yaml``; the
     raw ``__init__`` exists for programmatic use (notably tests) but
@@ -134,11 +135,11 @@ class AegisConfig:
     manipulator_model: IManipulatorModel
     metis_config: MetisConfig
     kyber_config: KyberConfig
-    environment_config: EnvironmentConfig | None = None
-    helios_config: HeliosConfig = attr.field(factory=HeliosConfig)
-    talos_config: TalosConfig = attr.field(factory=TalosConfig)
-    gaia_advancer_config: GaiaAdvancerConfig = attr.field(factory=GaiaAdvancerConfig)
-    gaia_config: GaiaConfig | None = None
+    environment_config: EnvironmentConfig
+    helios_config: HeliosConfig
+    talos_config: TalosConfig
+    gaia_advancer_config: GaiaAdvancerConfig
+    gaia_config: GaiaConfig
     lcm: DrakeLcm | None = None
 
     @classmethod
@@ -375,8 +376,8 @@ def _build_backends(
     if config.mode == AegisMode.SIM:
         gaia = Gaia(
             manipulator_model=config.manipulator_model,
-            environment_config=config.environment_config or EnvironmentConfig.default(),
-            config=config.gaia_config or GaiaConfig(),
+            environment_config=config.environment_config,
+            config=config.gaia_config,
         )
         gaia.finalize()
         sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)

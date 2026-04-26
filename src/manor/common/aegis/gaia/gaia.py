@@ -27,7 +27,7 @@ from typing import Any, Self
 
 import attr
 import numpy as np
-from pydrake.geometry import SceneGraph
+from pydrake.geometry import Meshcat, MeshcatVisualizer, SceneGraph
 from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph, MultibodyPlant
@@ -69,12 +69,20 @@ class GaiaConfig:
 
     ``time_step`` is the discrete time step of the underlying
     ``MultibodyPlant`` -- 0.0 selects continuous-time integration.
-    ``enable_meshcat`` toggles the Meshcat visualiser (off by default
-    to keep tests headless).
+
+    ``enable_meshcat`` toggles the Meshcat visualiser. Tests leave
+    this off; interactive runs flip it on so the browser session
+    streams the plant geometry.
+
+    ``target_realtime_rate`` scales how fast Gaia's internal Simulator
+    advances relative to wall-clock. ``0.0`` means "as fast as
+    possible" (tests, headless batch runs); ``1.0`` means "real time"
+    (interactive runs against Meshcat).
     """
 
     time_step: float = _DEFAULT_PLANT_TIME_STEP_S
     enable_meshcat: bool = False
+    target_realtime_rate: float = 0.0
     rgb_height: int = _DEFAULT_RGB_HEIGHT
     rgb_width: int = _DEFAULT_RGB_WIDTH
     depth_height: int = _DEFAULT_DEPTH_HEIGHT
@@ -105,6 +113,7 @@ class Gaia:
     scene_graph: SceneGraph | None = attr.field(default=None, init=False)
     diagram: Diagram | None = attr.field(default=None, init=False)
     simulator: Simulator | None = attr.field(default=None, init=False)
+    meshcat: Meshcat | None = attr.field(default=None, init=False)
     latest_position_command: JointPositions | None = attr.field(default=None, init=False)
     latest_velocity_command: JointVelocities | None = attr.field(default=None, init=False)
     _plant_context: Any = attr.field(default=None, init=False)
@@ -166,9 +175,17 @@ class Gaia:
 
         plant.Finalize()
 
+        meshcat: Meshcat | None = None
+        if self.config.enable_meshcat:
+            # Spawn the Meshcat http/websocket server (printed URL is the
+            # one the user opens) and wire its visualizer to the scene
+            # graph so the live geometry streams to the browser.
+            meshcat = Meshcat()
+            MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
+
         diagram = builder.Build()
         simulator = Simulator(diagram)
-        simulator.set_target_realtime_rate(0.0)
+        simulator.set_target_realtime_rate(self.config.target_realtime_rate)
         simulator.Initialize()
 
         plant_context = diagram.GetMutableSubsystemContext(plant, simulator.get_mutable_context())
@@ -181,6 +198,7 @@ class Gaia:
         self.scene_graph = scene_graph
         self.diagram = diagram
         self.simulator = simulator
+        self.meshcat = meshcat
         self._plant_context = plant_context
         self._rgb_template = RGBImageData.construct_default(
             height=self.config.rgb_height,

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 
+import attr
 import pytest
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram
@@ -26,6 +27,8 @@ from manor.common.aegis.aegis import (
     AegisSystems,
     build_aegis,
 )
+from manor.common.aegis.gaia.env_config import EnvironmentConfig
+from manor.common.aegis.gaia.gaia import GaiaConfig
 from manor.common.aegis.gaia.gaia_advancer import GaiaAdvancerConfig
 from manor.common.aegis.helios.helios import HeliosConfig
 from manor.common.aegis.kyber.controllers.zero_velocity_controller import ZeroVelocityControllerConfig
@@ -60,8 +63,11 @@ def _fast_config(mode: AegisMode) -> AegisConfig:
         manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
         metis_config=_fast_metis_config(),
         kyber_config=_fast_kyber_config(),
+        environment_config=EnvironmentConfig(),
         helios_config=HeliosConfig(publish_rgb_frequency_hz=10.0, publish_depth_frequency_hz=10.0),
         talos_config=TalosConfig(publish_frequency_hz=20.0),
+        gaia_advancer_config=GaiaAdvancerConfig(),
+        gaia_config=GaiaConfig(),
     )
 
 
@@ -100,32 +106,26 @@ class TestBuildAegis:
 
 class TestHeliosFrequencyFlags:
     def test_dummy_helios_builds_without_image_adapters(self) -> None:
-        config = AegisConfig(
-            mode=AegisMode.SIM,
-            manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
-            metis_config=_fast_metis_config(),
-            kyber_config=_fast_kyber_config(),
+        base = _fast_config(AegisMode.SIM)
+        config = attr.evolve(
+            base,
             helios_config=HeliosConfig(publish_rgb_frequency_hz=0.0, publish_depth_frequency_hz=0.0),
-            talos_config=TalosConfig(publish_frequency_hz=20.0),
         )
         diagram, systems = build_aegis(config)
         assert isinstance(diagram, Diagram)
         assert systems.helios.num_output_ports() == 0
 
     def test_rgb_only_helios_omits_depth(self) -> None:
-        config = AegisConfig(
-            mode=AegisMode.SIM,
-            manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
-            metis_config=_fast_metis_config(),
-            kyber_config=_fast_kyber_config(),
+        base = _fast_config(AegisMode.SIM)
+        config = attr.evolve(
+            base,
             helios_config=HeliosConfig(publish_rgb_frequency_hz=10.0, publish_depth_frequency_hz=0.0),
-            talos_config=TalosConfig(publish_frequency_hz=20.0),
         )
         _, systems = build_aegis(config)
         assert systems.helios.num_output_ports() == 1
 
 
-def _minimal_yaml_dict(mode: str = "sim") -> dict:
+def _full_yaml_dict(mode: str = "sim") -> dict:
     return {
         "mode": mode,
         "manipulator_model": {"type": "lite6", "variant": "parallel_gripper_normal"},
@@ -137,62 +137,72 @@ def _minimal_yaml_dict(mode: str = "sim") -> dict:
             "publish_frequency_hz": 50.0,
             "controller_config": {"type": "zero_velocity", "num_dof": LITE6_ARM_DOF},
         },
+        "environment_config": {},
+        "helios_config": {},
+        "talos_config": {},
+        "gaia_advancer_config": {},
+        "gaia_config": {},
     }
 
 
 class TestAegisYamlDict:
-    def test_minimal_round_trip_sim(self) -> None:
-        config = AegisConfig.from_yaml_dict(_minimal_yaml_dict(mode="sim"))
+    def test_full_round_trip_sim(self) -> None:
+        config = AegisConfig.from_yaml_dict(_full_yaml_dict(mode="sim"))
         assert config.mode is AegisMode.SIM
         assert isinstance(config.metis_config.policy_config, ZeroVelocityPolicyConfig)
         assert isinstance(config.kyber_config.controller_config, ZeroVelocityControllerConfig)
-        # Optional blocks default cleanly when absent.
-        assert config.environment_config is None
-        assert config.gaia_config is None
+        # Required blocks are now always populated; inner fields default cleanly.
+        assert isinstance(config.environment_config, EnvironmentConfig)
+        assert isinstance(config.gaia_config, GaiaConfig)
 
     def test_full_block_with_environment_and_helios(self) -> None:
-        d = _minimal_yaml_dict()
+        d = _full_yaml_dict()
         d["environment_config"] = {
             "manipulator_base_xyz": [0.0, 0.0, 0.7366],
             "extra_models": [],
         }
         d["helios_config"] = {"publish_rgb_frequency_hz": 5.0, "publish_depth_frequency_hz": 0.0}
         config = AegisConfig.from_yaml_dict(d)
-        assert config.environment_config is not None
         assert config.helios_config.publish_rgb_frequency_hz == 5.0
         assert config.helios_config.publish_depth_frequency_hz == 0.0
 
-    def test_rejects_missing_metis(self) -> None:
-        d = _minimal_yaml_dict()
-        del d["metis_config"]
-        with pytest.raises(AegisConfigError):
-            AegisConfig.from_yaml_dict(d)
-
-    def test_rejects_missing_kyber(self) -> None:
-        d = _minimal_yaml_dict()
-        del d["kyber_config"]
+    @pytest.mark.parametrize(
+        "missing_key",
+        [
+            "metis_config",
+            "kyber_config",
+            "environment_config",
+            "helios_config",
+            "talos_config",
+            "gaia_advancer_config",
+            "gaia_config",
+        ],
+    )
+    def test_rejects_missing_required_block(self, missing_key: str) -> None:
+        d = _full_yaml_dict()
+        del d[missing_key]
         with pytest.raises(AegisConfigError):
             AegisConfig.from_yaml_dict(d)
 
     def test_rejects_unknown_top_level_keys(self) -> None:
-        d = _minimal_yaml_dict()
+        d = _full_yaml_dict()
         d["bogus"] = 1
         with pytest.raises(AegisConfigError):
             AegisConfig.from_yaml_dict(d)
 
     def test_rejects_unknown_mode(self) -> None:
-        d = _minimal_yaml_dict(mode="not_a_mode")
+        d = _full_yaml_dict(mode="not_a_mode")
         with pytest.raises(AegisConfigError):
             AegisConfig.from_yaml_dict(d)
 
     def test_rejects_unknown_manipulator_type(self) -> None:
-        d = _minimal_yaml_dict()
+        d = _full_yaml_dict()
         d["manipulator_model"] = {"type": "whatever", "variant": "parallel_gripper_normal"}
         with pytest.raises(AegisConfigError):
             AegisConfig.from_yaml_dict(d)
 
     def test_rejects_unknown_variant(self) -> None:
-        d = _minimal_yaml_dict()
+        d = _full_yaml_dict()
         d["manipulator_model"] = {"type": "lite6", "variant": "purple_gripper"}
         with pytest.raises(AegisConfigError):
             AegisConfig.from_yaml_dict(d)
