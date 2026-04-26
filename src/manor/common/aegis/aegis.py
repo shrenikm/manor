@@ -87,6 +87,112 @@ class _ManipulatorYamlKey(StrEnum):
     VARIANT = "variant"
 
 
+def _parse_optional_dict_block(raw: dict, key: AegisYamlKey, parser):
+    """
+    Run ``parser`` on the dict at ``raw[key]`` if present; return
+    ``None`` when absent. Errors out cleanly if the value isn't a
+    mapping. ``parser`` is expected to be a ``from_yaml_dict``-style
+    classmethod.
+    """
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AegisConfigError(f"aegis.{key} must be a mapping; got {type(value).__name__}")
+    return parser(value)
+
+
+def _parse_mode(raw: dict) -> AegisMode:
+    mode_value = raw.get(AegisYamlKey.MODE)
+    if not isinstance(mode_value, str) or not mode_value:
+        raise AegisConfigError(f"aegis.{AegisYamlKey.MODE} is required and must be a non-empty string")
+    try:
+        return AegisMode(mode_value)
+    except ValueError as e:
+        raise AegisConfigError(
+            f"Unknown aegis.{AegisYamlKey.MODE}: {mode_value!r}; expected one of {[m.value for m in AegisMode]}"
+        ) from e
+
+
+def _parse_manipulator(raw: dict) -> IManipulatorModel:
+    manipulator_raw = raw.get(AegisYamlKey.MANIPULATOR)
+    if not isinstance(manipulator_raw, dict):
+        raise AegisConfigError(
+            f"aegis.{AegisYamlKey.MANIPULATOR} is required and must be a mapping; got {type(manipulator_raw).__name__}"
+        )
+
+    allowed = {key.value for key in _ManipulatorYamlKey}
+    extras = set(manipulator_raw) - allowed
+    if extras:
+        raise AegisConfigError(
+            f"aegis.{AegisYamlKey.MANIPULATOR}: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}"
+        )
+
+    type_value = manipulator_raw.get(_ManipulatorYamlKey.TYPE)
+    if not isinstance(type_value, str) or not type_value:
+        raise AegisConfigError(
+            f"aegis.{AegisYamlKey.MANIPULATOR}.{_ManipulatorYamlKey.TYPE} is required and must be a non-empty string"
+        )
+    try:
+        manipulator_type = ManipulatorType(type_value)
+    except ValueError as e:
+        raise AegisConfigError(
+            f"Unknown manipulator type {type_value!r}; expected one of {[t.value for t in ManipulatorType]}"
+        ) from e
+
+    variant_value = manipulator_raw.get(_ManipulatorYamlKey.VARIANT)
+    if not isinstance(variant_value, str) or not variant_value:
+        raise AegisConfigError(
+            f"aegis.{AegisYamlKey.MANIPULATOR}.{_ManipulatorYamlKey.VARIANT} is required and must be a non-empty string"
+        )
+
+    variant_cls = get_variant_class(manipulator_type)
+    try:
+        variant = variant_cls(variant_value)
+    except ValueError as e:
+        raise AegisConfigError(
+            f"Unknown variant {variant_value!r} for manipulator {manipulator_type!r}; "
+            f"expected one of {[v.value for v in variant_cls]}"
+        ) from e
+
+    if manipulator_type is ManipulatorType.LITE6:
+        assert isinstance(variant, Lite6Variant)
+        return Lite6Model(variant=variant)
+    raise AegisConfigError(f"No model factory wired in for manipulator {manipulator_type!r}")
+
+
+def _add_publisher(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+    publish_frequency_hz: float,
+) -> AegisLCMPublisherAdapter:
+    return builder.AddSystem(
+        AegisLCMPublisherAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+            publish_period=1.0 / publish_frequency_hz,
+        )
+    )
+
+
+def _add_subscriber(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+) -> AegisLCMSubscriberAdapter:
+    return builder.AddSystem(
+        AegisLCMSubscriberAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+        )
+    )
+
+
 @attr.frozen
 class AegisBuildConfig:
     """
@@ -215,78 +321,38 @@ class AegisBuildConfig:
         )
 
 
-def _parse_mode(raw: dict) -> AegisMode:
-    mode_value = raw.get(AegisYamlKey.MODE)
-    if not isinstance(mode_value, str) or not mode_value:
-        raise AegisConfigError(f"aegis.{AegisYamlKey.MODE} is required and must be a non-empty string")
-    try:
-        return AegisMode(mode_value)
-    except ValueError as e:
-        raise AegisConfigError(
-            f"Unknown aegis.{AegisYamlKey.MODE}: {mode_value!r}; expected one of {[m.value for m in AegisMode]}"
-        ) from e
-
-
-def _parse_manipulator(raw: dict) -> IManipulatorModel:
-    manipulator_raw = raw.get(AegisYamlKey.MANIPULATOR)
-    if not isinstance(manipulator_raw, dict):
-        raise AegisConfigError(
-            f"aegis.{AegisYamlKey.MANIPULATOR} is required and must be a mapping; got {type(manipulator_raw).__name__}"
+def _build_backends(
+    config: AegisBuildConfig,
+) -> tuple[Gaia | None, SensorBackend, ManipulatorBackend]:
+    if config.mode == AegisMode.SIM:
+        gaia = Gaia(
+            manipulator_model=config.manipulator_model,
+            environment_config=config.environment_config or EnvironmentConfig.default(),
+            config=config.gaia_config or GaiaConfig(),
         )
-
-    allowed = {key.value for key in _ManipulatorYamlKey}
-    extras = set(manipulator_raw) - allowed
-    if extras:
-        raise AegisConfigError(
-            f"aegis.{AegisYamlKey.MANIPULATOR}: unexpected keys {sorted(extras)!r}; allowed {sorted(allowed)!r}"
+        gaia.finalize()
+        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)
+        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(
+            gaia=gaia, config=config.talos_config.sim_backend_config
         )
+        return gaia, sensor_backend, manipulator_backend
 
-    type_value = manipulator_raw.get(_ManipulatorYamlKey.TYPE)
-    if not isinstance(type_value, str) or not type_value:
-        raise AegisConfigError(
-            f"aegis.{AegisYamlKey.MANIPULATOR}.{_ManipulatorYamlKey.TYPE} is required and must be a non-empty string"
+    if config.mode == AegisMode.HARDWARE:
+        # Lite6 is the only manipulator currently supported on hardware;
+        # additional manipulators will need their own driver factories
+        # plumbed in alongside this branch.
+        if not isinstance(config.manipulator_model, Lite6Model):
+            raise InvalidDefinitionError(
+                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
+            )
+        driver = Lite6Driver(model=config.manipulator_model)
+        manipulator_backend = HardwareManipulatorBackend(
+            driver=driver, config=config.talos_config.hardware_backend_config
         )
-    try:
-        manipulator_type = ManipulatorType(type_value)
-    except ValueError as e:
-        raise AegisConfigError(
-            f"Unknown manipulator type {type_value!r}; expected one of {[t.value for t in ManipulatorType]}"
-        ) from e
+        sensor_backend = HardwareSensorBackend(config=config.helios_config.hardware_backend_config)
+        return None, sensor_backend, manipulator_backend
 
-    variant_value = manipulator_raw.get(_ManipulatorYamlKey.VARIANT)
-    if not isinstance(variant_value, str) or not variant_value:
-        raise AegisConfigError(
-            f"aegis.{AegisYamlKey.MANIPULATOR}.{_ManipulatorYamlKey.VARIANT} is required and must be a non-empty string"
-        )
-
-    variant_cls = get_variant_class(manipulator_type)
-    try:
-        variant = variant_cls(variant_value)
-    except ValueError as e:
-        raise AegisConfigError(
-            f"Unknown variant {variant_value!r} for manipulator {manipulator_type!r}; "
-            f"expected one of {[v.value for v in variant_cls]}"
-        ) from e
-
-    if manipulator_type is ManipulatorType.LITE6:
-        assert isinstance(variant, Lite6Variant)
-        return Lite6Model(variant=variant)
-    raise AegisConfigError(f"No model factory wired in for manipulator {manipulator_type!r}")
-
-
-def _parse_optional_dict_block(raw: dict, key: AegisYamlKey, parser):
-    """
-    Run ``parser`` on the dict at ``raw[key]`` if present; return
-    ``None`` when absent. Errors out cleanly if the value isn't a
-    mapping. ``parser`` is expected to be a ``from_yaml_dict``-style
-    classmethod.
-    """
-    value = raw.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise AegisConfigError(f"aegis.{key} must be a mapping; got {type(value).__name__}")
-    return parser(value)
+    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")
 
 
 @attr.frozen
@@ -439,69 +505,3 @@ def build_aegis(config: AegisBuildConfig) -> tuple[Diagram, AegisSystems]:
         gaia=gaia,
         gaia_advancer=gaia_advancer,
     )
-
-
-def _add_publisher(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-    publish_frequency_hz: float,
-) -> AegisLCMPublisherAdapter:
-    return builder.AddSystem(
-        AegisLCMPublisherAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-            publish_period=1.0 / publish_frequency_hz,
-        )
-    )
-
-
-def _add_subscriber(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-) -> AegisLCMSubscriberAdapter:
-    return builder.AddSystem(
-        AegisLCMSubscriberAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-        )
-    )
-
-
-def _build_backends(
-    config: AegisBuildConfig,
-) -> tuple[Gaia | None, SensorBackend, ManipulatorBackend]:
-    if config.mode == AegisMode.SIM:
-        gaia = Gaia(
-            manipulator_model=config.manipulator_model,
-            environment_config=config.environment_config or EnvironmentConfig.default(),
-            config=config.gaia_config or GaiaConfig(),
-        )
-        gaia.finalize()
-        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)
-        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(
-            gaia=gaia, config=config.talos_config.sim_backend_config
-        )
-        return gaia, sensor_backend, manipulator_backend
-
-    if config.mode == AegisMode.HARDWARE:
-        # Lite6 is the only manipulator currently supported on hardware;
-        # additional manipulators will need their own driver factories
-        # plumbed in alongside this branch.
-        if not isinstance(config.manipulator_model, Lite6Model):
-            raise InvalidDefinitionError(
-                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
-            )
-        driver = Lite6Driver(model=config.manipulator_model)
-        manipulator_backend = HardwareManipulatorBackend(
-            driver=driver, config=config.talos_config.hardware_backend_config
-        )
-        sensor_backend = HardwareSensorBackend(config=config.helios_config.hardware_backend_config)
-        return None, sensor_backend, manipulator_backend
-
-    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")
