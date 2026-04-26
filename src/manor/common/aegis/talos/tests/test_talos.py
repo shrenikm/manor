@@ -12,7 +12,7 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.sim.sim import Sim
+from manor.common.aegis.gaia.gaia import Gaia
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
@@ -126,8 +126,9 @@ class TestTalosPeriodic:
 
 class TestManipulatorBackendProtocolCompliance:
     def test_sim_backend_satisfies_protocol(self) -> None:
-        sim = Sim(manipulator_model=_make_lite6_model())
-        backend = SimManipulatorBackend(sim=sim, config=SimManipulatorBackendConfig())
+        gaia = Gaia(manipulator_model=_make_lite6_model())
+        gaia.finalize()
+        backend = SimManipulatorBackend(gaia=gaia, config=SimManipulatorBackendConfig())
         assert isinstance(backend, ManipulatorBackend)
 
     def test_hardware_backend_satisfies_protocol(self) -> None:
@@ -137,16 +138,16 @@ class TestManipulatorBackendProtocolCompliance:
 
 
 class TestSimManipulatorBackend:
-    def test_send_command_routes_joint_positions_to_sim(self) -> None:
-        sim = mock.MagicMock(spec=Sim)
-        backend = SimManipulatorBackend(sim=sim)
+    def test_send_command_routes_joint_positions_to_gaia(self) -> None:
+        gaia = mock.MagicMock(spec=Gaia)
+        backend = SimManipulatorBackend(gaia=gaia)
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
         command = Command(
             header=TimestampHeader.from_system_time(),
             joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
         )
         backend.send_command(command)
-        sim.apply_joint_position_command.assert_called_once()
+        gaia.apply_joint_position_command.assert_called_once()
 
 
 if __name__ == "__main__":

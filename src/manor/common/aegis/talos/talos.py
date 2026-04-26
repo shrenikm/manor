@@ -11,7 +11,7 @@ On each periodic tick Talos:
 The output port is a zero-order hold of that state.
 
 Talos owns its own ``MultibodyPlant`` (built from ``manipulator_model``)
-for FK; this plant is independent of the Sim's physics plant and of
+for FK; this plant is independent of Gaia's physics plant and of
 Kyber's IK plant -- same URDF, three independent instances.
 
 The current FK implementation is a stub (identity pose, zero twist);
@@ -54,10 +54,10 @@ class ManipulatorBackend(Protocol):
     """
     Protocol for a manipulator actuation-and-state interface.
 
-    Exactly one backend owns the robot's actual state at a time. Talos drives
-    the backend on every tick by calling ``send_command`` and reads state
-    back via ``read_joint_state`` / ``read_eef_state``. Forward kinematics is
-    Talos's responsibility, not the backend's.
+    Exactly one backend owns the robot's actual state at a time. Talos
+    drives the backend on every tick by calling ``send_command`` and
+    reads state back via ``read_joint_state`` / ``read_eef_state``.
+    Forward kinematics is Talos's responsibility, not the backend's.
     """
 
     def send_command(self, command: Command) -> None: ...
@@ -73,8 +73,8 @@ class ManipulatorBackend(Protocol):
 
 class Talos(LeafSystem):
     """
-    Bridge between the Aegis graph and the manipulator. Consumes Command,
-    publishes Proprioception.
+    Bridge between the Aegis graph and the manipulator. Consumes
+    Command, publishes Proprioception.
     """
 
     def __init__(
@@ -87,10 +87,10 @@ class Talos(LeafSystem):
         if publish_frequency <= 0.0:
             raise ValueError(f"publish_frequency must be positive, got {publish_frequency}")
 
-        self._backend = backend
-        self._manipulator_model = manipulator_model
-        self._publish_frequency = publish_frequency
-        self._plant = self._build_plant(manipulator_model)
+        self.backend = backend
+        self.manipulator_model = manipulator_model
+        self.publish_frequency = publish_frequency
+        self.plant = self._build_plant(manipulator_model)
 
         self._command_input = self.DeclareAbstractInputPort(
             TalosPorts.INPUT_COMMAND,
@@ -114,27 +114,11 @@ class Talos(LeafSystem):
             update=self._periodic_update,
         )
 
-    @property
-    def publish_frequency(self) -> float:
-        return self._publish_frequency
-
-    @property
-    def backend(self) -> ManipulatorBackend:
-        return self._backend
-
-    @property
-    def manipulator_model(self) -> IManipulatorModel:
-        return self._manipulator_model
-
-    @property
-    def plant(self) -> MultibodyPlant:
-        return self._plant
-
     @staticmethod
     def _build_plant(manipulator_model: IManipulatorModel) -> MultibodyPlant:
-        # Talos's plant is FK-only; no scene graph, no env. The Sim and
-        # Kyber each maintain their own independent plants from the same
-        # URDF.
+        # Talos's plant is FK-only; no scene graph, no env. Gaia and
+        # Kyber each maintain their own independent plants from the
+        # same URDF.
         plant = MultibodyPlant(time_step=0.0)
         parser = Parser(plant)
         add_robot_models_to_package_map(parser.package_map())
@@ -149,10 +133,10 @@ class Talos(LeafSystem):
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
         command: Command = self._command_input.Eval(context)
-        self._backend.send_command(command)
+        self.backend.send_command(command)
 
-        joint_state = self._backend.read_joint_state()
-        eef_state = self._backend.read_eef_state()
+        joint_state = self.backend.read_joint_state()
+        eef_state = self.backend.read_eef_state()
 
         proprioception = Proprioception(
             header=TimestampHeader.from_system_time(),
@@ -165,12 +149,12 @@ class Talos(LeafSystem):
         return EventStatus.Succeeded()
 
     def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
-        # TODO: use ``self._plant`` to run FK on ``joint_state`` and
+        # TODO: use ``self.plant`` to run FK on ``joint_state`` and
         # extract the EEF-tip frame's pose in the world frame.
         del joint_state
         return EEFPose.construct_default()
 
     def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
-        # TODO: spatial-Jacobian-based twist via ``self._plant``.
+        # TODO: spatial-Jacobian-based twist via ``self.plant``.
         del joint_state
         return EEFTwist.construct_default()

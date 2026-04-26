@@ -7,9 +7,9 @@ On every periodic tick Metis:
   3. calls ``policy.step(observation)`` to produce an Action,
   4. writes the Action into abstract state.
 
-The output port is a zero-order hold on that state. The Policy protocol is
-what downstream algorithm implementations (motion planners, diffusion
-policies, VLAs) plug into.
+The output port is a zero-order hold on that state. The Policy protocol
+is what downstream algorithm implementations (motion planners,
+diffusion policies, VLAs) plug into.
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ class Policy(Protocol):
     """
     Protocol for an observation-to-action policy.
 
-    Concrete implementations may be purely functional (classical planners,
-    trajopt) or stateful (learned policies with internal recurrence); the
-    ``step`` interface accommodates both.
+    Concrete implementations may be purely functional (classical
+    planners, trajopt) or stateful (learned policies with internal
+    recurrence); the ``step`` interface accommodates both.
     """
 
     def step(self, observation: Observation) -> Action: ...
@@ -62,8 +62,8 @@ class Metis(LeafSystem):
         if publish_frequency <= 0.0:
             raise ValueError(f"publish_frequency must be positive, got {publish_frequency}")
 
-        self._policy = policy
-        self._publish_frequency = publish_frequency
+        self.policy = policy
+        self.publish_frequency = publish_frequency
 
         self._proprioception_input = self.DeclareAbstractInputPort(
             MetisPorts.INPUT_PROPRIOCEPTION,
@@ -93,14 +93,6 @@ class Metis(LeafSystem):
             update=self._periodic_update,
         )
 
-    @property
-    def publish_frequency(self) -> float:
-        return self._publish_frequency
-
-    @property
-    def policy(self) -> Policy:
-        return self._policy
-
     def _calc_action_output(self, context: Context, output: AbstractValue) -> None:
         output.set_value(context.get_abstract_state(self._action_state_index).get_value())
 
@@ -116,6 +108,6 @@ class Metis(LeafSystem):
             rgb_image=rgb,
             rgbd_image=None,
         )
-        action = self._policy.step(observation)
+        action = self.policy.step(observation)
         state.get_mutable_abstract_state(self._action_state_index).set_value(action)
         return EventStatus.Succeeded()

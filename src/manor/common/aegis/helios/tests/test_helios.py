@@ -1,5 +1,6 @@
 """
-Tests for Helios: port shape, periodic publish, and backend delegation.
+Tests for Helios: port shape, periodic publish, backend delegation,
+and the publish_rgb / publish_depth flag matrix.
 """
 
 from __future__ import annotations
@@ -7,12 +8,15 @@ from __future__ import annotations
 import pytest
 from pydrake.systems.analysis import Simulator
 
+from manor.common.aegis.gaia.gaia import Gaia
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend, HardwareSensorBackendConfig
 from manor.common.aegis.helios.helios import Helios, HeliosPorts, SensorBackend
 from manor.common.aegis.helios.sim_backend import SimSensorBackend, SimSensorBackendConfig
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.testing_utils import run_manor_tests
+from manor.manipulators.lite6.model import Lite6Model
+from manor.manipulators.lite6.variant import Lite6Variant
 
 
 class _CountingBackend:
@@ -34,12 +38,38 @@ class TestHeliosConstruction:
         with pytest.raises(ValueError):
             Helios(backend=_CountingBackend(), publish_frequency=0.0)
 
-    def test_declares_expected_ports(self) -> None:
+    def test_declares_expected_ports_when_both_streams_enabled(self) -> None:
         helios = Helios(backend=_CountingBackend(), publish_frequency=30.0)
         assert helios.num_input_ports() == 0
         assert helios.num_output_ports() == 2
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE) is not None
         assert helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE) is not None
+
+
+class TestHeliosPublishFlags:
+    def test_publish_rgb_only_omits_depth_port(self) -> None:
+        helios = Helios(backend=_CountingBackend(), publish_frequency=30.0, publish_depth=False)
+        assert helios.num_output_ports() == 1
+        assert helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE) is not None
+        with pytest.raises(RuntimeError):
+            helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE)
+
+    def test_publish_depth_only_omits_rgb_port(self) -> None:
+        helios = Helios(backend=_CountingBackend(), publish_frequency=30.0, publish_rgb=False)
+        assert helios.num_output_ports() == 1
+        assert helios.GetOutputPort(HeliosPorts.OUTPUT_DEPTH_IMAGE) is not None
+        with pytest.raises(RuntimeError):
+            helios.GetOutputPort(HeliosPorts.OUTPUT_RGB_IMAGE)
+
+    def test_dummy_helios_has_no_ports(self) -> None:
+        helios = Helios(
+            backend=_CountingBackend(),
+            publish_frequency=30.0,
+            publish_rgb=False,
+            publish_depth=False,
+        )
+        assert helios.num_input_ports() == 0
+        assert helios.num_output_ports() == 0
 
 
 class TestHeliosPublishing:
@@ -69,12 +99,9 @@ class TestHeliosPublishing:
 
 class TestSensorBackendProtocolCompliance:
     def test_sim_backend_satisfies_protocol(self) -> None:
-        from manor.common.aegis.sim.sim import Sim
-        from manor.manipulators.lite6.model import Lite6Model
-        from manor.manipulators.lite6.variant import Lite6Variant
-
-        sim = Sim(manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL))
-        backend = SimSensorBackend(sim=sim, config=SimSensorBackendConfig())
+        gaia = Gaia(manipulator_model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL))
+        gaia.finalize()
+        backend = SimSensorBackend(gaia=gaia, config=SimSensorBackendConfig())
         assert isinstance(backend, SensorBackend)
         assert isinstance(backend.read_rgb(), RGBImageData)
         assert isinstance(backend.read_depth(), DepthImageData)

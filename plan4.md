@@ -51,14 +51,14 @@ So here's my open ended question: Where do we want this simulation thing to lie 
 
 ### Option 1
 
-Simulation happens in Talos. 
+Gaiaulation happens in Talos. 
 
 - 1a. We could have Talos publish images and not have a separate helios for simulation. To publish images, we need a camera setup in the simulation. This is fine, but I really don't want Talos publishing images as the design gets weird even if it's just for sim.
 - 1b. Not sure if possible, but we could have helios as another unit that purely subscribes to the simulation happening and just does the rendering. So the actual physics simulation happens in Talos, and we have a direct connection to Helios which can then render and pulish image messages
 
 ### Option 2 
 
-Simulation happens in a separate block.
+Gaiaulation happens in a separate block.
 
 - 2a. Talos sends commands to the sim block and the sim block does the simulation and rendering. It then connects directly into helios and helios simply forwards and publishes the images it gets from the sim renderings
 - 2b. The sim block is just Helios and it directly takes in commands from Talos to run the sim and publishes the rendered images.
@@ -77,10 +77,10 @@ But I still want to set this up now for completeness and making sure that future
 
 ## Design (decided)
 
-- **Sim-as-Python-object** (not a Drake LeafSystem). A `Sim` class lives at
+- **Gaia-as-Python-object** (not a Drake LeafSystem). A `Gaia` class lives at
   `src/manor/common/aegis/sim/sim.py`. It owns its own internal `MultibodyPlant`,
   `SceneGraph`, `RgbdSensor`s, `MeshcatVisualizer`, and an internal
-  `Simulator`. Its public API is plain Python:
+  `Gaiaulator`. Its public API is plain Python:
     - `apply_joint_position_command(positions)`
     - `apply_joint_velocity_command(velocities)`
     - `read_joint_state() -> JointState`
@@ -88,19 +88,19 @@ But I still want to set this up now for completeness and making sure that future
     - `render_depth(camera_id) -> DepthImageData`
     - `advance_to(t)`
     - `set_joint_positions(positions)`  (used by the future "both" mirror mode)
-- **Sim/hardware graph-shape parity.** The outer Aegis `Diagram` has the
+- **Gaia/hardware graph-shape parity.** The outer Aegis `Diagram` has the
   same systems and same wiring in both modes. Only the backends (sim vs
-  hardware) and a sim-only `_SimAdvancer` differ.
-- **`_SimAdvancer` LeafSystem** (sim-mode only): one extra LeafSystem with
+  hardware) and a sim-only `GaiaAdvancer` differ.
+- **`GaiaAdvancer` LeafSystem** (sim-mode only): one extra LeafSystem with
   a fast (~500 Hz) periodic event that calls `sim.advance_to(context.get_time())`.
-  Sim is *driven* by the diagram's clock; backends just *read* it.
+  Gaia is *driven* by the diagram's clock; backends just *read* it.
 - **`EnvironmentConfig`**: attrs class loaded from YAML. Describes the
   manipulator's mounting frame and any extra static models welded into
   the world. Default (no env): manipulator welded to world origin.
   Lives at `src/manor/common/aegis/sim/env_config.py`.
 - **Each system owns its own plant.** Kyber holds an `IManipulatorModel`
   to build its own MultibodyPlant for diff-IK / trajectory tracking.
-  Talos holds its own MultibodyPlant for FK (eef pose + twist). Sim has
+  Talos holds its own MultibodyPlant for FK (eef pose + twist). Gaia has
   its own physics plant. None are shared. Same URDFs, three independent
   plant instances.
 - **Block 1/2/3 nomenclature is just for explanation** in the plan; the
@@ -116,9 +116,9 @@ the algorithmic work:
   command (passes the action through, conceptually). No diff-IK yet.
 - **Talos FK stub**: still returns identity pose + zero twist; the
   per-Talos `MultibodyPlant` plumbing is added but FK math is deferred.
-- **Sim backend stubs**: render-paths return empty image buffers; physics
+- **Gaia backend stubs**: render-paths return empty image buffers; physics
   is zero-actuation (the position command is held but not yet applied to
-  the plant's actuation input). The Drake plant + `Simulator` *are*
+  the plant's actuation input). The Drake plant + `Gaiaulator` *are*
   constructed and `advance_to` *is* called every tick, so the structural
   seam exists.
 
@@ -141,7 +141,7 @@ AegisLCMSubscriberAdapter[ACTION]         --> Kyber.INPUT_ACTION
 Kyber.OUTPUT_COMMAND          --> Talos.INPUT_COMMAND   (direct, not LCM)
 ```
 
-Sim-only: `_SimAdvancer` LeafSystem in the same diagram, no input/output
+Gaia-only: `GaiaAdvancer` LeafSystem in the same diagram, no input/output
 ports, periodic event drives `sim.advance_to`.
 
 ## Layout
@@ -151,10 +151,10 @@ src/manor/common/aegis/
   ... (existing helios, talos, metis, kyber, adapters, builder)
   sim/
     __init__.py
-    sim.py            -- Sim class
+    sim.py            -- Gaia class
     env_config.py     -- EnvironmentConfig + YAML loader
 ```
 
 The existing `src/manor/common/aegis/` (helios, talos, metis, kyber,
 adapters, builder) stays where it is; only the *backends* and the
-*builder* gain knowledge of Sim.
+*builder* gain knowledge of Gaia.

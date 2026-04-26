@@ -57,6 +57,17 @@ class TestLite6ModelShape:
         assert m.get_num_states() == 2 * expected_q
 
 
+class TestLite6ModelEEFDof:
+    def test_vacuum_eef_dof_is_one(self) -> None:
+        # Vacuum gripper is binary (on/off) -> a single DOF on the
+        # EEFPositions / EEFVelocities vector.
+        assert _model(Lite6Variant.VACUUM_GRIPPER).get_num_eef_dofs() == 1
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_gripper_eef_dof_matches_prismatic_count(self, variant: Lite6Variant) -> None:
+        assert _model(variant).get_num_eef_dofs() == LITE6_PARALLEL_GRIPPER_DOF
+
+
 class TestLite6ModelDescription:
     @pytest.mark.parametrize("variant", list(Lite6Variant))
     def test_description_filepath_exists(self, variant: Lite6Variant) -> None:

@@ -66,6 +66,14 @@ class Lite6Driver(IManipulatorDriver):
     _arm: Any = attr.field(default=None, init=False)
 
     @override
+    def get_num_dof(self) -> int:
+        return self.model.get_num_dof()
+
+    @override
+    def get_num_eef_dofs(self) -> int:
+        return self.model.get_num_eef_dofs()
+
+    @override
     def prime(self) -> None:
         if XArmAPI is None:
             raise Lite6DriverError(

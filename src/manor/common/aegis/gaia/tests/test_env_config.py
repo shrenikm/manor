@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pytest
 
-from manor.common.aegis.sim.env_config import EnvironmentConfig, StaticModelConfig
+from manor.common.aegis.gaia.env_config import EnvironmentConfig, StaticModelConfig
 from manor.common.exceptions import EnvironmentConfigError
 from manor.common.path_utils import create_temporary_file
 from manor.common.testing_utils import run_manor_tests
@@ -78,6 +78,26 @@ class TestFromYaml:
             _write(path, "manipulator_base_xyz: [1.0, 2.0]\n")
             with pytest.raises(EnvironmentConfigError):
                 EnvironmentConfig.from_yaml(path)
+
+
+class TestBundledLite6TableYaml:
+    def test_loads_default_lite6_table_env(self) -> None:
+        """
+        The bundled lite6_table.yaml under models/aegis_envs must load
+        cleanly with paths resolved to the actual on-disk URDF.
+        """
+        from manor.common.model_utils import get_models_directory_path
+
+        path = os.path.join(get_models_directory_path(), "aegis_envs", "lite6_table.yaml")
+        assert os.path.exists(path), f"bundled env yaml missing at {path}"
+        cfg = EnvironmentConfig.from_yaml(path)
+        assert len(cfg.extra_models) == 1
+        table = cfg.extra_models[0]
+        assert table.name == "lite6_table"
+        assert os.path.exists(table.description_filepath), (
+            f"resolved description_filepath does not exist: {table.description_filepath}"
+        )
+        assert table.weld_to_world is False
 
 
 if __name__ == "__main__":

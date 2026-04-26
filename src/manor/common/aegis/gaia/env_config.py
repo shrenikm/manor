@@ -23,6 +23,8 @@ extra_models:
 
 from __future__ import annotations
 
+import os
+from enum import StrEnum
 from typing import Self
 
 import attr
@@ -31,6 +33,23 @@ import yaml
 
 from manor.common.custom_types import FilePath, NpVector3f64
 from manor.common.exceptions import EnvironmentConfigError
+
+
+class _YamlKey(StrEnum):
+    """
+    Canonical YAML field names for the environment-config schema.
+    Centralised so neither parsing nor error messages embed the raw
+    strings inline.
+    """
+
+    MANIPULATOR_BASE_XYZ = "manipulator_base_xyz"
+    MANIPULATOR_BASE_RPY = "manipulator_base_rpy"
+    EXTRA_MODELS = "extra_models"
+    NAME = "name"
+    DESCRIPTION_FILEPATH = "description_filepath"
+    BASE_XYZ = "base_xyz"
+    BASE_RPY = "base_rpy"
+    WELD_TO_WORLD = "weld_to_world"
 
 
 def _zero_xyz() -> NpVector3f64:
@@ -47,8 +66,8 @@ class StaticModelConfig:
     A single static model loaded into the simulation world.
 
     The model is loaded from ``description_filepath``. If
-    ``weld_to_world`` is true, the Sim explicitly welds the model's
-    base body to the world frame at the configured pose.
+    ``weld_to_world`` is true, Gaia explicitly welds the model's base
+    body to the world frame at the configured pose.
 
     Set ``weld_to_world`` to false for URDFs / SDFs that already pin
     themselves to the world via an internal fixed joint (common in
@@ -75,29 +94,42 @@ def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
         raise EnvironmentConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
 
 
-def _parse_static_model(raw: object, idx: int) -> StaticModelConfig:
+def _parse_static_model(raw: object, idx: int, base_dir: FilePath) -> StaticModelConfig:
+    item_label = f"{_YamlKey.EXTRA_MODELS}[{idx}]"
     if not isinstance(raw, dict):
-        raise EnvironmentConfigError(f"extra_models[{idx}] must be a mapping; got {type(raw).__name__}")
-    name = raw.get("name")
-    description_filepath = raw.get("description_filepath")
+        raise EnvironmentConfigError(f"{item_label} must be a mapping; got {type(raw).__name__}")
+    name = raw.get(_YamlKey.NAME)
+    description_filepath = raw.get(_YamlKey.DESCRIPTION_FILEPATH)
     if not isinstance(name, str) or not name:
-        raise EnvironmentConfigError(f"extra_models[{idx}].name is required and must be a non-empty string")
+        raise EnvironmentConfigError(f"{item_label}.{_YamlKey.NAME} is required and must be a non-empty string")
     if not isinstance(description_filepath, str) or not description_filepath:
         raise EnvironmentConfigError(
-            f"extra_models[{idx}].description_filepath is required and must be a non-empty string"
+            f"{item_label}.{_YamlKey.DESCRIPTION_FILEPATH} is required and must be a non-empty string"
         )
-    weld_to_world = raw.get("weld_to_world", True)
+    weld_to_world = raw.get(_YamlKey.WELD_TO_WORLD, True)
     if not isinstance(weld_to_world, bool):
         raise EnvironmentConfigError(
-            f"extra_models[{idx}].weld_to_world must be a bool; got {type(weld_to_world).__name__}"
+            f"{item_label}.{_YamlKey.WELD_TO_WORLD} must be a bool; got {type(weld_to_world).__name__}"
         )
     return StaticModelConfig(
         name=name,
-        description_filepath=description_filepath,
-        base_xyz=_parse_xyz(raw.get("base_xyz"), f"extra_models[{idx}].base_xyz"),
-        base_rpy=_parse_xyz(raw.get("base_rpy"), f"extra_models[{idx}].base_rpy"),
+        description_filepath=_resolve_filepath(description_filepath, base_dir),
+        base_xyz=_parse_xyz(raw.get(_YamlKey.BASE_XYZ), f"{item_label}.{_YamlKey.BASE_XYZ}"),
+        base_rpy=_parse_xyz(raw.get(_YamlKey.BASE_RPY), f"{item_label}.{_YamlKey.BASE_RPY}"),
         weld_to_world=weld_to_world,
     )
+
+
+def _resolve_filepath(path: FilePath, base_dir: FilePath) -> FilePath:
+    """
+    Relative description_filepath values resolve against the YAML's
+    directory; absolute paths pass through unchanged. Project-relative
+    layouts (e.g. ``models/environment/foo.urdf`` from a YAML stored
+    elsewhere) should still use absolute paths.
+    """
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(base_dir, path))
 
 
 @attr.frozen
@@ -128,6 +160,8 @@ class EnvironmentConfig:
         Load an EnvironmentConfig from a YAML file.
 
         Missing fields fall back to the defaults from ``default()``.
+        Relative ``description_filepath`` values inside ``extra_models``
+        are resolved against the YAML file's own directory.
         """
         try:
             with open(filepath, "r") as fp:
@@ -142,13 +176,16 @@ class EnvironmentConfig:
                 f"Environment config {filepath!r} must be a mapping at the top level; got {type(raw).__name__}"
             )
 
-        manipulator_base_xyz = _parse_xyz(raw.get("manipulator_base_xyz"), "manipulator_base_xyz")
-        manipulator_base_rpy = _parse_xyz(raw.get("manipulator_base_rpy"), "manipulator_base_rpy")
+        manipulator_base_xyz = _parse_xyz(raw.get(_YamlKey.MANIPULATOR_BASE_XYZ), _YamlKey.MANIPULATOR_BASE_XYZ)
+        manipulator_base_rpy = _parse_xyz(raw.get(_YamlKey.MANIPULATOR_BASE_RPY), _YamlKey.MANIPULATOR_BASE_RPY)
 
-        extra_models_raw = raw.get("extra_models") or []
+        extra_models_raw = raw.get(_YamlKey.EXTRA_MODELS) or []
         if not isinstance(extra_models_raw, list):
-            raise EnvironmentConfigError(f"'extra_models' must be a list; got {type(extra_models_raw).__name__}")
-        extra_models = tuple(_parse_static_model(item, idx) for idx, item in enumerate(extra_models_raw))
+            raise EnvironmentConfigError(
+                f"'{_YamlKey.EXTRA_MODELS}' must be a list; got {type(extra_models_raw).__name__}"
+            )
+        base_dir = os.path.dirname(os.path.abspath(filepath))
+        extra_models = tuple(_parse_static_model(item, idx, base_dir) for idx, item in enumerate(extra_models_raw))
 
         return cls(
             manipulator_base_xyz=manipulator_base_xyz,

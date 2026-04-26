@@ -38,6 +38,17 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def get_num_eef_dofs(self) -> int:
+        """
+        Number of end-effector generalized DOFs reported on
+        ``EEFPositions`` / ``EEFVelocities`` for this variant. Zero for
+        variants without an actuated EEF; conventionally 1 for binary
+        on/off vacuum grippers; equal to the gripper's prismatic-joint
+        count for actuated parallel grippers.
+        """
+        ...
+
+    @abc.abstractmethod
     def get_description_filepath(self) -> FilePath:
         """
         Absolute path to the description file (URDF today; SDF / MJCF

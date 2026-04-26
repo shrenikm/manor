@@ -1,6 +1,5 @@
 """
-Tests for Kyber: port shape, plant ownership, and the zero-velocity
-stub controller.
+Tests for Kyber: port shape, plant ownership, and Controller dispatch.
 """
 
 from __future__ import annotations
@@ -10,7 +9,8 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.kyber.kyber import Kyber, KyberPorts
+from manor.common.aegis.kyber.controllers import ZeroVelocityController
+from manor.common.aegis.kyber.kyber import Controller, Kyber, KyberPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.joint_positions import JointPositions
@@ -28,7 +28,11 @@ def _make_lite6() -> Lite6Model:
 
 
 def _make_kyber(**overrides) -> Kyber:
-    defaults = dict(manipulator_model=_make_lite6(), publish_frequency=100.0)
+    defaults = dict(
+        controller=ZeroVelocityController(num_dof=LITE6_ARM_DOF),
+        manipulator_model=_make_lite6(),
+        publish_frequency=100.0,
+    )
     defaults.update(overrides)
     return Kyber(**defaults)
 
@@ -69,6 +73,16 @@ def _read_command(kyber: Kyber, context) -> Command:
     return kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND).Eval(context)
 
 
+class _RecordingController:
+    def __init__(self, canned_command: Command) -> None:
+        self.canned = canned_command
+        self.calls: list[tuple[Action, Proprioception]] = []
+
+    def step(self, action: Action, proprioception: Proprioception) -> Command:
+        self.calls.append((action, proprioception))
+        return self.canned
+
+
 class TestKyberConstruction:
     def test_rejects_non_positive_frequency(self) -> None:
         with pytest.raises(ValueError):
@@ -93,8 +107,34 @@ class TestKyberConstruction:
         assert kyber.publish_frequency == 250.0
 
 
-class TestKyberZeroVelocityStub:
-    def test_emits_zero_velocity_command_for_arm_dof(self) -> None:
+class TestKyberControllerDispatch:
+    def test_periodic_update_calls_controller_with_inputs(self) -> None:
+        canned = Command(
+            header=TimestampHeader.from_system_time(),
+            joint_velocities=JointVelocities(
+                header=TimestampHeader.from_system_time(),
+                velocities=np.zeros(LITE6_ARM_DOF),
+            ),
+        )
+        controller = _RecordingController(canned)
+        kyber = _make_kyber(controller=controller)
+        context = kyber.CreateDefaultContext()
+        _fix_inputs(
+            kyber,
+            context,
+            _make_action(np.zeros(LITE6_ARM_DOF)),
+            _make_proprioception(n_joints=LITE6_ARM_DOF),
+        )
+
+        simulator = Simulator(kyber, context)
+        simulator.AdvanceTo(0.05)
+
+        assert len(controller.calls) >= 1
+        last_action, last_proprioception = controller.calls[-1]
+        assert isinstance(last_action, Action)
+        assert isinstance(last_proprioception, Proprioception)
+
+    def test_zero_velocity_controller_emits_zero_velocity_command(self) -> None:
         kyber = _make_kyber()
         context = kyber.CreateDefaultContext()
         _fix_inputs(
@@ -111,28 +151,18 @@ class TestKyberZeroVelocityStub:
         assert command.joint_velocities is not None
         np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
-    def test_command_header_is_system_time(self) -> None:
-        import time as _time
 
-        kyber = _make_kyber()
-        context = kyber.CreateDefaultContext()
-        _fix_inputs(
-            kyber,
-            context,
-            _make_action(np.zeros(LITE6_ARM_DOF)),
-            _make_proprioception(n_joints=LITE6_ARM_DOF),
-        )
+class TestZeroVelocityController:
+    def test_is_a_controller(self) -> None:
+        assert isinstance(ZeroVelocityController(num_dof=LITE6_ARM_DOF), Controller)
 
-        before_mono = _time.monotonic_ns()
-        before_sys = _time.time_ns()
-        simulator = Simulator(kyber, context)
-        simulator.AdvanceTo(0.02)
-        after_mono = _time.monotonic_ns()
-        after_sys = _time.time_ns()
-
-        command = _read_command(kyber, simulator.get_context())
-        assert before_mono <= command.header.monotonic_ns <= after_mono
-        assert before_sys <= command.header.system_ns <= after_sys
+    def test_emits_zero_velocity_regardless_of_inputs(self) -> None:
+        controller = ZeroVelocityController(num_dof=LITE6_ARM_DOF)
+        action = _make_action(np.full(LITE6_ARM_DOF, 0.5))
+        proprioception = _make_proprioception(n_joints=LITE6_ARM_DOF)
+        command = controller.step(action, proprioception)
+        assert command.joint_velocities is not None
+        np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
 
 if __name__ == "__main__":

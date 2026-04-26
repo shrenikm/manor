@@ -88,9 +88,9 @@ class EnvironmentConfigError(AegisError):
     pass
 
 
-class SimError(AegisError):
+class GaiaError(AegisError):
     """
-    Raised when the Sim object encounters a runtime error.
+    Raised when the Gaia simulator encounters a runtime error.
     """
 
     pass

@@ -2,10 +2,10 @@
 Hardware ManipulatorBackend.
 
 Wraps the robot's control SDK via an ``IManipulatorDriver``. The driver
-itself is responsible for prime / unprime + read / write -- the
-backend's job is to fan those calls into Talos's ``ManipulatorBackend``
-protocol shape (``send_command`` / ``read_joint_state`` /
-``read_eef_state`` / ``start`` / ``stop``).
+is the source of truth for DOF / EEF counts; this backend just routes
+``ManipulatorBackend`` calls (``send_command`` / ``read_joint_state`` /
+``read_eef_state`` / ``start`` / ``stop``) to the corresponding driver
+methods.
 """
 
 from __future__ import annotations
@@ -25,13 +25,9 @@ from manor.manipulators.manipulator_driver import IManipulatorDriver
 @attr.frozen
 class HardwareManipulatorBackendConfig:
     """
-    Static configuration for the hardware manipulator backend.
-
-    ``num_eef_dofs`` is the number of generalized DOFs reported on the
-    EEFState message; the driver decides whether/how to populate them.
+    Hardware-specific knobs for the manipulator backend. DOF / EEF
+    counts intentionally live on the driver, not here.
     """
-
-    num_eef_dofs: int = 0
 
 
 @attr.define
@@ -73,12 +69,12 @@ class HardwareManipulatorBackend:
         if positions is None:
             positions = EEFPositions(
                 header=header,
-                positions=np.zeros(self.config.num_eef_dofs, dtype=np.float64),
+                positions=np.zeros(self.driver.get_num_eef_dofs(), dtype=np.float64),
             )
         if velocities is None:
             velocities = EEFVelocities(
                 header=header,
-                velocities=np.zeros(self.config.num_eef_dofs, dtype=np.float64),
+                velocities=np.zeros(self.driver.get_num_eef_dofs(), dtype=np.float64),
             )
         return EEFState(
             header=header,

@@ -28,6 +28,24 @@ class IManipulatorDriver(abc.ABC):
     """
 
     @abc.abstractmethod
+    def get_num_dof(self) -> int:
+        """
+        Arm degrees of freedom (excluding EEF). Mirrors the same
+        accessor on ``IManipulatorModel`` so the driver can be queried
+        for sizing without having to thread the model alongside it.
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_num_eef_dofs(self) -> int:
+        """
+        EEF generalized-DOF count (size of EEFPositions / EEFVelocities
+        vectors emitted by this driver). Same semantics as on
+        ``IManipulatorModel.get_num_eef_dofs``.
+        """
+        ...
+
+    @abc.abstractmethod
     def prime(self) -> None:
         """
         Prepare the arm for use after boot-up or reset. Connects to the

@@ -45,6 +45,16 @@ _VARIANT_TO_NUM_POSITIONS: dict[Lite6Variant, int] = {
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
 }
 
+# EEF generalized-DOF counts surfaced through the IManipulatorModel
+# interface (i.e. the size of EEFPositions / EEFVelocities vectors for
+# this variant). The vacuum gripper exposes a single binary on/off
+# state; both parallel-gripper variants expose two prismatic joints.
+_VARIANT_TO_NUM_EEF_DOFS: dict[Lite6Variant, int] = {
+    Lite6Variant.VACUUM_GRIPPER: 1,
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_PARALLEL_GRIPPER_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_PARALLEL_GRIPPER_DOF,
+}
+
 
 @attr.frozen
 class Lite6Model(IManipulatorModel):
@@ -65,6 +75,10 @@ class Lite6Model(IManipulatorModel):
     @override
     def get_num_dof(self) -> int:
         return LITE6_ARM_DOF
+
+    @override
+    def get_num_eef_dofs(self) -> int:
+        return _VARIANT_TO_NUM_EEF_DOFS[self.variant]
 
     @override
     def get_description_filepath(self) -> FilePath:

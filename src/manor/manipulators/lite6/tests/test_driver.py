@@ -75,6 +75,19 @@ def _prime_with_mock(driver: Lite6Driver, arm: mock.MagicMock) -> None:
         driver.prime()
 
 
+class TestDofAccessors:
+    def test_get_num_dof_delegates_to_model(self, parallel_driver: Lite6Driver) -> None:
+        assert parallel_driver.get_num_dof() == parallel_driver.model.get_num_dof()
+
+    def test_get_num_eef_dofs_delegates_to_model(
+        self,
+        parallel_driver: Lite6Driver,
+        vacuum_driver: Lite6Driver,
+    ) -> None:
+        assert parallel_driver.get_num_eef_dofs() == parallel_driver.model.get_num_eef_dofs()
+        assert vacuum_driver.get_num_eef_dofs() == vacuum_driver.model.get_num_eef_dofs()
+
+
 class TestPrimeUnprime:
     def test_prime_without_xarm_sdk_raises(self, parallel_driver: Lite6Driver) -> None:
         with mock.patch.object(driver_module, "XArmAPI", None):
