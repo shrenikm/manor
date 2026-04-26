@@ -39,18 +39,16 @@ dependencies = [
     "pyyaml==6.0.2",
     "typer==0.25.0",
     "prompt-toolkit==3.0.48",
+    "xarm-python-sdk==1.17.3",
 ]
 
 [project.optional-dependencies]
-hardware = [
-    "xarm-python-sdk==1.13.0",
-]
 ml = [
     "torch==2.4.0",
 ]
 
 [project.scripts]
-aegis = "manor.common.aegis.cli:cli"
+aegis = "manor.common.aegis.aegis_cli:cli"
 
 [tool.ruff]
 line-length = 120

@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from manor.common.aegis import cli as cli_module
-from manor.common.aegis.cli import AegisBlock, cli
+from manor.common.aegis import aegis_cli as cli_module
+from manor.common.aegis.aegis_cli import AegisBlock, cli
 from manor.common.testing_utils import run_manor_tests
 
 

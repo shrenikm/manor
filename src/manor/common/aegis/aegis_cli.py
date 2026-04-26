@@ -52,7 +52,7 @@ from manor.common.exceptions import AegisConfigError
 # Default YAML path -- resolved relative to the manor repo root, so
 # the CLI Just Works whether you launch from the repo root or from a
 # subdirectory. Located four parents up from this file:
-# src/manor/common/aegis/cli.py -> .../manor.
+# src/manor/common/aegis/aegis_cli.py -> .../manor.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "configs" / "aegis" / "lite6_default.yaml"
 
