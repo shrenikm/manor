@@ -49,7 +49,7 @@ kyber_config:
 
 gaia_config:
   time_step: 0.0
-  enable_meshcat: false
+  enable_meshcat: true
   rgb_height: 480
   rgb_width: 640
   depth_height: 480
