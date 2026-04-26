@@ -424,8 +424,7 @@ Commands:
 | ---------------------- | --------------------------------------------------------------------- |
 | `run <block>`          | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. |
 | `kill <block>`         | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. |
-| `status <block>`       | report `<block>`'s state (running + PID, or stopped).                 |
-| `list`                 | list every block applicable to the current mode + state.              |
+| `status [<block>]`     | with `<block>`, report that block's state (running + PID, or stopped); with no arg, report every block applicable to the current mode. |
 | `repl`                 | drop into an interactive prompt_toolkit shell.                        |
 
 State persists across shells via `/tmp/aegis_<block>.pid`. Stale PID
@@ -442,26 +441,29 @@ Drops you into:
 
 ```text
 aegis repl -- mode=sim, config=/.../lite6_default.yaml
-type 'help' for commands, 'exit' or Ctrl-D to leave (children keep running).
-aegis>
+type 'help' for commands, 'exit' or Ctrl-D to leave (running blocks are stopped).
+aegis >>
 ```
 
 Inside, the same commands minus the `aegis` prefix:
 
 ```text
-aegis> list
-aegis> run gylos
-aegis> run metis
-aegis> status
-aegis> kill metis
-aegis> kill gylos
-aegis> exit
+aegis >> status
+aegis >> run gylos
+aegis >> run metis
+aegis >> status metis
+aegis >> kill metis
+aegis >> q
 ```
 
 - Tab-complete: `run g<TAB>` → `run gylos`.
 - Arrow-up recalls past lines (history persists at `~/.aegis_history`).
-- Ctrl-C clears the current line; Ctrl-D / `exit` / `quit` leaves the
-  REPL. Spawned children keep running.
+- Ctrl-C clears the current line; Ctrl-D / `exit` / `quit` / `q`
+  leaves the REPL. **Any blocks still running when you exit are
+  SIGTERMed first** — the REPL refuses to leave rogue subprocesses
+  behind. If you want children to outlive the REPL, use the
+  non-interactive `aegis run <block>` form from a regular shell
+  instead.
 
 ## Standalone runners
 

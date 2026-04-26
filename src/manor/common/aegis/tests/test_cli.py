@@ -42,8 +42,8 @@ def _run_cli(args: list[str]) -> "CliRunner.Result":
 
 
 class TestAegisCli:
-    def test_list_reports_sim_blocks(self, sandboxed_pid_dir: Path) -> None:
-        result = _run_cli(["list"])
+    def test_status_no_arg_reports_sim_blocks(self, sandboxed_pid_dir: Path) -> None:
+        result = _run_cli(["status"])
         assert result.exit_code == 0, result.output
         assert "mode: sim" in result.output
         assert "metis: stopped" in result.output
@@ -64,11 +64,6 @@ class TestAegisCli:
         result = _run_cli(["run", "kylos"])
         assert result.exit_code != 0
         assert "refusing to run" in result.output
-
-    def test_status_requires_block_argument(self, sandboxed_pid_dir: Path) -> None:
-        result = _run_cli(["status"])
-        # ``status`` now requires <block>; no fallback to listing.
-        assert result.exit_code != 0
 
     def test_status_reports_stopped_for_known_block(self, sandboxed_pid_dir: Path) -> None:
         result = _run_cli(["status", "metis"])

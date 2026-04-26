@@ -9,11 +9,12 @@ on hardware). This module is the supervisor for those processes:
   ``python -m manor.common.aegis.run.run_<block>`` with the parsed +
   validated config piped in over stdin as JSON.
 * ``aegis kill <block>`` sends SIGTERM to the child.
-* ``aegis status [block]`` reports whether the child is alive.
-* ``aegis list`` lists every known block with its current state.
+* ``aegis status [block]`` reports state -- with ``<block>`` for a
+  single block, with no arg for every block in this mode.
 * ``aegis repl`` drops into an interactive prompt_toolkit shell that
-  exposes the same commands with history + autocomplete; spawned
-  children outlive the REPL session.
+  exposes the same commands with history + autocomplete. Children
+  spawned via ``run`` are SIGTERMed when the REPL exits so nothing
+  outlives the supervisor.
 
 Cross-process state lives in PID files under ``/tmp/aegis_*.pid``,
 so ``status`` from a fresh shell still works after the REPL exits.
@@ -183,6 +184,32 @@ def _format_block_state(name: str, pid: Optional[int]) -> str:
     return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
 
 
+def _kill_all_running_blocks() -> None:
+    """
+    SIGTERM every block whose PID file points at a live process, wait
+    for each to exit, and clear its PID file. Used as the REPL shutdown
+    hook so children don't outlive the supervisor. Output mirrors
+    ``kill_block`` so the REPL exit log reads like a series of normal
+    kills.
+    """
+    pending: list[tuple[AegisBlock, int]] = []
+    for block in AegisBlock:
+        pid = _read_pid(block)
+        if pid is None:
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            _clear_pid(block)
+            continue
+        _echo_warn(f"signalled {block.value} (pid {pid})")
+        pending.append((block, pid))
+    for block, pid in pending:
+        _wait_for_exit(pid)
+        _clear_pid(block)
+        _echo_warn(f"stopped {block.value} (pid {pid})")
+
+
 def _load_config(config_path: Path) -> tuple[AegisConfig, dict]:
     """
     Read + validate the YAML once. Returns the parsed ``AegisConfig``
@@ -328,26 +355,24 @@ def kill_block(
 
 @app.command("status")
 def status(
-    block: Annotated[AegisBlock, typer.Argument(help="Which block to query.")],
+    block: Annotated[
+        Optional[AegisBlock],
+        typer.Argument(help="Which block to query. Omit to report every block applicable to this mode."),
+    ] = None,
 ) -> None:
     """
-    Report whether ``block`` is alive. Use ``aegis list`` to see every
-    block at once.
+    Report block state. With no argument, lists every block applicable
+    to the current mode along with its state (running + PID, or stopped).
+    With ``<block>``, reports just that block.
     """
-    typer.echo(_format_block_state(block.value, _read_pid(block)))
-
-
-@app.command("list")
-def list_blocks() -> None:
-    """
-    Show every block applicable to the current mode along with its
-    state (running + PID, or stopped).
-    """
+    if block is not None:
+        typer.echo(_format_block_state(block.value, _read_pid(block)))
+        return
     state = _require_state()
     allowed = _MODE_BLOCKS[state.config.mode]
     typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.CYAN, bold=True)
-    for block in sorted(allowed, key=lambda b: b.value):
-        typer.echo(f"  {_format_block_state(block.value, _read_pid(block))}")
+    for b in sorted(allowed, key=lambda x: x.value):
+        typer.echo(f"  {_format_block_state(b.value, _read_pid(b))}")
 
 
 # Where the REPL stores its history (~/.aegis_history). Persistent
@@ -366,7 +391,7 @@ def repl() -> None:
         fg=typer.colors.CYAN,
         bold=True,
     )
-    typer.echo("type 'help' for commands, 'exit' or Ctrl-D to leave (children keep running).")
+    typer.echo("type 'help' for commands, 'exit' or Ctrl-D to leave (running blocks are stopped).")
 
     completer = _build_completer()
     session: PromptSession[str] = PromptSession(
@@ -375,28 +400,34 @@ def repl() -> None:
         completer=completer,
         complete_while_typing=True,
     )
-    prompt_text = HTML("<ansicyan><b>aegis&gt;</b></ansicyan> ")
+    prompt_text = HTML("<ansicyan><b>aegis &gt;&gt;</b></ansicyan> ")
 
     # Inside the REPL we re-dispatch each line through the same click
     # group, but skip the top-level callback (which would otherwise
     # re-parse the YAML on every line). The state is already loaded.
-    while True:
-        try:
-            line = session.prompt(prompt_text).strip()
-        except EOFError:
-            typer.echo()
-            return
-        except KeyboardInterrupt:
-            # Mirror bash: Ctrl-C clears the line, doesn't exit.
-            continue
-        if not line:
-            continue
-        if line in {"exit", "quit"}:
-            return
-        if line == "help":
-            _print_repl_help()
-            continue
-        _dispatch_repl_line(line, state.config_path)
+    # The try/finally guarantees ``_kill_all_running_blocks`` runs on
+    # every exit path (typed 'exit', Ctrl-D, unexpected exception) so
+    # subprocess children don't outlive the supervisor.
+    try:
+        while True:
+            try:
+                line = session.prompt(prompt_text).strip()
+            except EOFError:
+                typer.echo()
+                return
+            except KeyboardInterrupt:
+                # Mirror bash: Ctrl-C clears the line, doesn't exit.
+                continue
+            if not line:
+                continue
+            if line in {"exit", "quit", "q"}:
+                return
+            if line == "help":
+                _print_repl_help()
+                continue
+            _dispatch_repl_line(line, state.config_path)
+    finally:
+        _kill_all_running_blocks()
 
 
 def _build_completer() -> WordCompleter:
@@ -404,7 +435,7 @@ def _build_completer() -> WordCompleter:
     Tab-completion vocabulary: top-level commands plus block names.
     Good enough that ``run g<TAB>`` finishes to ``run gylos``.
     """
-    words = ["run", "kill", "status", "list", "help", "exit", "quit"]
+    words = ["run", "kill", "status", "help", "exit", "quit", "q"]
     words.extend(block.value for block in AegisBlock)
     return WordCompleter(words, ignore_case=True)
 
@@ -413,10 +444,9 @@ def _print_repl_help() -> None:
     typer.echo("commands:")
     typer.echo("  run <block>      spawn the named block as a subprocess")
     typer.echo("  kill <block>     SIGTERM a running block")
-    typer.echo("  status <block>   report block state")
-    typer.echo("  list             list every block applicable to this mode")
+    typer.echo("  status [block]   report block state (no arg = all blocks)")
     typer.echo("  help             show this message")
-    typer.echo("  exit | quit      leave the REPL (children keep running)")
+    typer.echo("  exit | quit | q  leave the REPL (running blocks are stopped)")
 
 
 def _dispatch_repl_line(line: str, config_path: Path) -> None:
