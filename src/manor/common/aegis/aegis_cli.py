@@ -158,6 +158,13 @@ def _process_alive(pid: int) -> bool:
 _KILL_WAIT_TIMEOUT_S = 5.0
 _KILL_WAIT_POLL_INTERVAL_S = 0.02
 
+# After spawning a block, sleep this long before returning so the
+# child's startup output (Drake's "Meshcat listening at ..." banner,
+# in particular) lands on the TTY before the REPL redraws its prompt.
+# Without this, the child's stdout writes overlay the new prompt and
+# the cursor strands until the user hits Enter.
+_RUN_SETTLE_S = 1.5
+
 
 def _wait_for_exit(pid: int, timeout_s: float = _KILL_WAIT_TIMEOUT_S) -> None:
     """
@@ -326,6 +333,11 @@ def run_block(
     proc.stdin.close()
     _write_pid(block, proc.pid)
     _echo_success(f"started {block.value} (pid {proc.pid})")
+    # Pause briefly so the child's startup output (notably Drake's
+    # Meshcat URL banner) lands on the TTY before control returns to
+    # the REPL's prompt loop. Same race as ``kill_block``'s wait, in
+    # the opposite direction.
+    time.sleep(_RUN_SETTLE_S)
 
 
 @app.command("kill")

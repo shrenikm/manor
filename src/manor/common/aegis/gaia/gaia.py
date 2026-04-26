@@ -47,11 +47,13 @@ from manor.common.exceptions import GaiaError
 from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 
-# Plant time step. 0.0 selects continuous-time integration, which is
-# more forgiving for the current zero-actuation stub; the discrete
-# solver tends to diverge on an unactuated plant under gravity. A
-# follow-up that wires in a position-tracking controller can switch
-# this back to a small discrete step (~1 ms) safely.
+# Plant time step. ``0.0`` selects continuous-time integration; any
+# positive value selects Drake's discrete-time solver. The bundled
+# YAML uses ``0.001`` (1 ms) because discrete is roughly an order of
+# magnitude cheaper on a 6-DOF arm under gravity, which is what lets
+# the outer aegis simulator actually hold real-time pace. The default
+# left here matches the legacy continuous-time mode for back-compat
+# with tests / dev scripts that construct ``GaiaConfig()`` directly.
 _DEFAULT_PLANT_TIME_STEP_S = 0.0
 
 # Default placeholder camera resolution; real cameras will override
@@ -66,6 +68,17 @@ _DEFAULT_DEPTH_WIDTH = 640
 # If 7000 really is in use (e.g. a leftover gylos process), Drake's
 # Meshcat will raise loudly -- preferable to silently drifting ports.
 _MESHCAT_PORT = 7000
+
+# Continuous-time integrator tuning for Gaia's inner Simulator. The
+# default RK3 adaptive integrator shrinks its step aggressively when
+# the unactuated plant accelerates under gravity, which is what makes
+# the outer aegis simulator fail to hold real-time pace at the
+# configured publish frequencies. Capping the step size and loosening
+# the target accuracy is fine for a visual-only sim (no contact
+# physics, no controller in the loop yet) and is cheap to revert
+# once a tracking controller lands.
+_INTEGRATOR_MAX_STEP_SIZE_S = 0.01
+_INTEGRATOR_TARGET_ACCURACY = 1e-2
 
 
 @attr.frozen
@@ -202,6 +215,13 @@ class Gaia:
         # sleep against wall-clock and the periodic publishers
         # downstream see wide rate variance.
         simulator.set_target_realtime_rate(0.0)
+        # Continuous-time integrator: cap the max step and loosen
+        # target accuracy so the outer simulator can hold real-time
+        # pace. See module-level constants for context.
+        if self.config.time_step == 0.0:
+            integrator = simulator.get_mutable_integrator()
+            integrator.set_maximum_step_size(_INTEGRATOR_MAX_STEP_SIZE_S)
+            integrator.set_target_accuracy(_INTEGRATOR_TARGET_ACCURACY)
         simulator.Initialize()
 
         plant_context = diagram.GetMutableSubsystemContext(plant, simulator.get_mutable_context())
