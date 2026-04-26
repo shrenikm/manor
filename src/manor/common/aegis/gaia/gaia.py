@@ -27,7 +27,7 @@ from typing import Any, Self
 
 import attr
 import numpy as np
-from pydrake.geometry import Meshcat, MeshcatVisualizer, SceneGraph
+from pydrake.geometry import Meshcat, MeshcatParams, MeshcatVisualizer, SceneGraph
 from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph, MultibodyPlant
@@ -61,6 +61,12 @@ _DEFAULT_RGB_WIDTH = 640
 _DEFAULT_DEPTH_HEIGHT = 480
 _DEFAULT_DEPTH_WIDTH = 640
 
+# Pin Meshcat to port 7000 so the URL doesn't drift to 7001/2/3 when
+# a previous gylos's listening socket hasn't been fully released yet.
+# If 7000 really is in use (e.g. a leftover gylos process), Drake's
+# Meshcat will raise loudly -- preferable to silently drifting ports.
+_MESHCAT_PORT = 7000
+
 
 @attr.frozen
 class GaiaConfig:
@@ -74,10 +80,15 @@ class GaiaConfig:
     this off; interactive runs flip it on so the browser session
     streams the plant geometry.
 
-    ``target_realtime_rate`` scales how fast Gaia's internal Simulator
-    advances relative to wall-clock. ``0.0`` means "as fast as
-    possible" (tests, headless batch runs); ``1.0`` means "real time"
-    (interactive runs against Meshcat).
+    ``target_realtime_rate`` scales how fast the **outer** aegis
+    Simulator (the one that drives every periodic publisher) advances
+    relative to wall-clock. ``0.0`` means "as fast as possible"
+    (tests, headless batch runs); ``1.0`` means "real time"
+    (interactive runs against Meshcat). Gaia's internal Simulator
+    is always run as-fast-as-possible; rate-pacing happens once at
+    the outer aegis simulator level so we don't end up with two
+    simulators both sleeping against wall-clock and stepping on each
+    other.
     """
 
     time_step: float = _DEFAULT_PLANT_TIME_STEP_S
@@ -180,12 +191,17 @@ class Gaia:
             # Spawn the Meshcat http/websocket server (printed URL is the
             # one the user opens) and wire its visualizer to the scene
             # graph so the live geometry streams to the browser.
-            meshcat = Meshcat()
+            meshcat = Meshcat(MeshcatParams(port=_MESHCAT_PORT))
             MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
 
         diagram = builder.Build()
         simulator = Simulator(diagram)
-        simulator.set_target_realtime_rate(self.config.target_realtime_rate)
+        # Gaia's inner simulator is driven by GaiaAdvancer from the
+        # outer aegis simulator's clock. Real-time pacing is the outer
+        # simulator's job; if we throttle here too, both simulators
+        # sleep against wall-clock and the periodic publishers
+        # downstream see wide rate variance.
+        simulator.set_target_realtime_rate(0.0)
         simulator.Initialize()
 
         plant_context = diagram.GetMutableSubsystemContext(plant, simulator.get_mutable_context())
@@ -284,6 +300,26 @@ class Gaia:
 
     def is_finalized(self) -> bool:
         return self._finalized
+
+    def shutdown(self) -> None:
+        """
+        Drop references to all heavy Drake resources (meshcat server,
+        inner simulator, diagram) so their C++ destructors run
+        synchronously rather than at interpreter shutdown. The meshcat
+        destructor closes the listening socket; running it now means
+        the next gylos launch can re-bind port 7000 immediately
+        instead of drifting to 7001 / 7002 / ...
+
+        Safe to call zero or multiple times. After ``shutdown`` the
+        Gaia instance must not be used (read / advance / render).
+        """
+        self.meshcat = None
+        self.simulator = None
+        self.diagram = None
+        self.scene_graph = None
+        self.plant = None
+        self._plant_context = None
+        self._finalized = False
 
     def _require_finalized(self) -> None:
         if not self._finalized:

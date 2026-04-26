@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+import attr
 import pytest
 import yaml
 from pydrake.lcm import DrakeLcm
@@ -38,7 +39,10 @@ def _bundled_config() -> AegisConfig:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
     path = os.path.join(repo_root, "configs", "aegis", "lite6_default.yaml")
     with open(path, "r") as fp:
-        return AegisConfig.from_yaml_dict(yaml.safe_load(fp))
+        config = AegisConfig.from_yaml_dict(yaml.safe_load(fp))
+    # Disable meshcat for tests so the pinned port-7000 server doesn't
+    # collide with other tests that also load the bundled YAML.
+    return attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
 
 
 def _build_metis_diagram(metis_config: MetisConfig, lcm: DrakeLcm):

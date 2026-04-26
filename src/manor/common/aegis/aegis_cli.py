@@ -152,7 +152,10 @@ def _process_alive(pid: int) -> bool:
 # After SIGTERM, wait this long for the child to actually exit before
 # returning. Without this, the child's own ``stopping`` print races
 # against the REPL's next prompt redraw and lands on top of it.
-_KILL_WAIT_TIMEOUT_S = 2.0
+# Generous because gylos has to tear down Drake Meshcat (a C++ server
+# thread) before the process truly exits; if the next REPL invocation
+# is racing it, the meshcat listening socket may not yet be released.
+_KILL_WAIT_TIMEOUT_S = 5.0
 _KILL_WAIT_POLL_INTERVAL_S = 0.02
 
 

@@ -27,6 +27,7 @@ schemas.
 
 from __future__ import annotations
 
+import gc
 import json
 import sys
 
@@ -182,9 +183,22 @@ def run_gylos(
     diagram.set_name("aegis_gylos_process")
 
     simulator = Simulator(diagram)
-    simulator.set_target_realtime_rate(1.0)
+    # Outer aegis simulator is the one and only place where wall-clock
+    # pacing is enforced; Gaia's inner simulator runs as fast as
+    # possible (see GaiaConfig.target_realtime_rate docstring).
+    simulator.set_target_realtime_rate(gaia_config.target_realtime_rate)
     simulator.Initialize()
-    advance_until_signal(simulator)
+    try:
+        advance_until_signal(simulator)
+    finally:
+        # Force the Drake Meshcat C++ destructor to run synchronously
+        # here -- closing the listening socket -- so the next gylos
+        # launch can re-bind port 7000. Without this, Python only
+        # tears down meshcat during interpreter shutdown, by which
+        # point our REPL kill-wait may have given up and started a
+        # fresh gylos that finds port 7000 still held.
+        gaia.shutdown()
+        gc.collect()
 
 
 def _main() -> None:

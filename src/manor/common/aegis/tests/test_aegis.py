@@ -214,6 +214,10 @@ class TestBundledLite6DefaultYaml:
         path = os.path.join(repo_root, "configs", "aegis", "lite6_default.yaml")
         assert os.path.exists(path), f"bundled default yaml missing at {path}"
         config = AegisConfig.from_yaml(path)
+        # Force meshcat off for the smoke test -- the bundled YAML pins
+        # the meshcat server to port 7000, which collides with other
+        # tests in the same suite that also load the bundled YAML.
+        config = attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
         diagram, systems = build_aegis(config)
         assert isinstance(diagram, Diagram)
         assert systems.gaia is not None
