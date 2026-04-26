@@ -13,6 +13,9 @@ Here's my vision for this:
 7. Applyig more logic, Metis publishes actions, so we need Kyber to subscribe to actions and this Metis-Kyber connection is not a direct connection but through LCM
 8. Kyber outputs commands but this doesn't need to be published as we can directly connect this to Talos as the robot hardware control and simulation runs on my local machine as it isn't too heavy. So the command output of Kyber is wired directly to the command input of Talos.
 9. Talos needs to take in the commands and output proprioception. Proprioceptoin needs to be published for Metis, so it follows that Talos publishes this through LCM
+10. For hardware, the outcome is that I should be able to run different policies in Metis and see the robot move in real life
+11. For simulation, I want to be able to see the simulation through Meshcat while it's running.
+12. Maybe it'll be cool to have a "both" option where I run on real robot while also being able to see what's happening in simulation. But this is less of simulation, and more of take the joint state from the hardware and display it on Meshcat.
 
 We now go through each isolated block for both real robot and simulation. I'm less sure of the simulation one so let's start with the hardware design now:
 
@@ -66,4 +69,6 @@ Note, I'm not really that concerned about rendered images:
 
 But I still want to set this up now for completeness and making sure that future design decision are dealing with this hole.
 
-Also note that for sim, I want to use an environment similar to my actual set up which is the robot mounted on a table. If you notice, I've been using this table urdf in the old code, and I construct the drake multibodyplant with manipulator + table. I'd like to do it similar, but it needs to be more flexible/generic. I don't want to always do this table thing as it needs to be extendible to other environments and manipulators. So ideally we need to design some kind of configuration file (yaml or something?) which can define the environment the robot will be active in and we can use this in Kyber, Talos, etc. Let me know your thoughts here.
+* Also note that for sim, I want to use an environment similar to my actual set up which is the robot mounted on a table. If you notice, I've been using this table urdf in the old code, and I construct the drake multibodyplant with manipulator + table. I'd like to do it similar, but it needs to be more flexible/generic. I don't want to always do this table thing as it needs to be extendible to other environments and manipulators. So ideally we need to design some kind of configuration file (yaml or something?) which can define the environment the robot will be active in and we can use this in Kyber, Talos, etc.
+* This isn't super important for now, but it would be nice if our design choices now nicely allowed for the "both" option where we can run on real robot while also displaying the robot states in sim. 
+* Let me know your thoughts here.
