@@ -67,6 +67,47 @@ from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import get_variant_class
 
+# Discriminated reference to a specific manipulator + variant; lives
+# inside the ``manipulator_model:`` YAML block. Kept inline because
+# this is the only block whose YAML keys don't correspond to attrs
+# fields on a config class -- the keys ``type`` / ``variant`` map
+# directly onto ``ManipulatorType`` and the registered variant enum.
+_MANIPULATOR_TYPE_KEY = "type"
+_MANIPULATOR_VARIANT_KEY = "variant"
+_MANIPULATOR_ALLOWED_KEYS = {_MANIPULATOR_TYPE_KEY, _MANIPULATOR_VARIANT_KEY}
+
+
+def _parse_manipulator_model(value: object, context: str) -> IManipulatorModel:
+    if not isinstance(value, dict):
+        raise AegisConfigError(f"'{context}' must be a mapping; got {type(value).__name__}")
+    extras = set(value) - _MANIPULATOR_ALLOWED_KEYS
+    if extras:
+        raise AegisConfigError(
+            f"{context}: unexpected keys {sorted(extras)!r}; allowed {sorted(_MANIPULATOR_ALLOWED_KEYS)!r}"
+        )
+
+    type_value = require_str(value.get(_MANIPULATOR_TYPE_KEY), f"{context}.{_MANIPULATOR_TYPE_KEY}")
+    try:
+        manipulator_type = ManipulatorType(type_value)
+    except ValueError as e:
+        raise AegisConfigError(
+            f"Unknown manipulator type {type_value!r}; expected one of {[t.value for t in ManipulatorType]}"
+        ) from e
+
+    variant_value = require_str(value.get(_MANIPULATOR_VARIANT_KEY), f"{context}.{_MANIPULATOR_VARIANT_KEY}")
+    variant_cls = get_variant_class(manipulator_type)
+    try:
+        variant = variant_cls(variant_value)
+    except ValueError as e:
+        raise AegisConfigError(
+            f"Unknown variant {variant_value!r} for manipulator {manipulator_type!r}; "
+            f"expected one of {[v.value for v in variant_cls]}"
+        ) from e
+
+    if manipulator_type is ManipulatorType.LITE6:
+        return Lite6Model(variant=variant)
+    raise AegisConfigError(f"No model factory wired in for manipulator {manipulator_type!r}")
+
 
 @attr.frozen
 class AegisConfig:
@@ -138,56 +179,10 @@ class AegisConfig:
                 cls,
                 raw,
                 "aegis",
-                custom_parsers={"manipulator_model": _parse_manipulator_model_field},
+                custom_parsers={"manipulator_model": _parse_manipulator_model},
                 skip_fields={"lcm"},
             )
         )
-
-
-def _parse_manipulator_model_field(value: object, context: str) -> IManipulatorModel:
-    if not isinstance(value, dict):
-        raise AegisConfigError(f"'{context}' must be a mapping; got {type(value).__name__}")
-    return _parse_manipulator_model(value)
-
-
-# Discriminated reference to a specific manipulator + variant; lives
-# inside the ``manipulator_model:`` YAML block. Kept inline because
-# this is the only block whose YAML keys don't correspond to attrs
-# fields on a config class -- the keys ``type`` / ``variant`` map
-# directly onto ``ManipulatorType`` and the registered variant enum.
-_MANIPULATOR_TYPE_KEY = "type"
-_MANIPULATOR_VARIANT_KEY = "variant"
-_MANIPULATOR_ALLOWED_KEYS = {_MANIPULATOR_TYPE_KEY, _MANIPULATOR_VARIANT_KEY}
-
-
-def _parse_manipulator_model(raw: dict) -> IManipulatorModel:
-    extras = set(raw) - _MANIPULATOR_ALLOWED_KEYS
-    if extras:
-        raise AegisConfigError(
-            f"manipulator_model: unexpected keys {sorted(extras)!r}; allowed {sorted(_MANIPULATOR_ALLOWED_KEYS)!r}"
-        )
-
-    type_value = require_str(raw.get(_MANIPULATOR_TYPE_KEY), f"manipulator_model.{_MANIPULATOR_TYPE_KEY}")
-    try:
-        manipulator_type = ManipulatorType(type_value)
-    except ValueError as e:
-        raise AegisConfigError(
-            f"Unknown manipulator type {type_value!r}; expected one of {[t.value for t in ManipulatorType]}"
-        ) from e
-
-    variant_value = require_str(raw.get(_MANIPULATOR_VARIANT_KEY), f"manipulator_model.{_MANIPULATOR_VARIANT_KEY}")
-    variant_cls = get_variant_class(manipulator_type)
-    try:
-        variant = variant_cls(variant_value)
-    except ValueError as e:
-        raise AegisConfigError(
-            f"Unknown variant {variant_value!r} for manipulator {manipulator_type!r}; "
-            f"expected one of {[v.value for v in variant_cls]}"
-        ) from e
-
-    if manipulator_type is ManipulatorType.LITE6:
-        return Lite6Model(variant=variant)
-    raise AegisConfigError(f"No model factory wired in for manipulator {manipulator_type!r}")
 
 
 @attr.frozen

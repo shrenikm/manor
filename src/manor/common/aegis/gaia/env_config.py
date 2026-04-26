@@ -49,6 +49,30 @@ def _zero_rpy() -> NpVector3f64:
     return np.zeros(3, dtype=np.float64)
 
 
+def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
+    if value is None:
+        return np.zeros(3, dtype=np.float64)
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise AegisConfigError(f"'{field_name}' must be a length-3 list of floats; got {value!r}")
+    try:
+        return np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as e:
+        raise AegisConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
+
+
+def _resolve_filepath(path: FilePath) -> FilePath:
+    """
+    Relative ``description_filepath`` values resolve against the
+    project's ``models/`` directory; absolute paths pass through
+    unchanged. So a YAML can reference ``environment/foo.urdf`` and
+    Gaia will find it at ``<project_root>/models/environment/foo.urdf``
+    regardless of where the YAML itself sits.
+    """
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(get_models_directory_path(), path))
+
+
 @attr.frozen
 class StaticModelConfig:
     """
@@ -91,28 +115,18 @@ class StaticModelConfig:
         )
 
 
-def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
+def _parse_extra_models(value: object, context: str) -> tuple[StaticModelConfig, ...]:
     if value is None:
-        return np.zeros(3, dtype=np.float64)
-    if not isinstance(value, (list, tuple)) or len(value) != 3:
-        raise AegisConfigError(f"'{field_name}' must be a length-3 list of floats; got {value!r}")
-    try:
-        return np.asarray(value, dtype=np.float64)
-    except (TypeError, ValueError) as e:
-        raise AegisConfigError(f"'{field_name}' could not be coerced to a float vector: {e}") from e
-
-
-def _resolve_filepath(path: FilePath) -> FilePath:
-    """
-    Relative ``description_filepath`` values resolve against the
-    project's ``models/`` directory; absolute paths pass through
-    unchanged. So a YAML can reference ``environment/foo.urdf`` and
-    Gaia will find it at ``<project_root>/models/environment/foo.urdf``
-    regardless of where the YAML itself sits.
-    """
-    if os.path.isabs(path):
-        return path
-    return os.path.normpath(os.path.join(get_models_directory_path(), path))
+        return ()
+    if not isinstance(value, list):
+        raise AegisConfigError(f"'{context}' must be a list; got {type(value).__name__}")
+    parsed: list[StaticModelConfig] = []
+    for idx, item in enumerate(value):
+        item_context = f"{context}[{idx}]"
+        if not isinstance(item, dict):
+            raise AegisConfigError(f"{item_context} must be a mapping; got {type(item).__name__}")
+        parsed.append(StaticModelConfig.from_yaml_dict(item, item_context))
+    return tuple(parsed)
 
 
 @attr.frozen
@@ -177,17 +191,3 @@ class EnvironmentConfig:
                 },
             )
         )
-
-
-def _parse_extra_models(value: object, context: str) -> tuple[StaticModelConfig, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list):
-        raise AegisConfigError(f"'{context}' must be a list; got {type(value).__name__}")
-    parsed: list[StaticModelConfig] = []
-    for idx, item in enumerate(value):
-        item_context = f"{context}[{idx}]"
-        if not isinstance(item, dict):
-            raise AegisConfigError(f"{item_context} must be a mapping; got {type(item).__name__}")
-        parsed.append(StaticModelConfig.from_yaml_dict(item, item_context))
-    return tuple(parsed)
