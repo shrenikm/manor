@@ -428,10 +428,10 @@ Commands:
 | ---------------------------------------- | --------------------------------------------------------------------- |
 | `run [<block>] [-c CONFIG] [-m MODE]`    | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. With no arg, spawns every block applicable to the current mode (already-running ones are warnings, not errors). |
 | `kill [<block>]`                         | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. With no arg, signals every running block. |
-| `status [<block>]`                       | with `<block>`, report that block's state (running + PID, or stopped); with no arg, report every known block. |
+| `status [<block>] [-c CONFIG] [-m MODE]` | report block state: `running (pid X)`, `stopped`, or `unavailable` (block isn't part of the configured mode, e.g. `kylos` in sim). With no arg, lists every known block. |
 | `repl [-c CONFIG] [-m MODE]`             | drop into an interactive prompt_toolkit shell.                        |
 
-`run` / `repl` flags:
+`run` / `status` / `repl` flags:
 
 - `-c FILE`, `--config FILE` — aegis YAML to load. Bare filenames
   resolve relative to `configs/aegis/` (so `-c foo_ac.yaml` is the
@@ -441,8 +441,10 @@ Commands:
 - `-m MODE`, `--mode MODE` — override the YAML's `mode` field
   (`sim` or `hardware`) without editing the file.
 
-`kill` and `status` consult the PID files on disk and don't take
-`--config` or `--mode`; they show / signal whatever is running.
+`kill` is PID-only and takes no config / mode flags — you can only
+signal what's running. `status` accepts the flags so it can label
+blocks not in the configured mode as `unavailable` (vs. just
+`stopped`).
 
 State persists across shells via `/tmp/aegis_<block>.pid`. Stale PID
 files (process gone, file remained) are auto-cleaned on the next

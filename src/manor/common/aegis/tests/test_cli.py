@@ -54,16 +54,16 @@ def sandboxed_pid_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _run_cli(args: list[str], inject_config: bool = True) -> "CliRunner.Result":
     """
     Invoke the CLI with the bundled default config injected onto
-    ``run`` / ``repl`` lines (the only commands that accept
-    ``--config``). For ``kill`` / ``status`` we pass argv unchanged
-    since those commands don't take config / mode flags.
+    ``run`` / ``status`` / ``repl`` lines (the commands that accept
+    ``--config``). ``kill`` is PID-only so its argv is passed through
+    untouched.
 
     Set ``inject_config=False`` to exercise the default-path resolution
     (the bundled config is already the default, so they're equivalent
     for assertions but tests of explicit overrides skip injection).
     """
     runner = CliRunner()
-    needs_config = bool(args) and args[0] in {"run", "repl"} and inject_config
+    needs_config = bool(args) and args[0] in {"run", "status", "repl"} and inject_config
     if needs_config:
         full = [args[0], "--config", str(_bundled_config_path()), *args[1:]]
     else:
@@ -72,15 +72,41 @@ def _run_cli(args: list[str], inject_config: bool = True) -> "CliRunner.Result":
 
 
 class TestAegisCli:
-    def test_status_no_arg_reports_every_known_block(self, sandboxed_pid_dir: Path) -> None:
-        # ``status`` no-arg is mode-agnostic: it walks every AegisBlock
-        # and reports its PID-file state. No mode banner is printed
-        # because ``status`` doesn't load a config.
+    def test_status_no_arg_labels_blocks_by_mode_applicability(
+        self,
+        sandboxed_pid_dir: Path,
+    ) -> None:
+        # ``status`` no-arg lists every AegisBlock and labels each
+        # one. In sim mode, metis + gylos are applicable (so
+        # ``stopped`` when nothing's running), kylos + helios are
+        # ``unavailable``.
         result = _run_cli(["status"])
         assert result.exit_code == 0, result.output
-        assert "mode:" not in result.output
         assert "metis: stopped" in result.output
         assert "gylos: stopped" in result.output
+        assert "kylos: unavailable" in result.output
+        assert "helios: unavailable" in result.output
+
+    def test_status_marks_non_applicable_block_unavailable_for_single_query(
+        self,
+        sandboxed_pid_dir: Path,
+    ) -> None:
+        # ``status kylos`` in sim mode should say ``unavailable``,
+        # not ``stopped`` -- you can't run kylos here at all.
+        result = _run_cli(["status", "kylos"])
+        assert result.exit_code == 0, result.output
+        assert "kylos: unavailable" in result.output
+
+    def test_status_mode_override_flips_unavailable_set(
+        self,
+        sandboxed_pid_dir: Path,
+    ) -> None:
+        # ``-m hardware`` should make gylos unavailable and kylos /
+        # helios available (stopped, since nothing is running).
+        result = _run_cli(["status", "-m", "hardware"])
+        assert result.exit_code == 0, result.output
+        assert "metis: stopped" in result.output
+        assert "gylos: unavailable" in result.output
         assert "kylos: stopped" in result.output
         assert "helios: stopped" in result.output
 
@@ -198,11 +224,6 @@ class TestAegisCli:
         # rejected by click as an unknown option.
         runner = CliRunner()
         result = runner.invoke(cli, ["kill", "--config", str(_bundled_config_path())])
-        assert result.exit_code != 0
-
-    def test_status_does_not_accept_mode_flag(self, sandboxed_pid_dir: Path) -> None:
-        runner = CliRunner()
-        result = runner.invoke(cli, ["status", "--mode", "hardware"])
         assert result.exit_code != 0
 
     def test_config_bare_filename_resolves_under_configs_dir(

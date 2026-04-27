@@ -9,8 +9,9 @@ on hardware). This module is the supervisor for those processes:
   ``python -m manor.common.aegis.run.run_<block>`` with the parsed +
   validated config piped in over stdin as JSON.
 * ``aegis kill <block>`` sends SIGTERM to the child.
-* ``aegis status [block]`` reports state -- with ``<block>`` for a
-  single block, with no arg for every known block.
+* ``aegis status [block]`` reports state -- ``running (pid X)``,
+  ``stopped``, or ``unavailable`` (block isn't part of the current
+  mode). With no arg, lists every known block.
 * ``aegis repl`` drops into an interactive prompt_toolkit shell that
   exposes the same commands with history + autocomplete. Children
   spawned via ``run`` are SIGTERMed when the REPL exits so nothing
@@ -24,8 +25,10 @@ Configuration is the project-bundled YAML
 ``--config`` / ``-c`` to load a different aegis config (bare
 filenames resolve under ``configs/aegis/``; absolute paths are
 honoured as-is) and ``--mode`` / ``-m`` to override the YAML's
-``mode`` field at the command line. ``kill`` and ``status`` operate
-purely on the PID files, so they don't take config or mode flags.
+``mode`` field at the command line. ``status`` takes the same flags
+so it can label blocks not in the configured mode as ``unavailable``.
+``kill`` operates purely on the PID files and takes no config / mode
+flags -- you can only kill what's running.
 """
 
 from __future__ import annotations
@@ -192,7 +195,15 @@ def _echo_error(msg: str) -> None:
     typer.secho(msg, fg=typer.colors.RED, err=True)
 
 
-def _format_block_state(name: str, pid: Optional[int]) -> str:
+def _format_block_state(name: str, pid: Optional[int], applicable: bool = True) -> str:
+    """
+    Render one ``status`` line. ``applicable=False`` means the block
+    isn't part of the configured mode (e.g. ``kylos`` in sim) and is
+    rendered dim to visually de-emphasise it -- the user can't run
+    it without changing mode, so it's not just "stopped".
+    """
+    if not applicable:
+        return f"{name}: {typer.style('unavailable', dim=True)}"
     if pid is None:
         return f"{name}: {typer.style('stopped', fg=typer.colors.RED)}"
     return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
@@ -436,19 +447,25 @@ def status(
         Optional[AegisBlock],
         typer.Argument(help="Which block to query. Omit to report every known block."),
     ] = None,
+    config: Annotated[Path, _CONFIG_OPTION] = _DEFAULT_CONFIG_PATH,
+    mode: Annotated[Optional[AegisMode], _MODE_OPTION] = None,
 ) -> None:
     """
     Report block state. With no argument, lists every known block
-    along with its state (running + PID, or stopped). With ``<block>``,
-    reports just that block. ``status`` reads PID files directly and
-    therefore doesn't need a config or mode -- it shows whatever is
-    running, regardless of how it was launched.
+    along with its state: ``running (pid X)`` if its PID file points
+    at a live process, ``stopped`` if it's applicable to the current
+    mode but not running, ``unavailable`` if it isn't part of the
+    current mode at all (e.g. ``gylos`` under hardware). ``status``
+    accepts ``--config`` / ``--mode`` for the same reason ``run``
+    does -- it needs to know which blocks the configured mode allows.
     """
+    state = _build_state(config, mode)
+    allowed = _MODE_BLOCKS[state.config.mode]
     if block is not None:
-        typer.echo(_format_block_state(block.value, _read_pid(block)))
+        typer.echo(_format_block_state(block.value, _read_pid(block), applicable=block in allowed))
         return
     for b in sorted(AegisBlock, key=lambda x: x.value):
-        typer.echo(_format_block_state(b.value, _read_pid(b)))
+        typer.echo(_format_block_state(b.value, _read_pid(b), applicable=b in allowed))
 
 
 # Where the REPL stores its history (~/.aegis_history). Persistent
@@ -549,14 +566,17 @@ def _dispatch_repl_line(line: str, config_path: Path, mode: AegisMode) -> None:
     if argv[0] == "repl":
         _echo_error("already in REPL")
         return
-    if argv[0] == "run":
+    if argv[0] in {"run", "status"}:
         # Inject the REPL's pinned config + mode as defaults BEFORE
         # the user's argv so any ``-c`` / ``-m`` typed on the line
         # wins (click takes the last occurrence of an option). This
         # keeps the REPL banner as the default for the session while
         # still letting per-line overrides surface their own errors --
         # e.g. a typo'd config filename actually fails fast instead
-        # of being silently shadowed by the REPL default.
+        # of being silently shadowed by the REPL default. ``status``
+        # also takes ``--config`` / ``--mode`` (to know which blocks
+        # are ``unavailable`` vs ``stopped``), so it gets the same
+        # treatment. ``kill`` is PID-only.
         full_argv = [argv[0], "--config", str(config_path), "--mode", mode.value, *argv[1:]]
     else:
         full_argv = argv
