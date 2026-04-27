@@ -33,8 +33,7 @@ from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph, MultibodyPlant
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.controllers import InverseDynamicsController
-from pydrake.systems.framework import Diagram, DiagramBuilder
-from pydrake.systems.primitives import ConstantVectorSource
+from pydrake.systems.framework import BasicVector, Context, Diagram, DiagramBuilder, LeafSystem
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
@@ -120,6 +119,77 @@ class GaiaConfig:
         Parse the ``gaia_config:`` block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "gaia_config"))
+
+
+class _DesiredStateSource(LeafSystem):
+    """
+    Build the desired-state vector for Gaia's
+    ``InverseDynamicsController`` from the latest stashed command on
+    the Gaia instance plus the plant's current measured state.
+
+    The mapping mirrors the deprecated ``Lite6PliantMultiplexer`` so
+    sim behavior matches the real robot's:
+
+    * Velocity command:
+      ``desired_q = measured_q`` (position error always zero) and
+      ``desired_v[arm] = command_v``. A zero-velocity command therefore
+      drives the controller to fight only motion, holding the arm in
+      place. Matches "real robot stays still given zero velocities".
+    * Position command:
+      ``desired_q[arm] = command_q`` and ``desired_v = 0``. The PID
+      term in the controller pulls the arm toward the target.
+    * No command yet:
+      ``desired_q = measured_q`` and ``desired_v = 0``. Holds the URDF
+      default pose at startup until the first command arrives.
+
+    Gripper joints (anything past the arm DOFs) always stay at
+    ``desired_q[gripper] = measured_q[gripper]`` and
+    ``desired_v[gripper] = 0`` -- gripper is commanded via the EEF
+    channel, not joint commands, and that path isn't routed through
+    Gaia yet. So the gripper is held at whatever position the URDF
+    initialised it to.
+
+    Reads ``gaia.latest_position_command`` / ``latest_velocity_command``
+    directly. Drake calls ``_compute`` from the inner simulator's
+    advance, which is single-threaded against the outer aegis loop
+    where ``apply_*_command`` is invoked, so the Python-level reads
+    are safe.
+    """
+
+    def __init__(self, gaia: Gaia, num_positions: int) -> None:
+        super().__init__()
+        self._gaia = gaia
+        self._num_positions = num_positions
+        self._estimated_state_input = self.DeclareVectorInputPort(
+            "estimated_state",
+            2 * num_positions,
+        )
+        self.DeclareVectorOutputPort(
+            "desired_state",
+            2 * num_positions,
+            self._compute,
+        )
+
+    def _compute(self, context: Context, output: BasicVector) -> None:
+        estimated = self._estimated_state_input.Eval(context)
+        measured_q = np.asarray(estimated[: self._num_positions], dtype=np.float64)
+
+        # Default: hold measured pose with zero desired velocity. This
+        # is what runs at startup and any time both stashed commands
+        # are None.
+        desired_q = measured_q.copy()
+        desired_v = np.zeros(self._num_positions, dtype=np.float64)
+
+        velocity_cmd = self._gaia.latest_velocity_command
+        position_cmd = self._gaia.latest_position_command
+        if velocity_cmd is not None:
+            arm_dof = velocity_cmd.velocities.shape[0]
+            desired_v[:arm_dof] = velocity_cmd.velocities
+        elif position_cmd is not None:
+            arm_dof = position_cmd.positions.shape[0]
+            desired_q[:arm_dof] = position_cmd.positions
+
+        output.SetFromVector(np.concatenate([desired_q, desired_v]))
 
 
 @attr.define
@@ -231,20 +301,25 @@ class Gaia:
             )
         )
 
-        # Hold the URDF default pose: desired q = 0, desired v = 0.
-        # That's "arm in neutral, gripper closed". A future change can
-        # swap this ConstantVectorSource for a LeafSystem reading
-        # ``self.latest_position_command`` so commands actually move
-        # the sim arm; for now the goal is just stop-falling-apart.
-        num_states = controller_plant.num_multibody_states()
-        desired_state = builder.AddSystem(ConstantVectorSource(np.zeros(num_states)))
-
+        # Desired-state source builds (q_des, v_des) from the latest
+        # stashed command on this Gaia instance plus the plant's
+        # measured state. See ``_DesiredStateSource`` for the mapping
+        # rules; the short version is "velocity-control mode by
+        # default, falls through to position-control if a position
+        # command is stashed, holds measured pose otherwise".
+        num_positions = controller_plant.num_positions()
+        desired_source = builder.AddSystem(_DesiredStateSource(gaia=self, num_positions=num_positions))
+        manipulator_state_port = plant.get_state_output_port(manipulator_model_index)
         builder.Connect(
-            plant.get_state_output_port(manipulator_model_index),
+            manipulator_state_port,
             id_controller.get_input_port_estimated_state(),
         )
         builder.Connect(
-            desired_state.get_output_port(),
+            manipulator_state_port,
+            desired_source.GetInputPort("estimated_state"),
+        )
+        builder.Connect(
+            desired_source.GetOutputPort("desired_state"),
             id_controller.get_input_port_desired_state(),
         )
         builder.Connect(
