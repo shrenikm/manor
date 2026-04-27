@@ -9,7 +9,11 @@ SIGTERM.
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.run_metis < default_ac.yaml.json
+    python -m manor.common.aegis.run.run_metis < /tmp/aegis.json
+
+where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
+``manor.common.aegis.run`` package docstring for the one-line
+``yaml.safe_load(...) -> json.dumps(...)`` recipe).
 
 The JSON payload is the full parsed-AegisConfig dict (the same shape
 the YAML produces). The runner only consumes ``metis_config``; the

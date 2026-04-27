@@ -11,7 +11,11 @@ In sim mode the kylos role is fulfilled by the gylos process (see
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.run_kylos < default_ac.yaml.json
+    python -m manor.common.aegis.run.run_kylos < /tmp/aegis.json
+
+where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
+``manor.common.aegis.run`` package docstring for the one-line
+``yaml.safe_load(...) -> json.dumps(...)`` recipe).
 """
 
 from __future__ import annotations

@@ -13,7 +13,11 @@ passthrough subscriber. Don't launch this runner in sim.
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.run_helios < default_ac.yaml.json
+    python -m manor.common.aegis.run.run_helios < /tmp/aegis.json
+
+where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
+``manor.common.aegis.run`` package docstring for the one-line
+``yaml.safe_load(...) -> json.dumps(...)`` recipe).
 """
 
 from __future__ import annotations
