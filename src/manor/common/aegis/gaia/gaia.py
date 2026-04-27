@@ -344,6 +344,12 @@ class Gaia:
             # graph so the live geometry streams to the browser.
             meshcat = Meshcat(MeshcatParams(port=_MESHCAT_PORT))
             MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
+            # Always-on recording: every tick the visualizer publishes
+            # to the live view AND captures a frame for later playback.
+            # ``Gaia.publish_recording`` (called from ``shutdown``)
+            # pushes the captured timeline to the browser sidebar so
+            # the user can scrub through the run after the fact.
+            meshcat.StartRecording()
 
         diagram = builder.Build()
         simulator = Simulator(diagram)
@@ -455,6 +461,19 @@ class Gaia:
     def is_finalized(self) -> bool:
         return self._finalized
 
+    def publish_recording(self) -> None:
+        """
+        Push the captured Meshcat animation timeline to the browser's
+        Animations sidebar so the user can scrub through the run.
+        No-op if Meshcat is disabled or already torn down. Idempotent:
+        calling more than once just re-publishes the (possibly grown)
+        timeline.
+        """
+        if self.meshcat is None:
+            return
+        self.meshcat.StopRecording()
+        self.meshcat.PublishRecording()
+
     def shutdown(self) -> None:
         """
         Drop references to all heavy Drake resources (meshcat server,
@@ -464,9 +483,14 @@ class Gaia:
         the next gylos launch can re-bind port 7000 immediately
         instead of drifting to 7001 / 7002 / ...
 
+        Publishes the meshcat recording first so the browser timeline
+        survives the teardown (the message is queued on the WebSocket
+        before the server is dropped).
+
         Safe to call zero or multiple times. After ``shutdown`` the
         Gaia instance must not be used (read / advance / render).
         """
+        self.publish_recording()
         self.meshcat = None
         self.simulator = None
         self.diagram = None
