@@ -24,6 +24,65 @@ hasn't been run on metal yet. When it's a fact, it's been verified.
 
 ## Activation (`prime` / `unprime`)
 
+### Observed: motors wiggle and settle on `motion_enable(True)`
+
+When the CLI prints `priming...` and runs `motion_enable(True)`, the
+arm visibly micro-moves for a couple of seconds before settling. Not
+a homing routine (Lite6 uses absolute encoders); it's the controller
+releasing the brakes, reading each encoder, and locking the servo
+loop's setpoint onto the current measured position. Happens every
+time we re-enable after a disconnect.
+
+`prime()` now sleeps `_MOTION_ENABLE_SETTLE_S` (2.0 s) after
+`motion_enable(True)` so subsequent `set_mode` / `set_state` calls
+don't race the bring-up. Aegis startup orchestration must budget
+for this latency.
+
+### Servo-level errors can survive `clean_error()`
+
+**Verified empirically (2026-04-26).** After a prior run where an
+unprime fired while joint 6 was still chasing a `set_servo_angle_j`
+target (the pre-streaming, one-shot version), the controller latched
+a servo-level error on joint 6:
+
+```
+servo_error_code, servo_id=6, status=1, code=23
+```
+
+The next `prime()` ran, every step returned `code=0`, but the
+underlying servo error was still latched. The follow-up
+`set_servo_angle_j` then failed with `code=1` (Not Ready) because
+joint 6 wasn't actually armed.
+
+Findings:
+- `clean_error()` clears **controller**-level errors. It does **not**
+  always clear servo-level errors. `clean_warn()` doesn't fix it
+  either.
+- The bulletproof recovery is **power-cycling the arm**. After power
+  cycle, `lite6_cli probe` reports `error_code=0`, `warn_code=0`,
+  and prime works again.
+- The `servo_error_code, servo_id=N, status=..., code=...` line is
+  printed directly by the SDK during `motion_enable(True)`; we can't
+  easily suppress it.
+
+`prime()` now reads `arm.error_code` and `arm.warn_code` after the
+sequence and raises with a power-cycle hint if either is non-zero,
+so this failure mode surfaces during prime instead of as a cryptic
+`code=1` on the next motion command.
+
+#### Likely root cause of servo error code 23
+
+Triggered by an abrupt `motion_enable(False)` while a servo loop
+was actively tracking an unmet setpoint. The streaming version of
+`send_joint_positions` should prevent this since it polls until the
+pose lands before unpriming, but **never call `set_servo_angle_j`
+once and immediately unprime** -- it's a recipe for latched servo
+errors.
+
+(The `code=23` value itself isn't documented in our notes yet --
+add the lookup if anyone hits it again.)
+
+
 Sequence used by both `Lite6Driver.prime()` and `lite6_standalone.prime`:
 
 1. `clean_error()` — wipe any latched fault before enabling motors.
@@ -144,28 +203,39 @@ Each `-jN` / `--jN` flag overrides that joint's target; unspecified
 joints default to the **current** angle (read with `get_joint_states`
 immediately before the move), so `-j6 0.5` is a single-joint wiggle.
 
-Mode 1 has **no trajectory generation**: a single `set_servo_angle_j`
-call hands the target straight to the servo loop and the arm rushes
-to it as fast as the firmware joint maxvel (π rad/s, see probe
-findings) allows. The CLI caps the largest commanded delta to
-`--max_delta` (default 0.1 rad ≈ 5.7°) so a typo can't fling the
-arm; raise it deliberately for bigger one-shot moves. The production
-streaming loop bypasses this — every Kyber tick is far smaller than
-0.1 rad anyway.
+### `set_servo_angle_j` is a streaming setpoint, not a one-shot move
 
-`set_servo_angle_j` returns immediately, so the CLI polls
-`get_joint_states` until the pose lands within 5 mrad of target (or
-5 s elapses) before unpriming. Without this, `set_state(STOP)` would
-hard-stop a still-moving arm.
+**Verified empirically.** A single call to `set_servo_angle_j` only
+makes incremental progress toward the target — the firmware applies
+a per-tick step cap, so the servo loop advances by that step and
+then settles at an intermediate setpoint short of where you asked
+for. To actually reach the target you have to **resend the same
+target on every tick** of a streaming loop; the firmware composes
+the stream of setpoints into a continuous motion.
+
+This is exactly the contract `Lite6Driver.write_joint_positions` is
+built around — Kyber calls it every tick (~500 Hz) with tiny
+per-tick deltas. The CLI mirrors this by streaming the target at
+100 Hz inside `_stream_to_target` until the measured pose is within
+5 mrad (or 5 s elapses).
+
+Implication: **never call `set_servo_angle_j` once and expect the
+arm to land at the target.** If you're outside Kyber's loop and need
+a one-shot move, either stream the target until settled, or use
+mode 0 (`set_servo_angle`) which has built-in trajectory generation.
 
 ### Findings
 
+- `set_servo_angle_j` is a streaming setpoint (verified, 2026-04-26).
+- TODO: how many ticks does it actually take to settle for a 0.1 rad
+  delta at 100 Hz? (The CLI prints this when it returns -- log it.)
 - TODO: behavior when target exceeds joint range — error code vs.
   silent clamp vs. fault?
-- TODO: behavior when target == current (zero-distance move) — does
-  the settle loop see "already there" on the first poll?
-- TODO: how long does `set_servo_angle_j` take to return on a small
-  delta (matters for the 500 Hz streaming loop budget)?
+- TODO: per-call return latency — does `set_servo_angle_j` return
+  in <1 ms (lets us run the production 500 Hz loop comfortably) or
+  is it more like several ms? Run `lite6_cli stream` after a
+  `send_joint_positions` and watch what tick rate the streaming loop
+  actually achieves.
 
 ## Sending velocity commands (`lite6_cli send_joint_velocities`)
 

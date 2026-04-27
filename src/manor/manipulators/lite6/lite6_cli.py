@@ -60,18 +60,18 @@ _XARM_STATE_STOP = 4
 # scope-watching a fast motion.
 DEFAULT_STREAM_HZ = 20.0
 
-# Per-call cap on joint-target deltas for the one-shot servo-j
-# experiment. Mode 1 has no trajectory generation, so a big delta
-# executes at firmware maxvel; the cap keeps a typo from flinging
-# the arm. Override with ``--max_delta`` for deliberate larger moves.
-DEFAULT_MAX_JOINT_DELTA_RAD = 0.1
-
-# After ``set_servo_angle_j`` the call returns immediately; poll
-# ``get_joint_states`` until the pose lands within this tolerance,
-# or until ``_SETTLE_TIMEOUT_S`` elapses, before unpriming.
+# Mode 1 ``set_servo_angle_j`` is a *streaming* setpoint, not a
+# one-shot "go to" command -- the firmware applies a per-tick step
+# cap, so a single call only progresses the arm by that step before
+# the servo loop settles. To actually reach the target we resend the
+# same angles at this rate until the pose lands within
+# ``_SETTLE_TOLERANCE_RAD`` (or ``_SETTLE_TIMEOUT_S`` elapses). This
+# mirrors what ``Lite6Driver.write_joint_positions`` does inside
+# Kyber's tight loop in production.
+_STREAM_RATE_HZ = 100.0
+_STREAM_PERIOD_S = 1.0 / _STREAM_RATE_HZ
 _SETTLE_TOLERANCE_RAD = 5e-3
 _SETTLE_TIMEOUT_S = 5.0
-_SETTLE_POLL_INTERVAL_S = 0.02
 
 
 def _check(ret_code: int | tuple, op: str) -> None:
@@ -85,25 +85,48 @@ def _check(ret_code: int | tuple, op: str) -> None:
         raise RuntimeError(f"xarm SDK call {op!r} failed (code={code})")
 
 
+# After ``motion_enable(True)`` the brakes release and the servos
+# lock onto current encoder readings; this takes ~2 s of micro-motion
+# to settle (observed empirically). Sleep before issuing further
+# state changes so set_mode / set_state don't race the bring-up.
+_MOTION_ENABLE_SETTLE_S = 2.0
+
+
 def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     """
     Bring the arm into a state where reads + writes work. Sequence
     mirrors ``Lite6Driver.prime()`` so the standalone script and the
     production driver verify the same activation path:
 
-    1. ``clean_error()``      -- wipe any latched fault
-    2. ``motion_enable(True)`` -- turn motors on (audible click)
-    3. ``set_mode(<mode>)``   -- pick the control surface to use
-    4. ``set_state(0)``       -- READY; required before motion calls
+    1. ``clean_error()`` + ``clean_warn()`` -- wipe latched faults
+    2. ``motion_enable(True)``              -- turn motors on (audible click)
+    3. small settle sleep                    -- servos lock onto encoder pose
+    4. ``set_mode(<mode>)``                 -- pick the control surface to use
+    5. ``set_state(0)``                     -- READY; required before motion calls
+    6. assert ``error_code == 0`` and ``warn_code == 0``
 
-    Default ``mode`` is servo-position (1) so the existing stream
-    command keeps its old behaviour. Position-mode commands pass
-    mode=0; velocity-mode commands pass mode=4.
+    The post-prime assertion is load-bearing: ``motion_enable`` may
+    return success at the controller level while a *servo-level*
+    error is latched on an individual joint (e.g. ``servo_id=6,
+    code=23`` after a previous abrupt unprime). Without this check
+    we'd happily proceed and the next ``set_servo_angle_j`` would
+    fail with the unhelpful ``code=1`` (Not Ready).
+
+    Recovery for a sticky servo error is power-cycling the arm --
+    ``clean_error`` / ``clean_warn`` don't always clear them.
     """
     _check(arm.clean_error(), "clean_error")
+    _check(arm.clean_warn(), "clean_warn")
     _check(arm.motion_enable(enable=True), "motion_enable")
+    time.sleep(_MOTION_ENABLE_SETTLE_S)
     _check(arm.set_mode(mode=mode), f"set_mode({mode})")
     _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)")
+    if arm.error_code != 0 or arm.warn_code != 0:
+        raise RuntimeError(
+            f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} "
+            f"after prime. Servo-level errors can survive clean_error/clean_warn "
+            f"-- power-cycle the arm and retry."
+        )
 
 
 def unprime(arm: XArmAPI) -> None:
@@ -204,11 +227,7 @@ def probe(arm: XArmAPI) -> None:
         typer.echo(f"  {name:<28} = {_safe_get(arm, name)!r}")
 
 
-def send_joint_positions(
-    arm: XArmAPI,
-    targets: list[Optional[float]],
-    max_delta_rad: float,
-) -> None:
+def send_joint_positions(arm: XArmAPI, targets: list[Optional[float]]) -> None:
     """
     Move the arm to ``targets`` via mode 1 ``set_servo_angle_j`` --
     the same call ``Lite6Driver.write_joint_positions`` uses, so this
@@ -216,52 +235,45 @@ def send_joint_positions(
     in ``targets`` is replaced with the joint's current angle, so
     ``-j6 0.5`` wiggles joint 6 in isolation.
 
-    Mode 1 has no trajectory generation: a single call sends the
-    target straight to the servo loop and the arm rushes there as
-    fast as the firmware joint maxvel allows. ``max_delta_rad`` is
-    the cap on how big a per-call delta this script will accept --
-    the production driver streams tiny per-tick deltas and bypasses
-    this, but a one-shot CLI move with a 1 rad delta would be
-    aggressive. Keep this small (~0.1 rad) unless you've cleared the
-    workspace and know what you're doing.
-
-    ``set_servo_angle_j`` returns immediately, so we poll
-    ``get_joint_states`` afterwards until the pose lands within
-    ``_SETTLE_TOLERANCE_RAD`` (or ``_SETTLE_TIMEOUT_S`` elapses) to
-    avoid letting ``unprime`` hard-stop a moving arm.
+    ``set_servo_angle_j`` is a **streaming** setpoint, not a one-shot
+    "go to" command: the firmware applies a per-tick step cap, so a
+    single call only progresses the servo loop by that step before
+    settling. We therefore resend the target at ``_STREAM_RATE_HZ``
+    until the pose lands (or ``_SETTLE_TIMEOUT_S`` elapses), which
+    mirrors what Kyber does in production -- it streams every tick
+    with tiny per-tick deltas and the firmware composes them into a
+    continuous motion. Speed is firmware-bounded by ``joint_speed_limit``
+    (π rad/s) regardless of the requested delta.
     """
     current, _ = read_joint_state(arm)
     resolved = [c if t is None else t for t, c in zip(targets, current, strict=True)]
     delta = max(abs(r - c) for r, c in zip(resolved, current, strict=True))
     typer.echo(f"  current:   {[f'{v:+0.4f}' for v in current]}")
     typer.echo(f"  target:    {[f'{v:+0.4f}' for v in resolved]}")
-    typer.echo(f"  max delta: {delta:.4f} rad (cap {max_delta_rad:.4f})")
-    if delta > max_delta_rad:
-        raise RuntimeError(
-            f"requested move has max joint delta {delta:.4f} rad > "
-            f"--max_delta {max_delta_rad:.4f} rad; raise --max_delta if "
-            f"you want a bigger one-shot move (mode 1 has no trajectory "
-            f"generation, so this would execute at firmware maxvel)"
-        )
-    _check(arm.set_servo_angle_j(angles=resolved, is_radian=True), "set_servo_angle_j")
-    _wait_for_pose(arm, target=resolved)
+    typer.echo(f"  max delta: {delta:.4f} rad")
+    _stream_to_target(arm, resolved)
 
 
-def _wait_for_pose(arm: XArmAPI, target: list[float]) -> None:
+def _stream_to_target(arm: XArmAPI, target: list[float]) -> None:
     """
-    Block until ``arm.angles`` is within ``_SETTLE_TOLERANCE_RAD`` of
-    ``target`` on every joint, or ``_SETTLE_TIMEOUT_S`` elapses.
-    Mode 1 ``set_servo_angle_j`` doesn't expose a ``wait`` semantic;
-    this is the script's stand-in so unprime doesn't fight a moving arm.
+    Resend ``target`` to ``set_servo_angle_j`` at ``_STREAM_RATE_HZ``
+    until the measured pose is within ``_SETTLE_TOLERANCE_RAD`` of it,
+    or ``_SETTLE_TIMEOUT_S`` elapses. The firmware advances the servo
+    loop by its per-tick step cap on every call, so streaming is what
+    actually moves the arm; a single call would stop part-way.
     """
     deadline = time.monotonic() + _SETTLE_TIMEOUT_S
     target_arr = np.asarray(target, dtype=np.float64)
+    ticks = 0
     while time.monotonic() < deadline:
-        current, _ = read_joint_state(arm)
-        if np.max(np.abs(current - target_arr)) <= _SETTLE_TOLERANCE_RAD:
+        _check(arm.set_servo_angle_j(angles=target, is_radian=True), "set_servo_angle_j")
+        ticks += 1
+        current_arr, _ = read_joint_state(arm)
+        if np.max(np.abs(current_arr - target_arr)) <= _SETTLE_TOLERANCE_RAD:
+            typer.echo(f"  settled in {ticks} ticks ({ticks * _STREAM_PERIOD_S:.3f}s)")
             return
-        time.sleep(_SETTLE_POLL_INTERVAL_S)
-    typer.echo(f"  warning: pose did not settle within {_SETTLE_TIMEOUT_S:.1f}s")
+        time.sleep(_STREAM_PERIOD_S)
+    typer.echo(f"  warning: pose did not settle within {_SETTLE_TIMEOUT_S:.1f}s ({ticks} ticks sent)")
 
 
 def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: float) -> None:
@@ -393,17 +405,6 @@ def cmd_send_joint_positions(
     j4: Annotated[Optional[float], typer.Option("-j4", "--j4", help="Joint 4 target (rad). Default: current.")] = None,
     j5: Annotated[Optional[float], typer.Option("-j5", "--j5", help="Joint 5 target (rad). Default: current.")] = None,
     j6: Annotated[Optional[float], typer.Option("-j6", "--j6", help="Joint 6 target (rad). Default: current.")] = None,
-    max_delta: Annotated[
-        float,
-        typer.Option(
-            "--max_delta",
-            help=(
-                "Cap on the largest single-joint delta this command "
-                "will accept (rad). Mode 1 has no trajectory "
-                "generation, so big deltas execute at firmware maxvel."
-            ),
-        ),
-    ] = DEFAULT_MAX_JOINT_DELTA_RAD,
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
@@ -413,14 +414,13 @@ def cmd_send_joint_positions(
     specified on the command line stays at its current angle, so
     ``-j6 0.5`` wiggles joint 6 in isolation.
 
-    The largest commanded delta is capped to ``--max_delta``
-    (default 0.1 rad ≈ 5.7°) because mode 1 has no trajectory
-    generation -- a 1 rad delta would execute at firmware joint
-    maxvel. Override for deliberately larger one-shot moves.
-
-    After the call we poll the joints until the pose settles, since
-    ``set_servo_angle_j`` returns immediately and ``unprime`` would
-    otherwise hard-stop a still-moving arm.
+    ``set_servo_angle_j`` is a **streaming** setpoint, not a
+    one-shot "go to" call -- the firmware advances the servo loop
+    by a per-tick step cap on each call. The CLI therefore resends
+    the target at 100 Hz until the pose lands (or 5 s elapses),
+    matching how Kyber drives the arm in production. Motion speed
+    is firmware-bounded by ``joint_speed_limit`` (π rad/s) regardless
+    of the requested delta.
     """
     targets: list[Optional[float]] = [j1, j2, j3, j4, j5, j6]
     typer.echo(f"connecting to {ip}...")
@@ -429,7 +429,7 @@ def cmd_send_joint_positions(
         typer.echo("priming (mode 1, servo position)...")
         prime(arm, mode=_XARM_MODE_SERVO_POSITION)
         typer.echo("primed.")
-        send_joint_positions(arm, targets=targets, max_delta_rad=max_delta)
+        send_joint_positions(arm, targets=targets)
     finally:
         typer.echo("unpriming...")
         unprime(arm)
