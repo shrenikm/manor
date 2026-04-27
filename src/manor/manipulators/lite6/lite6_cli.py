@@ -7,14 +7,16 @@ Goal: characterise the SDK surface (return codes, timings, quirks)
 before wiring it into the aegis hardware backends. Findings get
 logged to ``xarm_api.md`` at the repo root as we go.
 
-Run from a shell on a workstation that can reach the arm's IP:
+Installed as the ``lite6_cli`` console script (see
+``pyproject.toml``); run from any shell on a workstation that can
+reach the arm:
 
-    python scripts/lite6_standalone.py stream-angles --ip 192.168.1.178
+    lite6_cli stream --ip 192.168.1.178
 
 ``-h`` works at every level:
 
-    python scripts/lite6_standalone.py -h
-    python scripts/lite6_standalone.py stream-angles -h
+    lite6_cli -h
+    lite6_cli stream -h
 """
 
 from __future__ import annotations
@@ -119,7 +121,7 @@ def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
-def stream_joint_angles(arm: XArmAPI, hz: float, duration_s: Optional[float]) -> None:
+def stream_joint_state(arm: XArmAPI, hz: float, duration_s: Optional[float]) -> None:
     """
     Print joint positions + velocities at ``hz`` Hz until either
     ``duration_s`` elapses (if given) or Ctrl-C interrupts.
@@ -152,8 +154,20 @@ app = typer.Typer(
 )
 
 
-@app.command("stream-angles")
-def cmd_stream_angles(
+@app.callback()
+def _main() -> None:
+    """
+    Top-level callback so typer treats this as a multi-command app
+    even when only one ``@app.command`` is declared. Without it,
+    typer hoists the lone command's args to the top level (e.g.
+    ``lite6_cli --ip ...`` instead of ``lite6_cli stream --ip
+    ...``), which would break invocations once a second experiment
+    lands.
+    """
+
+
+@app.command("stream")
+def cmd_stream(
     ip: Annotated[str, typer.Option("--ip", help="Lite6 robot IP address.")] = DEFAULT_IP,
     hz: Annotated[float, typer.Option("--hz", help="Print frequency in Hz.")] = DEFAULT_STREAM_HZ,
     duration: Annotated[
@@ -176,12 +190,18 @@ def cmd_stream_angles(
         typer.echo("priming...")
         prime(arm)
         typer.echo("primed.")
-        stream_joint_angles(arm, hz=hz, duration_s=duration)
+        stream_joint_state(arm, hz=hz, duration_s=duration)
     finally:
         typer.echo("unpriming...")
         unprime(arm)
         typer.echo("done.")
 
 
+# typer apps are click apps under the hood; expose the click
+# entry-point as ``cli`` so pyproject.toml's ``[project.scripts]``
+# can wire ``lite6_cli`` to it directly (mirrors aegis_cli's pattern).
+cli = typer.main.get_command(app)
+
+
 if __name__ == "__main__":
-    app()
+    cli()
