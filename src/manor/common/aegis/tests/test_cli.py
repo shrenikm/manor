@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from click.testing import CliRunner
@@ -59,6 +60,11 @@ class TestAegisCli:
         assert result.exit_code != 0
         assert "is not running" in result.output
 
+    def test_kill_no_arg_with_nothing_running_is_noop(self, sandboxed_pid_dir: Path) -> None:
+        result = _run_cli(["kill"])
+        assert result.exit_code == 0
+        assert "nothing running" in result.output
+
     def test_run_refuses_hardware_block_in_sim_mode(self, sandboxed_pid_dir: Path) -> None:
         # The bundled config is sim mode; kylos is hardware-only.
         result = _run_cli(["run", "kylos"])
@@ -75,6 +81,46 @@ class TestAegisCli:
         path = cli_module._pid_file_path(AegisBlock.METIS)
         assert path.parent == sandboxed_pid_dir
         assert path.name == "aegis_metis.pid"
+
+    def test_run_no_arg_spawns_every_applicable_block(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        spawned: list[str] = []
+
+        def fake_popen(args: list[str], **_kwargs: object) -> mock.MagicMock:
+            # args[2] is the ``-m <module>`` target.
+            spawned.append(args[2])
+            proc = mock.MagicMock()
+            proc.pid = 90000 + len(spawned)
+            return proc
+
+        monkeypatch.setattr(cli_module.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(cli_module, "_RUN_SETTLE_S", 0.0)
+
+        result = _run_cli(["run"])
+        assert result.exit_code == 0, result.output
+        # Sim mode: every applicable block (metis, gylos) gets spawned.
+        assert "manor.common.aegis.run.run_metis" in spawned
+        assert "manor.common.aegis.run.run_gylos" in spawned
+        assert "started metis" in result.output
+        assert "started gylos" in result.output
+
+    def test_run_no_arg_with_all_blocks_running_is_noop(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Pretend every applicable block already has a live PID.
+        monkeypatch.setattr(cli_module, "_process_alive", lambda _pid: True)
+        for block in (AegisBlock.METIS, AegisBlock.GYLOS):
+            cli_module._write_pid(block, 12345)
+
+        result = _run_cli(["run"])
+        assert result.exit_code == 0
+        assert "already running" in result.output
+        assert "nothing to start" in result.output
 
 
 if __name__ == "__main__":

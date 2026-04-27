@@ -194,13 +194,14 @@ def _format_block_state(name: str, pid: Optional[int]) -> str:
     return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
 
 
-def _kill_all_running_blocks() -> None:
+def _kill_all_running_blocks() -> list[AegisBlock]:
     """
     SIGTERM every block whose PID file points at a live process, wait
-    for each to exit, and clear its PID file. Used as the REPL shutdown
-    hook so children don't outlive the supervisor. Output mirrors
-    ``kill_block`` so the REPL exit log reads like a series of normal
-    kills.
+    for each to exit, and clear its PID file. Returns the list of
+    blocks that were actually signalled. Used both as the REPL
+    shutdown hook (so children don't outlive the supervisor) and as
+    the no-arg ``kill`` implementation. Output mirrors per-block
+    ``kill_block`` so the log reads like a series of normal kills.
     """
     pending: list[tuple[AegisBlock, int]] = []
     for block in AegisBlock:
@@ -218,6 +219,7 @@ def _kill_all_running_blocks() -> None:
         _wait_for_exit(pid)
         _clear_pid(block)
         _echo_warn(f"stopped {block.value} (pid {pid})")
+    return [b for b, _ in pending]
 
 
 def _load_config(config_path: Path) -> tuple[AegisConfig, dict]:
@@ -297,16 +299,38 @@ def _require_state() -> _CliState:
 
 @app.command("run")
 def run_block(
-    block: Annotated[AegisBlock, typer.Argument(help="Which aegis block to start.")],
+    block: Annotated[
+        Optional[AegisBlock],
+        typer.Argument(help="Which aegis block to start. Omit to start every block applicable to this mode."),
+    ] = None,
 ) -> None:
     """
-    Spawn ``block`` as a subprocess. The block is given the parsed
-    AegisConfig over stdin as JSON. Refuses to start a block that
-    doesn't apply to the configured mode, or one that's already
-    running (per the PID file).
+    Spawn ``block`` as a subprocess. With no argument, spawns every
+    block applicable to the current mode that isn't already running.
+    Each child is given the parsed AegisConfig over stdin as JSON.
+    Refuses to start a block that doesn't apply to the configured
+    mode, or one that's already running (per the PID file).
     """
     state = _require_state()
     allowed = _MODE_BLOCKS[state.config.mode]
+
+    if block is None:
+        # No-arg path: start every applicable block that isn't
+        # already running. Already-running blocks are warnings, not
+        # errors -- in batch mode a duplicate ``run`` shouldn't abort
+        # the rest of the start sequence.
+        started = 0
+        for b in sorted(allowed, key=lambda x: x.value):
+            existing = _read_pid(b)
+            if existing is not None:
+                _echo_warn(f"{b.value} already running (pid {existing})")
+                continue
+            _spawn_block(state, b)
+            started += 1
+        if started == 0:
+            _echo_warn("nothing to start")
+        return
+
     if block not in allowed:
         _echo_error(
             f"refusing to run {block.value!r} in mode {state.config.mode.value!r}; "
@@ -318,6 +342,17 @@ def run_block(
         _echo_error(f"{block.value} already running (pid {existing})")
         raise typer.Exit(code=1)
 
+    _spawn_block(state, block)
+
+
+def _spawn_block(state: _CliState, block: AegisBlock) -> None:
+    """
+    Spawn one block as a subprocess, write its PID file, and pause
+    briefly so the child's startup output (Drake's Meshcat URL
+    banner, etc.) lands on the TTY before control returns to the
+    caller. Caller is responsible for verifying the block is
+    applicable to the current mode and not already running.
+    """
     payload = json.dumps(state.raw_config).encode("utf-8")
     proc = subprocess.Popen(
         [sys.executable, "-m", _BLOCK_RUN_MODULE[block]],
@@ -333,21 +368,30 @@ def run_block(
     proc.stdin.close()
     _write_pid(block, proc.pid)
     _echo_success(f"started {block.value} (pid {proc.pid})")
-    # Pause briefly so the child's startup output (notably Drake's
-    # Meshcat URL banner) lands on the TTY before control returns to
-    # the REPL's prompt loop. Same race as ``kill_block``'s wait, in
-    # the opposite direction.
+    # Same TTY race as ``kill_block``'s wait, in the opposite
+    # direction: let the child print its startup output before the
+    # REPL redraws its prompt.
     time.sleep(_RUN_SETTLE_S)
 
 
 @app.command("kill")
 def kill_block(
-    block: Annotated[AegisBlock, typer.Argument(help="Which aegis block to stop.")],
+    block: Annotated[
+        Optional[AegisBlock],
+        typer.Argument(help="Which aegis block to stop. Omit to stop every running block."),
+    ] = None,
 ) -> None:
     """
-    Send SIGTERM to ``block``'s subprocess. The child has its own
-    SIGTERM handler that exits cleanly; this command just signals.
+    Send SIGTERM to ``block``'s subprocess. With no argument, signals
+    every block currently running and waits for each to exit. The
+    child has its own SIGTERM handler that exits cleanly; this
+    command just signals + waits.
     """
+    if block is None:
+        killed = _kill_all_running_blocks()
+        if not killed:
+            _echo_warn("nothing running")
+        return
     pid = _read_pid(block)
     if pid is None:
         _echo_error(f"{block.value} is not running")
@@ -457,8 +501,8 @@ def _build_completer() -> WordCompleter:
 
 def _print_repl_help() -> None:
     typer.echo("commands:")
-    typer.echo("  run <block>      spawn the named block as a subprocess")
-    typer.echo("  kill <block>     SIGTERM a running block")
+    typer.echo("  run [block]      spawn a block as a subprocess (no arg = all applicable)")
+    typer.echo("  kill [block]     SIGTERM a running block (no arg = all running)")
     typer.echo("  status [block]   report block state (no arg = all blocks)")
     typer.echo("  help             show this message")
     typer.echo("  exit | quit | q  leave the REPL (running blocks are stopped)")
