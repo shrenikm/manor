@@ -67,6 +67,23 @@ _PID_FILE_PREFIX = "aegis_"
 _PID_FILE_SUFFIX = ".pid"
 
 
+# After SIGTERM, wait this long for the child to actually exit before
+# returning. Without this, the child's own ``stopping`` print races
+# against the REPL's next prompt redraw and lands on top of it.
+# Generous because gylos has to tear down Drake Meshcat (a C++ server
+# thread) before the process truly exits; if the next REPL invocation
+# is racing it, the meshcat listening socket may not yet be released.
+_KILL_WAIT_TIMEOUT_S = 5.0
+_KILL_WAIT_POLL_INTERVAL_S = 0.02
+
+# After spawning a block, sleep this long before returning so the
+# child's startup output (Drake's "Meshcat listening at ..." banner,
+# in particular) lands on the TTY before the REPL redraws its prompt.
+# Without this, the child's stdout writes overlay the new prompt and
+# the cursor strands until the user hits Enter.
+_RUN_SETTLE_S = 1.5
+
+
 class AegisBlock(StrEnum):
     """
     Named blocks the supervisor can spawn. ``metis`` and ``gylos``
@@ -147,23 +164,6 @@ def _process_alive(pid: int) -> bool:
         # Process exists but isn't ours to signal; still counts as alive.
         return True
     return True
-
-
-# After SIGTERM, wait this long for the child to actually exit before
-# returning. Without this, the child's own ``stopping`` print races
-# against the REPL's next prompt redraw and lands on top of it.
-# Generous because gylos has to tear down Drake Meshcat (a C++ server
-# thread) before the process truly exits; if the next REPL invocation
-# is racing it, the meshcat listening socket may not yet be released.
-_KILL_WAIT_TIMEOUT_S = 5.0
-_KILL_WAIT_POLL_INTERVAL_S = 0.02
-
-# After spawning a block, sleep this long before returning so the
-# child's startup output (Drake's "Meshcat listening at ..." banner,
-# in particular) lands on the TTY before the REPL redraws its prompt.
-# Without this, the child's stdout writes overlay the new prompt and
-# the cursor strands until the user hits Enter.
-_RUN_SETTLE_S = 1.5
 
 
 def _wait_for_exit(pid: int, timeout_s: float = _KILL_WAIT_TIMEOUT_S) -> None:
