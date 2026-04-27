@@ -58,17 +58,27 @@ Findings:
 - `clean_error()` clears **controller**-level errors. It does **not**
   always clear servo-level errors. `clean_warn()` doesn't fix it
   either.
-- The bulletproof recovery is **power-cycling the arm**. After power
-  cycle, `lite6_cli probe` reports `error_code=0`, `warn_code=0`,
-  and prime works again.
+- A latched servo error manifests as `arm.error_code=16` at the
+  controller level (verified after the in-script post-prime check
+  caught it the second run).
+- **Soft recovery sometimes works**: cycling `motion_enable(False)`
+  → wait → `motion_enable(True)` → re-run prime sequence. This
+  effectively re-energises the servos from cold and often clears
+  latched errors that `clean_*` can't.
+- **The bulletproof recovery is power-cycling the controller**.
+  After a real power cycle, `lite6_cli probe` reports `error_code=0`,
+  `warn_code=0`, and prime works again. Required when soft recovery
+  also fails.
 - The `servo_error_code, servo_id=N, status=..., code=...` line is
   printed directly by the SDK during `motion_enable(True)`; we can't
   easily suppress it.
 
-`prime()` now reads `arm.error_code` and `arm.warn_code` after the
-sequence and raises with a power-cycle hint if either is non-zero,
-so this failure mode surfaces during prime instead of as a cryptic
-`code=1` on the next motion command.
+`prime()` now does the standard sequence, checks
+`arm.error_code` / `arm.warn_code`, attempts a soft recovery
+(`_try_soft_recover`) on failure, and re-checks. Only raises with
+a power-cycle hint if both attempts left errors latched -- so this
+failure mode surfaces during prime instead of as a cryptic `code=1`
+on the next motion command.
 
 #### Likely root cause of servo error code 23
 
@@ -81,6 +91,35 @@ errors.
 
 (The `code=23` value itself isn't documented in our notes yet --
 add the lookup if anyone hits it again.)
+
+### `code=1` ("Not Ready") on the first SDK call
+
+If a fresh connection's first SDK call (e.g. `clean_warn`) returns
+`code=1`, the controller is refusing all commands. We can't recover
+from this in software -- once the controller is in this state every
+command we send (including `clean_*` and `motion_enable(False)`)
+gets bounced with `code=1`. Likely causes:
+
+1. **E-stop engaged.** Physical button on the controller or teach
+   pendant is depressed. Release before retrying.
+2. **Manual-drag / teach mode active.** Whatever puts the arm in
+   manual-drag also makes it ignore programmatic commands.
+3. **Latched servo error wedged the state machine.** Even with
+   `clean_error` / `clean_warn` available, the controller-level
+   state machine can refuse to accept them.
+
+Resolution path:
+
+1. Release the e-stop if engaged.
+2. Power-cycle the controller. **Wait 10 s with power off** before
+   turning back on -- capacitors need to fully discharge or the
+   same servo state can re-latch.
+3. After boot, run `lite6_cli probe` first to verify clean state
+   (`error_code=0`, `warn_code=0`) before trying any motion command.
+
+The `_check` helper in `lite6_cli.py` now appends this guidance to
+its `RuntimeError` when it sees `code=1`, so future failures surface
+with the actionable steps in the message itself.
 
 
 Sequence used by both `Lite6Driver.prime()` and `lite6_standalone.prime`:
@@ -203,32 +242,77 @@ Each `-jN` / `--jN` flag overrides that joint's target; unspecified
 joints default to the **current** angle (read with `get_joint_states`
 immediately before the move), so `-j6 0.5` is a single-joint wiggle.
 
-### `set_servo_angle_j` is a streaming setpoint, not a one-shot move
+### `set_servo_angle_j` semantics — what's actually true
 
-**Verified empirically.** A single call to `set_servo_angle_j` only
-makes incremental progress toward the target — the firmware applies
-a per-tick step cap, so the servo loop advances by that step and
-then settles at an intermediate setpoint short of where you asked
-for. To actually reach the target you have to **resend the same
-target on every tick** of a streaming loop; the firmware composes
-the stream of setpoints into a continuous motion.
+Read carefully because the early experiments led to a couple of
+wrong inferences that have since been corrected.
 
-This is exactly the contract `Lite6Driver.write_joint_positions` is
-built around — Kyber calls it every tick (~500 Hz) with tiny
-per-tick deltas. The CLI mirrors this by streaming the target at
-100 Hz inside `_stream_to_target` until the measured pose is within
-5 mrad (or 5 s elapses).
+**SDK-side (Python wrapper, verified by reading source):**
 
-Implication: **never call `set_servo_angle_j` once and expect the
-arm to land at the target.** If you're outside Kyber's loop and need
-a one-shot move, either stream the target until settled, or use
-mode 0 (`set_servo_angle`) which has built-in trajectory generation.
+- `xarm/wrapper/xarm_api.py` and `xarm/x3/xarm.py` show
+  `set_servo_angle_j` does **no per-call delta capping** in Python.
+  It validates joint range (returns `OUT_OF_RANGE` if violated),
+  converts to radians, and forwards to the controller's binary
+  `move_servoj` command.
+- The wrapper's own docstring says: *"Set the servo angle, **execute
+  only the last instruction**, need to be set to servo motion mode."*
+  Translation: re-sending the same target is benign — the firmware
+  treats every call as a fresh target replace.
+- `Lite6Driver.write_joint_positions` (production driver) does not
+  interpolate. It just forwards `set_servo_angle_j(angles=..., is_radian=True)`.
+  Kyber may send a far-away EEF-IK joint solution in a single tick,
+  which means the firmware itself must be capable of accepting
+  far-away targets and servoing toward them under the joint speed
+  bound — there is no requirement to interpolate before sending.
+
+**Firmware-side (opaque, observed behaviour):**
+
+- A single `set_servo_angle_j` call does **not** instantly move the
+  arm to the target. The arm progresses toward it over time, bounded
+  by `joint_speed_limit` (`[0.001, π]` rad/s, see probe).
+- Whether the firmware also applies a per-tick step cap on top of
+  the velocity bound is **not directly observable** from SDK source.
+  Observed motion is consistent with either "velocity-limited servo
+  chasing a latched target" or "per-tick step + retarget every call".
+- TODO: settle this by sending one `set_servo_angle_j` call (no
+  re-send) and watching whether the arm reaches the target or stops
+  short. Don't run this until the hardware is recovered.
+
+**Why "code=1 on the second streaming call" doesn't mean "target rejected":**
+
+`xarm/x3/base.py:_check_code` re-maps the firmware return on move
+commands:
+
+```python
+if is_move_cmd:
+    if code in [0, WAR_CODE]:
+        if self.arm_cmd.state_is_ready:
+            return 0
+        else:
+            return STATE_NOT_READY  # value: 1
+    ...
+```
+
+So even if the underlying TCP `move_servoj` returns success, the SDK
+overrides it to `code=1` ("Not Ready") whenever
+`arm_cmd.state_is_ready` is false at that moment. A latched servo
+fault triggered *between* two streaming calls (e.g. the first call
+moved the arm into a self-collision) flips `state_is_ready` to
+false; the next call then surfaces as `code=1` even though nothing
+about the target itself was wrong.
+
+This invalidates the earlier theory that "spamming the same far
+target causes the firmware to reject subsequent calls" — the
+rejection is correlated with a fault, not with the streaming pattern.
 
 ### Findings
 
-- `set_servo_angle_j` is a streaming setpoint (verified, 2026-04-26).
-- TODO: how many ticks does it actually take to settle for a 0.1 rad
-  delta at 100 Hz? (The CLI prints this when it returns -- log it.)
+- `set_servo_angle_j` accepts far-away targets without per-call
+  interpolation on the SDK side (verified by reading source,
+  2026-04-26).
+- A `code=1` on a move command means "state not ready right now",
+  not "this target is invalid". Always check `arm.error_code` /
+  `arm.warn_code` after such a failure to find the real cause.
 - TODO: behavior when target exceeds joint range — error code vs.
   silent clamp vs. fault?
 - TODO: per-call return latency — does `set_servo_angle_j` return
@@ -236,6 +320,37 @@ mode 0 (`set_servo_angle`) which has built-in trajectory generation.
   is it more like several ms? Run `lite6_cli stream` after a
   `send_joint_positions` and watch what tick rate the streaming loop
   actually achieves.
+
+### Self-collision: firmware does NOT prevent it (incident, 2026-04-26)
+
+While experimenting with `send_joint_positions -j6 0` to swing joint
+6 back through its range during streaming bring-up, the arm
+**self-collided**. The first call appeared to begin the motion;
+subsequent calls returned `code=1`. After investigation
+(see "Why 'code=1' doesn't mean 'target rejected'" above) the
+likely sequence was:
+
+1. The first `set_servo_angle_j` call accepted the target.
+2. The servo loop drove joint 6 toward the new pose along a path
+   that intersected another link.
+3. Force-collision detection (`collision_sensitivity=3`, see probe)
+   tripped a fault, latching servo errors and flipping
+   `state_is_ready` → false.
+4. The streaming loop's next call surfaced as `code=1`.
+
+Confirms the answer to the earlier question "does the robot do
+self-collision checks internally?" — **no, not geometric
+self-collision**. The firmware has *force*-collision detection
+(detects unexpected torque on a joint) but no geometric model of
+the arm to refuse a path before motion starts. Geometric
+self-collision must be enforced **upstream** of the driver
+(planner / Kyber / IK constraint), as also noted in the probe
+implications above.
+
+Recovery from this state required power-cycling the controller
+(the latched servo error survived `clean_error` and soft recovery,
+matching the "servo-level errors can survive `clean_error()`"
+section above).
 
 ## Sending velocity commands (`lite6_cli send_joint_velocities`)
 

@@ -60,29 +60,65 @@ _XARM_STATE_STOP = 4
 # scope-watching a fast motion.
 DEFAULT_STREAM_HZ = 20.0
 
-# Mode 1 ``set_servo_angle_j`` is a *streaming* setpoint, not a
-# one-shot "go to" command -- the firmware applies a per-tick step
-# cap, so a single call only progresses the arm by that step before
-# the servo loop settles. To actually reach the target we resend the
-# same angles at this rate until the pose lands within
-# ``_SETTLE_TOLERANCE_RAD`` (or ``_SETTLE_TIMEOUT_S`` elapses). This
-# mirrors what ``Lite6Driver.write_joint_positions`` does inside
-# Kyber's tight loop in production.
+# Resend the target on each tick of ``_stream_to_target`` at this
+# rate. The wrapper docstring for ``set_servo_angle_j`` says "execute
+# only the last instruction", so re-sending the same target is benign
+# -- the firmware servoes toward it bounded by ``joint_speed_limit``
+# (π rad/s, see probe). Production Kyber drives this same call at
+# ~500 Hz; 100 Hz is plenty for a one-shot CLI move.
 _STREAM_RATE_HZ = 100.0
 _STREAM_PERIOD_S = 1.0 / _STREAM_RATE_HZ
+
+# After streaming all waypoints, poll for measured-pose convergence
+# until either tolerance is met or this timeout elapses. ``arm.angles``
+# updates at ~5 Hz from the SDK heartbeat (verified empirically), so
+# observations stutter; tolerance + timeout still works because the
+# heartbeat will eventually report the settled position.
 _SETTLE_TOLERANCE_RAD = 5e-3
 _SETTLE_TIMEOUT_S = 5.0
 
 
-def _check(ret_code: int | tuple, op: str) -> None:
+# Hint text appended to the ``_check`` error when the SDK returns
+# specific known codes. Keep these short -- the user's already
+# looking at a traceback; we want the actionable suggestion in the
+# message itself, not a wall of explanation.
+_CODE_HINTS: dict[int, str] = {
+    1: (
+        "code=1 ('Not Ready') means the arm is refusing commands. If "
+        "error_code/warn_code above are non-zero, a fault latched "
+        "(force-collision, servo error, etc.) -- check the motion path "
+        "and try clean_error + soft motion_enable cycle. If both are "
+        "zero, the controller itself is wedged: check e-stop / drag "
+        "mode, then power-cycle (off, wait 10 s, on)."
+    ),
+}
+
+
+def _check(ret_code: int | tuple, op: str, arm: XArmAPI | None = None) -> None:
     """
     Raise a RuntimeError if an xarm SDK call returned a non-zero
     status code. Some calls return a plain int, others return a
-    tuple whose first element is the code; handle both.
+    tuple whose first element is the code; handle both. Known codes
+    get an actionable hint appended (see ``_CODE_HINTS``).
+
+    When ``arm`` is provided, ``error_code`` / ``warn_code`` are
+    appended to the message. This is essential for move commands:
+    the SDK's ``_check_code`` rewrites the firmware return to ``1``
+    (Not Ready) any time ``state_is_ready`` is false at the moment
+    of the call, which can happen because a fault latched between
+    streaming ticks (e.g. a force-collision tripping mid-motion).
+    Without ``error_code`` / ``warn_code`` the real cause is hidden
+    behind that opaque ``code=1``.
     """
     code = ret_code[0] if isinstance(ret_code, tuple) else ret_code
-    if code != 0:
-        raise RuntimeError(f"xarm SDK call {op!r} failed (code={code})")
+    if code == 0:
+        return
+    msg = f"xarm SDK call {op!r} failed (code={code})"
+    if arm is not None:
+        msg = f"{msg}, error_code={arm.error_code}, warn_code={arm.warn_code}"
+    if hint := _CODE_HINTS.get(code):
+        msg = f"{msg}. {hint}"
+    raise RuntimeError(msg)
 
 
 # After ``motion_enable(True)`` the brakes release and the servos
@@ -91,6 +127,11 @@ def _check(ret_code: int | tuple, op: str) -> None:
 # state changes so set_mode / set_state don't race the bring-up.
 _MOTION_ENABLE_SETTLE_S = 2.0
 
+# How long to leave the motors disabled during soft recovery before
+# re-enabling. Long enough that the servos fully de-energise so the
+# next motion_enable starts from a known-clean state.
+_SOFT_RECOVERY_DISABLE_S = 1.0
+
 
 def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     """
@@ -98,35 +139,76 @@ def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     mirrors ``Lite6Driver.prime()`` so the standalone script and the
     production driver verify the same activation path:
 
-    1. ``clean_error()`` + ``clean_warn()`` -- wipe latched faults
-    2. ``motion_enable(True)``              -- turn motors on (audible click)
-    3. small settle sleep                    -- servos lock onto encoder pose
-    4. ``set_mode(<mode>)``                 -- pick the control surface to use
-    5. ``set_state(0)``                     -- READY; required before motion calls
+    1. ``clean_warn()`` + ``clean_error()``  -- wipe latched faults
+    2. ``motion_enable(True)``               -- turn motors on (audible click)
+    3. ``_MOTION_ENABLE_SETTLE_S`` sleep     -- servos lock onto encoder pose
+    4. ``set_mode(<mode>)``                  -- pick the control surface to use
+    5. ``set_state(0)``                      -- READY; required before motion calls
     6. assert ``error_code == 0`` and ``warn_code == 0``
 
-    The post-prime assertion is load-bearing: ``motion_enable`` may
-    return success at the controller level while a *servo-level*
-    error is latched on an individual joint (e.g. ``servo_id=6,
-    code=23`` after a previous abrupt unprime). Without this check
-    we'd happily proceed and the next ``set_servo_angle_j`` would
-    fail with the unhelpful ``code=1`` (Not Ready).
+    Step 6 is load-bearing: ``motion_enable`` may return success at
+    the controller level while a *servo-level* error is latched on
+    an individual joint (e.g. ``servo_id=6, code=23`` after a
+    previous abrupt unprime). Without this check we'd happily
+    proceed and the next ``set_servo_angle_j`` would fail with the
+    unhelpful ``code=1`` (Not Ready).
 
-    Recovery for a sticky servo error is power-cycling the arm --
-    ``clean_error`` / ``clean_warn`` don't always clear them.
+    If step 6 trips, we attempt a "soft power cycle"
+    (``_try_soft_recover``) before giving up -- toggling
+    ``motion_enable`` off-then-on clears most stubborn servo errors
+    without needing a physical controller power cycle. Re-check
+    afterwards; raise with a power-cycle hint only if it's still
+    latched.
     """
-    _check(arm.clean_error(), "clean_error")
-    _check(arm.clean_warn(), "clean_warn")
-    _check(arm.motion_enable(enable=True), "motion_enable")
-    time.sleep(_MOTION_ENABLE_SETTLE_S)
-    _check(arm.set_mode(mode=mode), f"set_mode({mode})")
-    _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)")
+    _run_prime_sequence(arm, mode=mode)
+    if arm.error_code != 0 or arm.warn_code != 0:
+        typer.echo(
+            f"  prime caught error_code={arm.error_code}, warn_code={arm.warn_code}; "
+            f"attempting soft recovery (motion_enable off/on cycle)..."
+        )
+        _try_soft_recover(arm, mode=mode)
     if arm.error_code != 0 or arm.warn_code != 0:
         raise RuntimeError(
             f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} "
-            f"after prime. Servo-level errors can survive clean_error/clean_warn "
-            f"-- power-cycle the arm and retry."
+            f"after prime + soft recovery. Servo-level errors can survive both "
+            f"clean_error/clean_warn and motion_enable cycling -- power-cycle "
+            f"the controller (turn it off, wait a few seconds, turn back on) "
+            f"and retry."
         )
+
+
+def _run_prime_sequence(arm: XArmAPI, mode: int) -> None:
+    """
+    The five-step prime call sequence, factored out so soft recovery
+    can replay it after a motion_enable toggle. Each step is checked
+    via ``_check``, so a controller-level failure surfaces immediately;
+    servo-level latched errors slip past these returns and only show
+    up via ``arm.error_code`` afterward.
+    """
+    _check(arm.clean_warn(), "clean_warn", arm=arm)
+    _check(arm.clean_error(), "clean_error", arm=arm)
+    _check(arm.motion_enable(enable=True), "motion_enable", arm=arm)
+    time.sleep(_MOTION_ENABLE_SETTLE_S)
+    _check(arm.set_mode(mode=mode), f"set_mode({mode})", arm=arm)
+    _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)", arm=arm)
+
+
+def _try_soft_recover(arm: XArmAPI, mode: int) -> None:
+    """
+    Re-cycle motion_enable off-then-on to clear servo-level errors
+    that survive ``clean_error`` / ``clean_warn``. Best-effort -- we
+    don't ``_check`` the intermediate calls because they may
+    legitimately fail mid-recovery; the post-recovery
+    ``arm.error_code`` read in ``prime`` is what decides whether
+    recovery succeeded.
+
+    Not bulletproof: if a servo really won't release its latched
+    error, only physically power-cycling the controller will clear
+    it.
+    """
+    arm.motion_enable(enable=False)
+    time.sleep(_SOFT_RECOVERY_DISABLE_S)
+    _run_prime_sequence(arm, mode=mode)
 
 
 def unprime(arm: XArmAPI) -> None:
@@ -261,16 +343,33 @@ def _stream_to_target(arm: XArmAPI, target: list[float]) -> None:
     or ``_SETTLE_TIMEOUT_S`` elapses. The firmware advances the servo
     loop by its per-tick step cap on every call, so streaming is what
     actually moves the arm; a single call would stop part-way.
+
+    Reads the *measured* joint state via ``arm.angles`` (the SDK's
+    cached value updated from heartbeat reports), not via
+    ``get_joint_states``. Earlier we suspected ``get_joint_states``
+    of returning the commanded setpoint rather than the measured
+    pose immediately after ``set_servo_angle_j`` -- using ``angles``
+    here side-steps that ambiguity since it's populated by the
+    controller's continuous heartbeat regardless of what command we
+    just sent.
     """
     deadline = time.monotonic() + _SETTLE_TIMEOUT_S
     target_arr = np.asarray(target, dtype=np.float64)
     ticks = 0
+    # Streaming runs at 100 Hz; printing every tick is too chatty.
+    # Surface progress every 10th tick (~10 Hz) -- enough to see motion
+    # in real time without 500+ lines per move.
+    print_every = 10
     while time.monotonic() < deadline:
-        _check(arm.set_servo_angle_j(angles=target, is_radian=True), "set_servo_angle_j")
+        _check(arm.set_servo_angle_j(angles=target, is_radian=True), "set_servo_angle_j", arm=arm)
         ticks += 1
-        current_arr, _ = read_joint_state(arm)
-        if np.max(np.abs(current_arr - target_arr)) <= _SETTLE_TOLERANCE_RAD:
-            typer.echo(f"  settled in {ticks} ticks ({ticks * _STREAM_PERIOD_S:.3f}s)")
+        measured = np.asarray(arm.angles, dtype=np.float64)[:LITE6_DOF]
+        diff = np.abs(measured - target_arr)
+        max_diff = float(np.max(diff))
+        if ticks % print_every == 0:
+            typer.echo(f"    tick {ticks:>3}: max_diff={max_diff:.4f} rad")
+        if max_diff <= _SETTLE_TOLERANCE_RAD:
+            typer.echo(f"  settled in {ticks} ticks ({ticks * _STREAM_PERIOD_S:.3f}s, max_diff={max_diff:.4f})")
             return
         time.sleep(_STREAM_PERIOD_S)
     typer.echo(f"  warning: pose did not settle within {_SETTLE_TIMEOUT_S:.1f}s ({ticks} ticks sent)")
@@ -288,12 +387,14 @@ def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: flo
         _check(
             arm.vc_set_joint_velocity(speeds=velocities, is_radian=True, duration=0),
             "vc_set_joint_velocity",
+            arm=arm,
         )
         time.sleep(duration_s)
     finally:
         _check(
             arm.vc_set_joint_velocity(speeds=[0.0] * LITE6_DOF, is_radian=True, duration=0),
             "vc_set_joint_velocity(zero)",
+            arm=arm,
         )
 
 
