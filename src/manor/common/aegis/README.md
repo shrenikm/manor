@@ -433,9 +433,11 @@ Commands:
 
 `run` / `repl` flags:
 
-- `-c PATH`, `--config PATH` — aegis YAML to load. Defaults to
-  `configs/aegis/default_ac.yaml` (resolved from the manor repo root).
-  Aegis configs follow the `*_ac.yaml` naming convention.
+- `-c FILE`, `--config FILE` — aegis YAML to load. Bare filenames
+  resolve relative to `configs/aegis/` (so `-c foo_ac.yaml` is the
+  typical form); absolute paths are honoured as-is. Defaults to
+  `default_ac.yaml`. Aegis configs follow the `*_ac.yaml` naming
+  convention.
 - `-m MODE`, `--mode MODE` — override the YAML's `mode` field
   (`sim` or `hardware`) without editing the file.
 

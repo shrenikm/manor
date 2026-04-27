@@ -26,6 +26,20 @@ def _bundled_config_path() -> Path:
     return Path(repo_root) / "configs" / "aegis" / "default_ac.yaml"
 
 
+class _FakeStdin:
+    """
+    Minimal stand-in for the Popen child's stdin that ``_spawn_block``
+    writes the JSON config payload into. Real ``Popen`` returns a
+    ``BufferedWriter``; tests just need the two methods we touch.
+    """
+
+    def write(self, _data: bytes) -> int:
+        return 0
+
+    def close(self) -> None:
+        return None
+
+
 @pytest.fixture
 def sandboxed_pid_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
@@ -190,6 +204,34 @@ class TestAegisCli:
         runner = CliRunner()
         result = runner.invoke(cli, ["status", "--mode", "hardware"])
         assert result.exit_code != 0
+
+    def test_config_bare_filename_resolves_under_configs_dir(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Bare filename should be looked up in configs/aegis/. The
+        # bundled default lives there, so passing just the filename
+        # is a working invocation.
+        monkeypatch.setattr(cli_module, "_RUN_SETTLE_S", 0.0)
+        monkeypatch.setattr(
+            cli_module.subprocess,
+            "Popen",
+            lambda *_a, **_k: type("P", (), {"pid": 70001, "stdin": _FakeStdin()})(),
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "metis", "-c", "default_ac.yaml"])
+        assert result.exit_code == 0, result.output
+        assert "started metis" in result.output
+
+    def test_config_missing_filename_errors(self, sandboxed_pid_dir: Path) -> None:
+        # Non-existent filename under configs/aegis/ should fail fast
+        # rather than silently fall back to the default. This is the
+        # case that motivated the resolution rule.
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "metis", "-c", "does_not_exist_ac.yaml"])
+        assert result.exit_code != 0
+        assert "config file not found" in result.output
 
 
 if __name__ == "__main__":

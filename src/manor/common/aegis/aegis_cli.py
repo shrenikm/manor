@@ -21,10 +21,11 @@ so ``status`` from a fresh shell still works after the REPL exits.
 
 Configuration is the project-bundled YAML
 (``configs/aegis/default_ac.yaml``). ``run`` and ``repl`` accept
-``--config`` / ``-c`` to load a different aegis config and
-``--mode`` / ``-m`` to override the YAML's ``mode`` field at the
-command line. ``kill`` and ``status`` operate purely on the PID
-files, so they don't take config or mode flags.
+``--config`` / ``-c`` to load a different aegis config (bare
+filenames resolve under ``configs/aegis/``; absolute paths are
+honoured as-is) and ``--mode`` / ``-m`` to override the YAML's
+``mode`` field at the command line. ``kill`` and ``status`` operate
+purely on the PID files, so they don't take config or mode flags.
 """
 
 from __future__ import annotations
@@ -59,7 +60,8 @@ from manor.common.exceptions import AegisConfigError
 # subdirectory. Located four parents up from this file:
 # src/manor/common/aegis/aegis_cli.py -> .../manor.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_DEFAULT_CONFIG_PATH = _REPO_ROOT / "configs" / "aegis" / "default_ac.yaml"
+_CONFIG_DIR = _REPO_ROOT / "configs" / "aegis"
+_DEFAULT_CONFIG_PATH = _CONFIG_DIR / "default_ac.yaml"
 
 # PID files live in /tmp, namespaced per-block so concurrent aegis
 # stacks (e.g. CI + local dev) don't collide. Keep a stable prefix
@@ -224,15 +226,30 @@ def _kill_all_running_blocks() -> list[AegisBlock]:
     return [b for b, _ in pending]
 
 
-def _load_config(config_path: Path, mode_override: Optional[AegisMode]) -> tuple[AegisConfig, dict]:
+def _resolve_config_path(config_path: Path) -> Path:
     """
-    Read + validate the YAML. Returns the parsed ``AegisConfig`` (used
-    to gate which blocks can run) plus the raw dict (re-serialised to
-    JSON when we spawn each child). When ``mode_override`` is given,
-    the YAML's ``mode`` field is replaced before validation, so a sim
-    config can be coerced to hardware (or vice versa) without editing
-    the file on disk.
+    Resolve a ``--config`` argument: bare filenames (and any
+    non-absolute path) are looked up under ``configs/aegis/``;
+    absolute paths are returned untouched as an escape hatch for
+    out-of-tree configs. Aegis configs by convention end with
+    ``_ac.yaml`` and live in that directory, so the typical
+    invocation is ``--config foo_ac.yaml``.
     """
+    if config_path.is_absolute():
+        return config_path
+    return _CONFIG_DIR / config_path
+
+
+def _load_config(config_path: Path, mode_override: Optional[AegisMode]) -> tuple[Path, AegisConfig, dict]:
+    """
+    Read + validate the YAML. Returns the resolved absolute path, the
+    parsed ``AegisConfig`` (used to gate which blocks can run), and
+    the raw dict (re-serialised to JSON when we spawn each child).
+    When ``mode_override`` is given, the YAML's ``mode`` field is
+    replaced before validation, so a sim config can be coerced to
+    hardware (or vice versa) without editing the file on disk.
+    """
+    config_path = _resolve_config_path(config_path)
     if not config_path.exists():
         raise typer.BadParameter(f"config file not found: {config_path}")
     with open(config_path, "r") as fp:
@@ -245,7 +262,7 @@ def _load_config(config_path: Path, mode_override: Optional[AegisMode]) -> tuple
         config = AegisConfig.from_yaml_dict(raw)
     except AegisConfigError as e:
         raise typer.BadParameter(f"config validation failed: {e}") from e
-    return config, raw
+    return config_path, config, raw
 
 
 @attr.frozen
@@ -267,7 +284,11 @@ class _CliState:
 _CONFIG_OPTION = typer.Option(
     "--config",
     "-c",
-    help="Path to the aegis YAML. Defaults to configs/aegis/default_ac.yaml.",
+    help=(
+        "Aegis YAML to load. Bare filenames resolve under "
+        "configs/aegis/ (e.g. -c foo_ac.yaml). Absolute paths are "
+        "honoured as-is. Defaults to default_ac.yaml."
+    ),
 )
 _MODE_OPTION = typer.Option(
     "--mode",
@@ -338,8 +359,8 @@ def run_block(
 
 
 def _build_state(config_path: Path, mode_override: Optional[AegisMode]) -> _CliState:
-    parsed, raw = _load_config(config_path, mode_override)
-    return _CliState(config_path=config_path, config=parsed, raw_config=raw)
+    resolved, parsed, raw = _load_config(config_path, mode_override)
+    return _CliState(config_path=resolved, config=parsed, raw_config=raw)
 
 
 def _spawn_block(state: _CliState, block: AegisBlock) -> None:
@@ -442,9 +463,9 @@ def repl(
 ) -> None:
     """
     Start an interactive shell. All subcommands are available in it.
-    The ``--config`` and ``--mode`` flags pinned at REPL launch are
-    re-injected into every ``run`` line typed inside, so children
-    spawn against the same config the REPL was started with.
+    The ``--config`` and ``--mode`` flags pinned at REPL launch act
+    as defaults for every ``run`` line typed inside; per-line
+    ``-c`` / ``-m`` overrides on a single ``run`` still win.
     """
     state = _build_state(config, mode)
     typer.secho(
@@ -529,12 +550,14 @@ def _dispatch_repl_line(line: str, config_path: Path, mode: AegisMode) -> None:
         _echo_error("already in REPL")
         return
     if argv[0] == "run":
-        # Pin the REPL's config + mode onto every ``run`` line. click
-        # takes the last value for an option, so appending here means
-        # any user-supplied ``--config`` / ``--mode`` typed inside the
-        # REPL is intentionally overridden -- the REPL is the source
-        # of truth for this session; relaunch the REPL to switch.
-        full_argv = [*argv, "--config", str(config_path), "--mode", mode.value]
+        # Inject the REPL's pinned config + mode as defaults BEFORE
+        # the user's argv so any ``-c`` / ``-m`` typed on the line
+        # wins (click takes the last occurrence of an option). This
+        # keeps the REPL banner as the default for the session while
+        # still letting per-line overrides surface their own errors --
+        # e.g. a typo'd config filename actually fails fast instead
+        # of being silently shadowed by the REPL default.
+        full_argv = [argv[0], "--config", str(config_path), "--mode", mode.value, *argv[1:]]
     else:
         full_argv = argv
     try:
