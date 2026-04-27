@@ -11,7 +11,7 @@ In sim mode the kylos role is fulfilled by the gylos process (see
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.run_kylos < lite6_default.yaml.json
+    python -m manor.common.aegis.run.run_kylos < default_ac.yaml.json
 """
 
 from __future__ import annotations

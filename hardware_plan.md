@@ -161,7 +161,7 @@ that we don't use today.
   raise? hang?) needs documentation. Test by physically unplugging the
   Ethernet cable mid-run.
 - **Per-instance config.** The IP is currently a constructor arg on
-  `Lite6Driver` but isn't surfaced in `lite6_default.yaml`. **Action:**
+  `Lite6Driver` but isn't surfaced in `default_ac.yaml`. **Action:**
   add `lite6_driver_config: { ip: ... }` (or similar) to the YAML and
   thread it through, so deployments don't need a code edit to swap arms.
 

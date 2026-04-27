@@ -37,7 +37,7 @@ from manor.common.testing_utils import run_manor_tests
 
 def _bundled_config() -> AegisConfig:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
-    path = os.path.join(repo_root, "configs", "aegis", "lite6_default.yaml")
+    path = os.path.join(repo_root, "configs", "aegis", "default_ac.yaml")
     with open(path, "r") as fp:
         config = AegisConfig.from_yaml_dict(yaml.safe_load(fp))
     # Disable meshcat for tests so the pinned port-7000 server doesn't

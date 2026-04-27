@@ -23,7 +23,7 @@ from manor.common.testing_utils import run_manor_tests
 
 def _bundled_config_path() -> Path:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
-    return Path(repo_root) / "configs" / "aegis" / "lite6_default.yaml"
+    return Path(repo_root) / "configs" / "aegis" / "default_ac.yaml"
 
 
 @pytest.fixture
@@ -37,18 +37,38 @@ def sandboxed_pid_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _run_cli(args: list[str]) -> "CliRunner.Result":
+def _run_cli(args: list[str], inject_config: bool = True) -> "CliRunner.Result":
+    """
+    Invoke the CLI with the bundled default config injected onto
+    ``run`` / ``repl`` lines (the only commands that accept
+    ``--config``). For ``kill`` / ``status`` we pass argv unchanged
+    since those commands don't take config / mode flags.
+
+    Set ``inject_config=False`` to exercise the default-path resolution
+    (the bundled config is already the default, so they're equivalent
+    for assertions but tests of explicit overrides skip injection).
+    """
     runner = CliRunner()
-    return runner.invoke(cli, ["--config", str(_bundled_config_path()), *args])
+    needs_config = bool(args) and args[0] in {"run", "repl"} and inject_config
+    if needs_config:
+        full = [args[0], "--config", str(_bundled_config_path()), *args[1:]]
+    else:
+        full = list(args)
+    return runner.invoke(cli, full)
 
 
 class TestAegisCli:
-    def test_status_no_arg_reports_sim_blocks(self, sandboxed_pid_dir: Path) -> None:
+    def test_status_no_arg_reports_every_known_block(self, sandboxed_pid_dir: Path) -> None:
+        # ``status`` no-arg is mode-agnostic: it walks every AegisBlock
+        # and reports its PID-file state. No mode banner is printed
+        # because ``status`` doesn't load a config.
         result = _run_cli(["status"])
         assert result.exit_code == 0, result.output
-        assert "mode: sim" in result.output
+        assert "mode:" not in result.output
         assert "metis: stopped" in result.output
         assert "gylos: stopped" in result.output
+        assert "kylos: stopped" in result.output
+        assert "helios: stopped" in result.output
 
     def test_status_unknown_block_rejected(self, sandboxed_pid_dir: Path) -> None:
         result = _run_cli(["status", "not_a_block"])
@@ -121,6 +141,55 @@ class TestAegisCli:
         assert result.exit_code == 0
         assert "already running" in result.output
         assert "nothing to start" in result.output
+
+    def test_mode_override_flips_applicable_blocks(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The bundled config is sim mode; ``--mode hardware`` should
+        # coerce it so kylos / helios are the applicable blocks and
+        # gylos is now refused.
+        spawned: list[str] = []
+
+        def fake_popen(args: list[str], **_kwargs: object) -> mock.MagicMock:
+            spawned.append(args[2])
+            proc = mock.MagicMock()
+            proc.pid = 80000 + len(spawned)
+            return proc
+
+        monkeypatch.setattr(cli_module.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(cli_module, "_RUN_SETTLE_S", 0.0)
+
+        result = _run_cli(["run", "--mode", "hardware"])
+        assert result.exit_code == 0, result.output
+        # Hardware-mode triad: metis, kylos, helios (no gylos).
+        assert "manor.common.aegis.run.run_metis" in spawned
+        assert "manor.common.aegis.run.run_kylos" in spawned
+        assert "manor.common.aegis.run.run_helios" in spawned
+        assert "manor.common.aegis.run.run_gylos" not in spawned
+
+    def test_mode_override_short_flag_refuses_sim_only_block(
+        self,
+        sandboxed_pid_dir: Path,
+    ) -> None:
+        # ``-m hardware`` on a sim config should make gylos invalid.
+        result = _run_cli(["run", "gylos", "-m", "hardware"])
+        assert result.exit_code != 0
+        assert "refusing to run" in result.output
+
+    def test_kill_does_not_accept_config_flag(self, sandboxed_pid_dir: Path) -> None:
+        # ``kill`` and ``status`` are PID-only -- they don't take
+        # ``--config`` or ``--mode``. Passing ``--config`` should be
+        # rejected by click as an unknown option.
+        runner = CliRunner()
+        result = runner.invoke(cli, ["kill", "--config", str(_bundled_config_path())])
+        assert result.exit_code != 0
+
+    def test_status_does_not_accept_mode_flag(self, sandboxed_pid_dir: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["status", "--mode", "hardware"])
+        assert result.exit_code != 0
 
 
 if __name__ == "__main__":

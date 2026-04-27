@@ -13,7 +13,7 @@ passthrough subscriber. Don't launch this runner in sim.
 
 Standalone usage:
 
-    python -m manor.common.aegis.run.run_helios < lite6_default.yaml.json
+    python -m manor.common.aegis.run.run_helios < default_ac.yaml.json
 """
 
 from __future__ import annotations

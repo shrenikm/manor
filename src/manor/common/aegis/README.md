@@ -338,7 +338,10 @@ generically — no per-message wiring code.
 
 ## Configuration
 
-The default config lives at `configs/aegis/lite6_default.yaml`:
+The default config lives at `configs/aegis/default_ac.yaml`. By
+convention every aegis config file ends with the `_ac.yaml` suffix
+(e.g. `default_ac.yaml`, `pickup_demo_ac.yaml`) so that aegis YAMLs
+are visually distinct from non-aegis configs in the same directory:
 
 ```yaml
 mode: sim
@@ -388,8 +391,12 @@ Toggle the visualiser via `gaia_config.enable_meshcat`. Change sim
 playback speed via `gaia_config.target_realtime_rate` (`0.0` = as fast
 as possible, `1.0` = real time).
 
-The CLI accepts `--config` to load a different YAML; per-field
-overrides on the command line are deferred until there's a real need.
+The `run` and `repl` commands accept `--config` / `-c` to load a
+different YAML and `--mode` / `-m` to override the YAML's `mode`
+field at the command line (`sim` or `hardware`); the override is
+applied before validation so a sim config can be coerced to hardware
+without editing the file. `kill` and `status` operate on PID files
+alone and don't take config / mode flags.
 
 ## Quick start
 
@@ -408,24 +415,32 @@ browser to watch the plant.
 ## CLI reference
 
 ```text
-aegis [-c CONFIG] <command>
+aegis <command> [flags]
 ```
 
-Flags:
+Top-level flags:
 
-- `-c PATH`, `--config PATH` — aegis YAML to load. Defaults to
-  `configs/aegis/lite6_default.yaml` (resolved from the manor repo
-  root). The YAML is parsed and validated once; bad configs fail fast.
 - `-h`, `--help` — works at the top level and on every subcommand.
 
 Commands:
 
-| command                | what it does                                                          |
-| ---------------------- | --------------------------------------------------------------------- |
-| `run [<block>]`        | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. With no arg, spawns every block applicable to the current mode (already-running ones are warnings, not errors). |
-| `kill [<block>]`       | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. With no arg, signals every running block. |
-| `status [<block>]`     | with `<block>`, report that block's state (running + PID, or stopped); with no arg, report every block applicable to the current mode. |
-| `repl`                 | drop into an interactive prompt_toolkit shell.                        |
+| command                                  | what it does                                                          |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `run [<block>] [-c CONFIG] [-m MODE]`    | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. With no arg, spawns every block applicable to the current mode (already-running ones are warnings, not errors). |
+| `kill [<block>]`                         | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. With no arg, signals every running block. |
+| `status [<block>]`                       | with `<block>`, report that block's state (running + PID, or stopped); with no arg, report every known block. |
+| `repl [-c CONFIG] [-m MODE]`             | drop into an interactive prompt_toolkit shell.                        |
+
+`run` / `repl` flags:
+
+- `-c PATH`, `--config PATH` — aegis YAML to load. Defaults to
+  `configs/aegis/default_ac.yaml` (resolved from the manor repo root).
+  Aegis configs follow the `*_ac.yaml` naming convention.
+- `-m MODE`, `--mode MODE` — override the YAML's `mode` field
+  (`sim` or `hardware`) without editing the file.
+
+`kill` and `status` consult the PID files on disk and don't take
+`--config` or `--mode`; they show / signal whatever is running.
 
 State persists across shells via `/tmp/aegis_<block>.pid`. Stale PID
 files (process gone, file remained) are auto-cleaned on the next
@@ -440,7 +455,7 @@ aegis repl
 Drops you into:
 
 ```text
-aegis repl -- mode=sim, config=/.../lite6_default.yaml
+aegis repl -- mode=sim, config=/.../default_ac.yaml
 type 'help' for commands, 'exit' or Ctrl-D to leave (running blocks are stopped).
 aegis >>
 ```
@@ -472,7 +487,7 @@ for dev iteration when you don't want to go through the supervisor.
 
 ```bash
 # Convert the YAML to JSON once
-python -c "import json, yaml; print(json.dumps(yaml.safe_load(open('configs/aegis/lite6_default.yaml'))))" > /tmp/aegis.json
+python -c "import json, yaml; print(json.dumps(yaml.safe_load(open('configs/aegis/default_ac.yaml'))))" > /tmp/aegis.json
 
 # In one terminal
 python -m manor.common.aegis.run.run_gylos < /tmp/aegis.json
