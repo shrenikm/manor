@@ -32,7 +32,9 @@ from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph, MultibodyPlant
 from pydrake.systems.analysis import Simulator
+from pydrake.systems.controllers import InverseDynamicsController
 from pydrake.systems.framework import Diagram, DiagramBuilder
+from pydrake.systems.primitives import ConstantVectorSource
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
@@ -199,6 +201,57 @@ class Gaia:
 
         plant.Finalize()
 
+        # Wire an InverseDynamicsController on the manipulator's
+        # actuation port so the plant can hold its pose under gravity.
+        # Without this every actuated joint (arm + gripper fingers)
+        # runs unactuated, the arm sags and the lightweight gripper
+        # finger links accelerate without bound (visibly "fly off"
+        # in meshcat). Controller plant is a separate manipulator-only
+        # MultibodyPlant -- the InverseDynamicsController needs a
+        # plant whose actuated DOFs match the controller's input.
+        controller_plant = MultibodyPlant(time_step=self.config.time_step)
+        controller_parser = Parser(controller_plant)
+        add_robot_models_to_package_map(controller_parser.package_map())
+        controller_parser.AddModels(self.manipulator_model.get_description_filepath())
+        controller_plant.WeldFrames(
+            controller_plant.world_frame(),
+            controller_plant.GetFrameByName(self.manipulator_model.get_base_frame_name()),
+            RigidTransform(),
+        )
+        controller_plant.Finalize()
+
+        gains = self.manipulator_model.get_default_sim_pid_gains()
+        id_controller = builder.AddSystem(
+            InverseDynamicsController(
+                controller_plant,
+                kp=gains.kp,
+                ki=gains.ki,
+                kd=gains.kd,
+                has_reference_acceleration=False,
+            )
+        )
+
+        # Hold the URDF default pose: desired q = 0, desired v = 0.
+        # That's "arm in neutral, gripper closed". A future change can
+        # swap this ConstantVectorSource for a LeafSystem reading
+        # ``self.latest_position_command`` so commands actually move
+        # the sim arm; for now the goal is just stop-falling-apart.
+        num_states = controller_plant.num_multibody_states()
+        desired_state = builder.AddSystem(ConstantVectorSource(np.zeros(num_states)))
+
+        builder.Connect(
+            plant.get_state_output_port(manipulator_model_index),
+            id_controller.get_input_port_estimated_state(),
+        )
+        builder.Connect(
+            desired_state.get_output_port(),
+            id_controller.get_input_port_desired_state(),
+        )
+        builder.Connect(
+            id_controller.get_output_port_control(),
+            plant.get_actuation_input_port(manipulator_model_index),
+        )
+
         meshcat: Meshcat | None = None
         if self.config.enable_meshcat:
             # Spawn the Meshcat http/websocket server (printed URL is the
@@ -225,10 +278,6 @@ class Gaia:
         simulator.Initialize()
 
         plant_context = diagram.GetMutableSubsystemContext(plant, simulator.get_mutable_context())
-
-        # Hold zero actuation by default; concrete command application
-        # will land in a follow-up that wires in a tracking controller.
-        plant.get_actuation_input_port().FixValue(plant_context, np.zeros(plant.num_actuators()))
 
         self.plant = plant
         self.scene_graph = scene_graph

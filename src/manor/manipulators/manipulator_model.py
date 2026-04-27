@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import abc
 
+from manor.common.control.pid import PIDGains
 from manor.common.custom_types import FilePath
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import IManipulatorVariant
@@ -95,3 +96,20 @@ class IManipulatorModel(abc.ABC):
         (``num_positions + num_velocities``).
         """
         ...
+
+    def get_default_sim_pid_gains(self) -> PIDGains:
+        """
+        Per-joint PID gains for the in-sim ``InverseDynamicsController``
+        that drives this manipulator's actuation port. Sized to
+        ``get_num_positions()``. Default is generic / mild; concrete
+        manipulator models should override with values tuned against
+        their inertia / damping / joint scales.
+
+        Sim-only -- on hardware the real controller lives on the robot.
+        """
+        return PIDGains.from_scalar_gains(
+            size=self.get_num_positions(),
+            kp_scalar=100.0,
+            ki_scalar=0.0,
+            kd_scalar=20.0,
+        )

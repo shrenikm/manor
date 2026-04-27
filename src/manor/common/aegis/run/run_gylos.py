@@ -58,6 +58,12 @@ from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.manipulators.manipulator_model import IManipulatorModel
 
+# Sim-time seconds to pre-advance the outer simulator (rate=0) before
+# entering the realtime-paced advance loop. Half a second of sim is
+# enough to cover Drake's first-AdvanceTo overhead on a Lite6-sized
+# diagram without the user noticing a startup hitch.
+_PREWARM_DURATION_S = 0.5
+
 
 def run_gylos(
     manipulator_model: IManipulatorModel,
@@ -183,11 +189,20 @@ def run_gylos(
     diagram.set_name("aegis_gylos_process")
 
     simulator = Simulator(diagram)
+    # Pre-warm: pay first-AdvanceTo costs (cache allocations,
+    # integrator initial-step probing, meshcat geometry upload)
+    # WITHOUT realtime pacing. Otherwise the outer sim falls behind
+    # for ~10 wall-seconds at startup and downstream publishers look
+    # stuck at 0-1 Hz until it catches up.
+    simulator.set_target_realtime_rate(0.0)
+    simulator.Initialize()
+    simulator.AdvanceTo(_PREWARM_DURATION_S)
+
+    # Now flip on user-configured pacing for the long-running loop.
     # Outer aegis simulator is the one and only place where wall-clock
     # pacing is enforced; Gaia's inner simulator runs as fast as
     # possible (see GaiaConfig.target_realtime_rate docstring).
     simulator.set_target_realtime_rate(gaia_config.target_realtime_rate)
-    simulator.Initialize()
     try:
         advance_until_signal(simulator)
     finally:

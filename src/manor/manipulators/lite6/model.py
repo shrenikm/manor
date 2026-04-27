@@ -14,7 +14,9 @@ import os
 from typing import override
 
 import attr
+import numpy as np
 
+from manor.common.control.pid import PIDGains
 from manor.common.custom_types import FilePath
 from manor.common.model_utils import ROBOT_MODELS_DRAKE_URDF_DIRNAME, get_robot_models_directory_path
 from manor.manipulators.lite6.variant import Lite6Variant
@@ -111,3 +113,28 @@ class Lite6Model(IManipulatorModel):
     @override
     def get_num_states(self) -> int:
         return self.get_num_positions() + self.get_num_velocities()
+
+    @override
+    def get_default_sim_pid_gains(self) -> PIDGains:
+        # Tuned in the previous (deprecated) Lite6 sim against the
+        # choreographer analysis plots. Arm joints carry mid-range
+        # gains; the parallel-gripper fingers run much stiffer (the
+        # 5 g finger links accelerate fast under gravity without
+        # damping declared on those prismatic joints).
+        arm_kp = [100.0] * LITE6_ARM_DOF
+        arm_ki = [0.0] * LITE6_ARM_DOF
+        arm_kd = [50.0, 50.0, 50.0, 75.0, 75.0, 75.0]
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return PIDGains(
+                kp=np.array(arm_kp, dtype=np.float64),
+                ki=np.array(arm_ki, dtype=np.float64),
+                kd=np.array(arm_kd, dtype=np.float64),
+            )
+        gripper_kp = [500.0] * LITE6_PARALLEL_GRIPPER_DOF
+        gripper_ki = [50.0] * LITE6_PARALLEL_GRIPPER_DOF
+        gripper_kd = [500.0] * LITE6_PARALLEL_GRIPPER_DOF
+        return PIDGains(
+            kp=np.array(arm_kp + gripper_kp, dtype=np.float64),
+            ki=np.array(arm_ki + gripper_ki, dtype=np.float64),
+            kd=np.array(arm_kd + gripper_kd, dtype=np.float64),
+        )
