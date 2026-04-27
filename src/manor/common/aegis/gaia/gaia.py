@@ -23,6 +23,7 @@ read / advance / render call. Calling read or advance methods before
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Self
 
 import attr
@@ -121,6 +122,15 @@ class GaiaConfig:
         return cls(**parse_attrs_yaml(cls, d, "gaia_config"))
 
 
+class _DesiredStateSourcePorts(StrEnum):
+    """
+    Named ports on the internal ``_DesiredStateSource`` LeafSystem.
+    """
+
+    INPUT_ESTIMATED_STATE = "estimated_state"
+    OUTPUT_DESIRED_STATE = "desired_state"
+
+
 class _DesiredStateSource(LeafSystem):
     """
     Build the desired-state vector for Gaia's
@@ -161,11 +171,11 @@ class _DesiredStateSource(LeafSystem):
         self._gaia = gaia
         self._num_positions = num_positions
         self._estimated_state_input = self.DeclareVectorInputPort(
-            "estimated_state",
+            _DesiredStateSourcePorts.INPUT_ESTIMATED_STATE,
             2 * num_positions,
         )
         self.DeclareVectorOutputPort(
-            "desired_state",
+            _DesiredStateSourcePorts.OUTPUT_DESIRED_STATE,
             2 * num_positions,
             self._compute,
         )
@@ -316,10 +326,10 @@ class Gaia:
         )
         builder.Connect(
             manipulator_state_port,
-            desired_source.GetInputPort("estimated_state"),
+            desired_source.GetInputPort(_DesiredStateSourcePorts.INPUT_ESTIMATED_STATE),
         )
         builder.Connect(
-            desired_source.GetOutputPort("desired_state"),
+            desired_source.GetOutputPort(_DesiredStateSourcePorts.OUTPUT_DESIRED_STATE),
             id_controller.get_input_port_desired_state(),
         )
         builder.Connect(
