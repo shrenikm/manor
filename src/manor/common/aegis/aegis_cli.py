@@ -9,9 +9,10 @@ on hardware). This module is the supervisor for those processes:
   ``python -m manor.common.aegis.run.run_<block>`` with the parsed +
   validated config piped in over stdin as JSON.
 * ``aegis kill <block>`` sends SIGTERM to the child.
-* ``aegis status [block]`` reports state -- ``running (pid X)``,
-  ``stopped``, or ``unavailable`` (block isn't part of the current
-  mode). With no arg, lists every known block.
+* ``aegis status [block]`` reports state -- with ``<block>`` for a
+  single block, with no arg for every block applicable to the
+  current mode (other blocks are omitted: you can't run them here
+  anyway).
 * ``aegis repl`` drops into an interactive prompt_toolkit shell that
   exposes the same commands with history + autocomplete. Children
   spawned via ``run`` are SIGTERMed when the REPL exits so nothing
@@ -21,14 +22,17 @@ Cross-process state lives in PID files under ``/tmp/aegis_*.pid``,
 so ``status`` from a fresh shell still works after the REPL exits.
 
 Configuration is the project-bundled YAML
-(``configs/aegis/default_ac.yaml``). ``run`` and ``repl`` accept
-``--config`` / ``-c`` to load a different aegis config (bare
-filenames resolve under ``configs/aegis/``; absolute paths are
-honoured as-is) and ``--mode`` / ``-m`` to override the YAML's
-``mode`` field at the command line. ``status`` takes the same flags
-so it can label blocks not in the configured mode as ``unavailable``.
-``kill`` operates purely on the PID files and takes no config / mode
-flags -- you can only kill what's running.
+(``configs/aegis/default_ac.yaml``). Only ``aegis repl`` accepts
+``--config`` / ``-c`` (bare filenames resolve under
+``configs/aegis/``; absolute paths are honoured as-is) and
+``--mode`` / ``-m``; those flags pin the config + mode for the entire
+REPL session. The non-REPL commands (``aegis run``, ``aegis kill``,
+``aegis status``) deliberately take no overrides -- the REPL is the
+intended interaction surface, the standalone commands exist for
+debugging, and consolidating overrides on the REPL keeps the rest
+honest (one source of truth per session, no flag drift between
+``run`` and ``status``). To run against a different config or in a
+different mode outside the REPL, edit the YAML.
 """
 
 from __future__ import annotations
@@ -195,15 +199,7 @@ def _echo_error(msg: str) -> None:
     typer.secho(msg, fg=typer.colors.RED, err=True)
 
 
-def _format_block_state(name: str, pid: Optional[int], applicable: bool = True) -> str:
-    """
-    Render one ``status`` line. ``applicable=False`` means the block
-    isn't part of the configured mode (e.g. ``kylos`` in sim) and is
-    rendered dim to visually de-emphasise it -- the user can't run
-    it without changing mode, so it's not just "stopped".
-    """
-    if not applicable:
-        return f"{name}: {typer.style('unavailable', dim=True)}"
+def _format_block_state(name: str, pid: Optional[int]) -> str:
     if pid is None:
         return f"{name}: {typer.style('stopped', fg=typer.colors.RED)}"
     return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
@@ -289,25 +285,6 @@ class _CliState:
     raw_config: dict
 
 
-# Shared option specs so ``run`` and ``repl`` declare ``--config`` /
-# ``--mode`` identically. ``kill`` and ``status`` operate on PID
-# files alone and don't take these flags.
-_CONFIG_OPTION = typer.Option(
-    "--config",
-    "-c",
-    help=(
-        "Aegis YAML to load. Bare filenames resolve under "
-        "configs/aegis/ (e.g. -c foo_ac.yaml). Absolute paths are "
-        "honoured as-is. Defaults to default_ac.yaml."
-    ),
-)
-_MODE_OPTION = typer.Option(
-    "--mode",
-    "-m",
-    help="Override the YAML's mode field (sim or hardware) without editing the file.",
-)
-
-
 app = typer.Typer(
     name="aegis",
     add_completion=False,
@@ -317,56 +294,6 @@ app = typer.Typer(
     # so the alias works on ``aegis -h``, ``aegis run -h``, etc.
     context_settings={"help_option_names": ["-h", "--help"]},
 )
-
-
-@app.command("run")
-def run_block(
-    block: Annotated[
-        Optional[AegisBlock],
-        typer.Argument(help="Which aegis block to start. Omit to start every block applicable to this mode."),
-    ] = None,
-    config: Annotated[Path, _CONFIG_OPTION] = _DEFAULT_CONFIG_PATH,
-    mode: Annotated[Optional[AegisMode], _MODE_OPTION] = None,
-) -> None:
-    """
-    Spawn ``block`` as a subprocess. With no argument, spawns every
-    block applicable to the current mode that isn't already running.
-    Each child is given the parsed AegisConfig over stdin as JSON.
-    Refuses to start a block that doesn't apply to the configured
-    mode, or one that's already running (per the PID file).
-    """
-    state = _build_state(config, mode)
-    allowed = _MODE_BLOCKS[state.config.mode]
-
-    if block is None:
-        # No-arg path: start every applicable block that isn't
-        # already running. Already-running blocks are warnings, not
-        # errors -- in batch mode a duplicate ``run`` shouldn't abort
-        # the rest of the start sequence.
-        started = 0
-        for b in sorted(allowed, key=lambda x: x.value):
-            existing = _read_pid(b)
-            if existing is not None:
-                _echo_warn(f"{b.value} already running (pid {existing})")
-                continue
-            _spawn_block(state, b)
-            started += 1
-        if started == 0:
-            _echo_warn("nothing to start")
-        return
-
-    if block not in allowed:
-        _echo_error(
-            f"refusing to run {block.value!r} in mode {state.config.mode.value!r}; "
-            f"this mode supports {sorted(b.value for b in allowed)}"
-        )
-        raise typer.Exit(code=1)
-
-    if (existing := _read_pid(block)) is not None:
-        _echo_error(f"{block.value} already running (pid {existing})")
-        raise typer.Exit(code=1)
-
-    _spawn_block(state, block)
 
 
 def _build_state(config_path: Path, mode_override: Optional[AegisMode]) -> _CliState:
@@ -397,24 +324,62 @@ def _spawn_block(state: _CliState, block: AegisBlock) -> None:
     proc.stdin.close()
     _write_pid(block, proc.pid)
     _echo_success(f"started {block.value} (pid {proc.pid})")
-    # Same TTY race as ``kill_block``'s wait, in the opposite
+    # Same TTY race as ``_kill_impl``'s wait, in the opposite
     # direction: let the child print its startup output before the
     # REPL redraws its prompt.
     time.sleep(_RUN_SETTLE_S)
 
 
-@app.command("kill")
-def kill_block(
-    block: Annotated[
-        Optional[AegisBlock],
-        typer.Argument(help="Which aegis block to stop. Omit to stop every running block."),
-    ] = None,
-) -> None:
+# --- impl functions ---------------------------------------------------------
+#
+# The three core operations are factored out as ``_*_impl`` so the
+# REPL can invoke them directly with its pinned ``_CliState`` -- no
+# flag injection, no re-dispatch through click. The thin click
+# wrappers below build state from the bundled default config (no
+# overrides; outside the REPL the YAML is the single source of
+# truth) and forward to the impls.
+
+
+def _run_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
     """
-    Send SIGTERM to ``block``'s subprocess. With no argument, signals
-    every block currently running and waits for each to exit. The
-    child has its own SIGTERM handler that exits cleanly; this
-    command just signals + waits.
+    Spawn ``block`` (or every applicable block, if ``block is None``)
+    using ``state``'s config + mode. Refuses to start a block that
+    isn't part of the configured mode, or one that's already running.
+    """
+    allowed = _MODE_BLOCKS[state.config.mode]
+    if block is None:
+        # No-arg path: start every applicable block that isn't
+        # already running. Already-running blocks are warnings, not
+        # errors -- in batch mode a duplicate ``run`` shouldn't abort
+        # the rest of the start sequence.
+        started = 0
+        for b in sorted(allowed, key=lambda x: x.value):
+            existing = _read_pid(b)
+            if existing is not None:
+                _echo_warn(f"{b.value} already running (pid {existing})")
+                continue
+            _spawn_block(state, b)
+            started += 1
+        if started == 0:
+            _echo_warn("nothing to start")
+        return
+    if block not in allowed:
+        _echo_error(
+            f"refusing to run {block.value!r} in mode {state.config.mode.value!r}; "
+            f"this mode supports {sorted(b.value for b in allowed)}"
+        )
+        raise typer.Exit(code=1)
+    if (existing := _read_pid(block)) is not None:
+        _echo_error(f"{block.value} already running (pid {existing})")
+        raise typer.Exit(code=1)
+    _spawn_block(state, block)
+
+
+def _kill_impl(block: Optional[AegisBlock]) -> None:
+    """
+    SIGTERM ``block``'s subprocess (or every running block, if
+    ``block is None``). Doesn't take state -- ``kill`` operates
+    purely on PID files.
     """
     if block is None:
         killed = _kill_all_running_blocks()
@@ -441,31 +406,75 @@ def kill_block(
     _echo_warn(f"signalled {block.value} (pid {pid})")
 
 
+def _status_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
+    """
+    Report block state. With ``block``, prints just that block's PID
+    state. With no block, prints a mode banner followed by every
+    block applicable to ``state.config.mode``; non-applicable blocks
+    are omitted entirely.
+    """
+    if block is not None:
+        typer.echo(_format_block_state(block.value, _read_pid(block)))
+        return
+    allowed = _MODE_BLOCKS[state.config.mode]
+    typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.MAGENTA, bold=True)
+    for b in sorted(allowed, key=lambda x: x.value):
+        typer.echo(f"  {_format_block_state(b.value, _read_pid(b))}")
+
+
+# --- click wrappers ---------------------------------------------------------
+#
+# Outside the REPL, these are how ``aegis run`` / ``aegis kill`` /
+# ``aegis status`` enter from the command line. They take no config
+# / mode flags -- the bundled YAML is the single source of truth.
+# To run a different config or flip mode, edit the YAML (or use the
+# REPL, which does take ``--config`` / ``--mode``).
+
+
+@app.command("run")
+def run_block(
+    block: Annotated[
+        Optional[AegisBlock],
+        typer.Argument(help="Which aegis block to start. Omit to start every block applicable to this mode."),
+    ] = None,
+) -> None:
+    """
+    Spawn ``block`` as a subprocess (or every applicable block with
+    no arg), against the bundled default config. Edit the YAML to
+    change mode; this command takes no overrides.
+    """
+    state = _build_state(_DEFAULT_CONFIG_PATH, mode_override=None)
+    _run_impl(state, block)
+
+
+@app.command("kill")
+def kill_block(
+    block: Annotated[
+        Optional[AegisBlock],
+        typer.Argument(help="Which aegis block to stop. Omit to stop every running block."),
+    ] = None,
+) -> None:
+    """
+    Send SIGTERM to ``block``'s subprocess (or every running block
+    with no arg).
+    """
+    _kill_impl(block)
+
+
 @app.command("status")
 def status(
     block: Annotated[
         Optional[AegisBlock],
-        typer.Argument(help="Which block to query. Omit to report every known block."),
+        typer.Argument(help="Which block to query. Omit to list every block applicable to the current mode."),
     ] = None,
-    config: Annotated[Path, _CONFIG_OPTION] = _DEFAULT_CONFIG_PATH,
-    mode: Annotated[Optional[AegisMode], _MODE_OPTION] = None,
 ) -> None:
     """
-    Report block state. With no argument, lists every known block
-    along with its state: ``running (pid X)`` if its PID file points
-    at a live process, ``stopped`` if it's applicable to the current
-    mode but not running, ``unavailable`` if it isn't part of the
-    current mode at all (e.g. ``gylos`` under hardware). ``status``
-    accepts ``--config`` / ``--mode`` for the same reason ``run``
-    does -- it needs to know which blocks the configured mode allows.
+    Report block state. With no arg, prints a mode banner and lists
+    every block applicable to the bundled default config's mode; the
+    other blocks are omitted (you can't run them in this mode anyway).
     """
-    state = _build_state(config, mode)
-    allowed = _MODE_BLOCKS[state.config.mode]
-    if block is not None:
-        typer.echo(_format_block_state(block.value, _read_pid(block), applicable=block in allowed))
-        return
-    for b in sorted(AegisBlock, key=lambda x: x.value):
-        typer.echo(_format_block_state(b.value, _read_pid(b), applicable=b in allowed))
+    state = _build_state(_DEFAULT_CONFIG_PATH, mode_override=None)
+    _status_impl(state, block)
 
 
 # Where the REPL stores its history (~/.aegis_history). Persistent
@@ -475,14 +484,35 @@ _HISTORY_PATH = Path.home() / ".aegis_history"
 
 @app.command("repl")
 def repl(
-    config: Annotated[Path, _CONFIG_OPTION] = _DEFAULT_CONFIG_PATH,
-    mode: Annotated[Optional[AegisMode], _MODE_OPTION] = None,
+    config: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            "-c",
+            help=(
+                "Aegis YAML to load for this REPL session. Bare "
+                "filenames resolve under configs/aegis/ (e.g. -c "
+                "foo_ac.yaml); absolute paths are honoured as-is. "
+                "Defaults to default_ac.yaml."
+            ),
+        ),
+    ] = _DEFAULT_CONFIG_PATH,
+    mode: Annotated[
+        Optional[AegisMode],
+        typer.Option(
+            "--mode",
+            "-m",
+            help="Override the YAML's mode field (sim or hardware) for this REPL session.",
+        ),
+    ] = None,
 ) -> None:
     """
-    Start an interactive shell. All subcommands are available in it.
-    The ``--config`` and ``--mode`` flags pinned at REPL launch act
-    as defaults for every ``run`` line typed inside; per-line
-    ``-c`` / ``-m`` overrides on a single ``run`` still win.
+    Start an interactive shell. The ``--config`` and ``--mode`` flags
+    are accepted only here -- they pin the supervisor's view of the
+    aegis stack for the entire REPL session, and the ``run`` /
+    ``status`` / ``kill`` lines typed inside inherit that view.
+    External ``aegis run`` / ``aegis status`` invocations (outside
+    the REPL) don't take these flags; edit the YAML to change them.
     """
     state = _build_state(config, mode)
     typer.secho(
@@ -521,7 +551,7 @@ def repl(
             if line == "help":
                 _print_repl_help()
                 continue
-            _dispatch_repl_line(line, state.config_path, state.config.mode)
+            _dispatch_repl_line(line, state)
     finally:
         _kill_all_running_blocks()
 
@@ -536,61 +566,118 @@ def _build_completer() -> WordCompleter:
     return WordCompleter(words, ignore_case=True)
 
 
+_HELP_FLAGS = frozenset({"-h", "--help"})
+
+
 def _print_repl_help() -> None:
+    """
+    Top-level REPL help. Custom (rather than click-generated) because
+    this list also covers REPL-only words like ``help`` / ``exit`` /
+    ``quit`` / ``q`` that aren't click subcommands.
+    """
     typer.echo("commands:")
     typer.echo("  run [block]      spawn a block as a subprocess (no arg = all applicable)")
     typer.echo("  kill [block]     SIGTERM a running block (no arg = all running)")
-    typer.echo("  status [block]   report block state (no arg = all blocks)")
-    typer.echo("  help             show this message")
+    typer.echo("  status [block]   report block state (no arg = all applicable)")
+    typer.echo("  help | -h        show this message")
     typer.echo("  exit | quit | q  leave the REPL (running blocks are stopped)")
+    typer.echo("")
+    typer.echo("type '<command> -h' for help on a specific command (e.g. 'run -h').")
 
 
-def _dispatch_repl_line(line: str, config_path: Path, mode: AegisMode) -> None:
+def _print_command_help(cmd_name: str) -> None:
     """
-    Parse a REPL line as argv and invoke the corresponding click
-    subcommand. For ``run`` we re-inject ``--config`` and ``--mode``
-    so each child spawns against the same config the outer REPL was
-    launched with. ``kill`` and ``status`` consult PID files only and
-    take no such flags.
+    Render the click command's auto-generated help, the same output
+    you get from ``aegis <cmd> -h`` outside the REPL. Keeps per-
+    command help formatting consistent across both entry points.
+    """
+    click_cmd = cli.commands.get(cmd_name)
+    if click_cmd is None:
+        _echo_error(f"no help available for {cmd_name!r}")
+        return
+    # The parent context gives the Usage line its ``aegis`` prefix
+    # (click walks up the parent chain to render the full command
+    # path). ``help_option_names`` has to be set on the parent we
+    # build by hand: the typer app declares it on its top-level
+    # context_settings, but a manually-built parent context doesn't
+    # pull from the group's settings, so without this the help
+    # banner shows only ``--help`` instead of the matched
+    # ``-h, --help`` pair seen on the standalone CLI.
+    parent_ctx = click.Context(cli, info_name="aegis", help_option_names=["-h", "--help"])
+    ctx = click.Context(click_cmd, info_name=cmd_name, parent=parent_ctx)
+    typer.echo(click_cmd.get_help(ctx))
 
-    Errors are caught and echoed instead of bubbling up, so a bad
-    command doesn't kill the REPL.
+
+_REPL_BLOCK_COMMANDS = {"run", "kill", "status"}
+
+
+def _parse_repl_block_arg(argv: list[str]) -> Optional[AegisBlock]:
+    """
+    Parse the optional block argument on a REPL line. ``argv[0]`` is
+    the command (``run`` / ``kill`` / ``status``); ``argv[1:]`` is
+    the block name, if any. Raises ``typer.BadParameter`` (caught by
+    the dispatch loop) on bad input so the REPL keeps running.
+    """
+    if len(argv) > 2:
+        raise typer.BadParameter(f"{argv[0]}: too many arguments (expected at most 1, got {len(argv) - 1})")
+    if len(argv) == 1:
+        return None
+    raw = argv[1]
+    try:
+        return AegisBlock(raw)
+    except ValueError:
+        valid = ", ".join(b.value for b in AegisBlock)
+        raise typer.BadParameter(f"{argv[0]}: unknown block {raw!r}; valid: {valid}") from None
+
+
+def _dispatch_repl_line(line: str, state: _CliState) -> None:
+    """
+    Parse a REPL line and call the matching impl function with the
+    REPL's pinned ``state``. We don't go through click here -- the
+    REPL doesn't accept ``--config`` / ``--mode`` per-line (those are
+    pinned at REPL launch), so the click flag-parsing layer would
+    just be in the way. ``-h`` / ``--help`` on its own re-prints the
+    top-level help; on a command (``run -h``, etc.) it prints that
+    command's help. Errors are caught and echoed instead of bubbling
+    up, so a bad command doesn't kill the REPL.
     """
     try:
         argv = shlex.split(line)
     except ValueError as e:
-        typer.echo(f"parse error: {e}", err=True)
+        _echo_error(f"parse error: {e}")
         return
     if not argv:
         return
-    if argv[0] == "repl":
+    if argv[0] in _HELP_FLAGS:
+        _print_repl_help()
+        return
+    cmd = argv[0]
+    if cmd == "repl":
         _echo_error("already in REPL")
         return
-    if argv[0] in {"run", "status"}:
-        # Inject the REPL's pinned config + mode as defaults BEFORE
-        # the user's argv so any ``-c`` / ``-m`` typed on the line
-        # wins (click takes the last occurrence of an option). This
-        # keeps the REPL banner as the default for the session while
-        # still letting per-line overrides surface their own errors --
-        # e.g. a typo'd config filename actually fails fast instead
-        # of being silently shadowed by the REPL default. ``status``
-        # also takes ``--config`` / ``--mode`` (to know which blocks
-        # are ``unavailable`` vs ``stopped``), so it gets the same
-        # treatment. ``kill`` is PID-only.
-        full_argv = [argv[0], "--config", str(config_path), "--mode", mode.value, *argv[1:]]
-    else:
-        full_argv = argv
+    if cmd not in _REPL_BLOCK_COMMANDS:
+        _echo_error(f"unknown command: {cmd!r}; type 'help' for the list")
+        return
+    if any(a in _HELP_FLAGS for a in argv[1:]):
+        # Mirror click's behaviour: a help flag anywhere in the
+        # remaining argv short-circuits to per-command help.
+        _print_command_help(cmd)
+        return
     try:
-        # standalone_mode=False stops click from calling sys.exit on
-        # its own; we handle the SystemExit it raises on --help / etc.
-        cli.main(args=full_argv, standalone_mode=False, prog_name="aegis")
-    except click.UsageError as e:
-        _echo_error(f"usage: {e.format_message()}")
-    except click.exceptions.Exit:
-        # ``raise typer.Exit`` from a subcommand -- already echoed
-        # whatever it needed to.
-        pass
-    except SystemExit:
+        block = _parse_repl_block_arg(argv)
+    except typer.BadParameter as e:
+        _echo_error(str(e))
+        return
+    try:
+        if cmd == "run":
+            _run_impl(state, block)
+        elif cmd == "status":
+            _status_impl(state, block)
+        else:
+            _kill_impl(block)
+    except typer.Exit:
+        # Impls raise typer.Exit after echoing their own error
+        # message; suppress so the REPL keeps running.
         pass
 
 

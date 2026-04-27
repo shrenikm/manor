@@ -391,12 +391,13 @@ Toggle the visualiser via `gaia_config.enable_meshcat`. Change sim
 playback speed via `gaia_config.target_realtime_rate` (`0.0` = as fast
 as possible, `1.0` = real time).
 
-The `run` and `repl` commands accept `--config` / `-c` to load a
-different YAML and `--mode` / `-m` to override the YAML's `mode`
-field at the command line (`sim` or `hardware`); the override is
-applied before validation so a sim config can be coerced to hardware
-without editing the file. `kill` and `status` operate on PID files
-alone and don't take config / mode flags.
+Only the `repl` command accepts `--config` / `-c` and `--mode` /
+`-m`; those flags pin the config + mode for the entire REPL
+session. The standalone commands (`aegis run`, `aegis kill`,
+`aegis status`) deliberately take no overrides — they exist for
+debugging and always read the bundled `default_ac.yaml`. To run
+against a different config or in hardware mode outside the REPL,
+edit the YAML.
 
 ## Quick start
 
@@ -424,27 +425,28 @@ Top-level flags:
 
 Commands:
 
-| command                                  | what it does                                                          |
-| ---------------------------------------- | --------------------------------------------------------------------- |
-| `run [<block>] [-c CONFIG] [-m MODE]`    | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the configured mode. With no arg, spawns every block applicable to the current mode (already-running ones are warnings, not errors). |
-| `kill [<block>]`                         | SIGTERM `<block>`'s subprocess; waits briefly for it to exit before returning. With no arg, signals every running block. |
-| `status [<block>] [-c CONFIG] [-m MODE]` | report block state: `running (pid X)`, `stopped`, or `unavailable` (block isn't part of the configured mode, e.g. `kylos` in sim). With no arg, lists every known block. |
-| `repl [-c CONFIG] [-m MODE]`             | drop into an interactive prompt_toolkit shell.                        |
+| command                       | what it does                                                          |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `run [<block>]`               | spawn `<block>` as a subprocess; refuses if it's already running or doesn't apply to the YAML's mode. With no arg, spawns every applicable block (already-running ones are warnings, not errors). |
+| `kill [<block>]`              | SIGTERM `<block>`'s subprocess; waits briefly for it to exit. With no arg, signals every running block. |
+| `status [<block>]`            | report block state. With no arg, prints a `mode:` banner and lists every block applicable to the YAML's mode. |
+| `repl [-c CONFIG] [-m MODE]`  | drop into an interactive prompt_toolkit shell pinned to the given config + mode for the session. |
 
-`run` / `status` / `repl` flags:
+`repl`-only flags:
 
-- `-c FILE`, `--config FILE` — aegis YAML to load. Bare filenames
-  resolve relative to `configs/aegis/` (so `-c foo_ac.yaml` is the
-  typical form); absolute paths are honoured as-is. Defaults to
-  `default_ac.yaml`. Aegis configs follow the `*_ac.yaml` naming
-  convention.
+- `-c FILE`, `--config FILE` — aegis YAML to pin for this REPL
+  session. Bare filenames resolve relative to `configs/aegis/`
+  (so `-c foo_ac.yaml` is the typical form); absolute paths are
+  honoured as-is. Defaults to `default_ac.yaml`. Aegis configs
+  follow the `*_ac.yaml` naming convention.
 - `-m MODE`, `--mode MODE` — override the YAML's `mode` field
-  (`sim` or `hardware`) without editing the file.
+  (`sim` or `hardware`) for this REPL session.
 
-`kill` is PID-only and takes no config / mode flags — you can only
-signal what's running. `status` accepts the flags so it can label
-blocks not in the configured mode as `unavailable` (vs. just
-`stopped`).
+The standalone `run` / `kill` / `status` commands deliberately take
+no `--config` / `--mode` overrides — they always read the bundled
+default and exist for debugging. The REPL is the intended
+interaction surface; consolidating overrides there keeps `run` and
+`status` from drifting against each other within a session.
 
 State persists across shells via `/tmp/aegis_<block>.pid`. Stale PID
 files (process gone, file remained) are auto-cleaned on the next
