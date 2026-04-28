@@ -1,14 +1,12 @@
 """
-Standalone hardware experiments against the Ufactory Lite6 over
-xarm-python-sdk. Each experiment is one top-level function; the
-typer CLI at the bottom picks which one to run.
+Standalone hardware experiments against the Ufactory Lite6 over xarm-python-sdk. Each experiment is one
+top-level function; the typer CLI at the bottom picks which one to run.
 
-Goal: characterise the SDK surface (return codes, timings, quirks)
-before wiring it into the aegis hardware backends. Findings get
-logged to xarm_api.md at the repo root as we go.
+Goal: characterise the SDK surface (return codes, timings, quirks) before wiring it into the aegis hardware
+backends. Findings get logged to xarm_api.md at the repo root as we go.
 
-Installed as the lite6_cli console script (see pyproject.toml); run
-from any shell on a workstation that can reach the arm:
+Installed as the lite6_cli console script (see pyproject.toml); run from any shell on a workstation that
+can reach the arm:
 
     lite6_cli stream --ip 192.168.1.178
 
@@ -28,24 +26,22 @@ from typing import Annotated, Optional
 import numpy as np
 import typer
 
-# The xarm SDK prints SDK_VERSION: <ver> to stdout on import with no
-# off switch -- redirect stdout while we pull it in so the script's
-# own output isn't preceded by that banner.
+# The xarm SDK prints SDK_VERSION: <ver> to stdout on import with no off switch -- redirect stdout while we
+# pull it in so the script's own output isn't preceded by that banner.
 with contextlib.redirect_stdout(io.StringIO()):
     from xarm.wrapper import XArmAPI
 
 from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguration
 
-# Default IP that ships from the factory + the deprecated codebase
-# used. Override with --ip per invocation.
+# Default IP that ships from the factory + the deprecated codebase used. Override with --ip per invocation.
 DEFAULT_IP = "192.168.1.178"
 
-# Lite6 has 6 actuated arm joints. The xarm SDK pads joint vectors to
-# 7 elements regardless of model; we slice down to this many.
+# Lite6 has 6 actuated arm joints. The xarm SDK pads joint vectors to 7 elements regardless of model; we
+# slice down to this many.
 LITE6_DOF = 6
 
-# xarm SDK mode constants (see xarm/wrapper/xarm_api.py and
-# manor.manipulators.lite6.driver for the manor side).
+# xarm SDK mode constants (see xarm/wrapper/xarm_api.py and manor.manipulators.lite6.driver for the manor
+# side).
 _XARM_MODE_POSITION = 0  # motion-plan position (set_servo_angle, set_position)
 _XARM_MODE_SERVO_POSITION = 1  # low-latency joint streaming (set_servo_angle_j)
 _XARM_MODE_VELOCITY = 4  # joint velocity (vc_set_joint_velocity)
@@ -56,59 +52,49 @@ _XARM_MODE_VELOCITY = 4  # joint velocity (vc_set_joint_velocity)
 _XARM_STATE_READY = 0
 _XARM_STATE_STOP = 4
 
-# Default streaming rate for the joint-state dump experiment. Slow
-# enough that the terminal can keep up; bump per-invocation if you're
-# scope-watching a fast motion.
+# Default streaming rate for the joint-state dump experiment. Slow enough that the terminal can keep up;
+# bump per-invocation if you're scope-watching a fast motion.
 DEFAULT_STREAM_HZ = 20.0
 
-# Resend the target on each tick of _stream_to_target at this rate.
-# The wrapper docstring for set_servo_angle_j says "execute only the
-# last instruction", so re-sending the same target is benign -- the
-# firmware servoes toward it bounded by joint_speed_limit (pi rad/s,
-# see probe). Production Kyber drives this same call at ~500 Hz; 100 Hz
-# is plenty for a one-shot CLI move.
+# Resend the target on each tick of _stream_to_target at this rate. The wrapper docstring for
+# set_servo_angle_j says "execute only the last instruction", so re-sending the same target is benign --
+# the firmware servoes toward it bounded by joint_speed_limit (pi rad/s, see probe). Production Kyber
+# drives this same call at ~500 Hz; 100 Hz is plenty for a one-shot CLI move.
 _STREAM_RATE_HZ = 100.0
 _STREAM_PERIOD_S = 1.0 / _STREAM_RATE_HZ
 
-# After streaming all waypoints, poll for measured-pose convergence
-# until either tolerance is met or this timeout elapses. arm.angles
-# updates at ~5 Hz from the SDK heartbeat (verified empirically), so
-# observations stutter; tolerance + timeout still works because the
-# heartbeat will eventually report the settled position.
+# After streaming all waypoints, poll for measured-pose convergence until either tolerance is met or this
+# timeout elapses. arm.angles updates at ~5 Hz from the SDK heartbeat (verified empirically), so
+# observations stutter; tolerance + timeout still works because the heartbeat will eventually report the
+# settled position.
 _SETTLE_TOLERANCE_RAD = 5e-3
 _SETTLE_TIMEOUT_S = 5.0
 
 
-# Hint text appended to the _check error when the SDK returns specific
-# known codes. Keep these short -- the user's already looking at a
-# traceback; we want the actionable suggestion in the message itself,
-# not a wall of explanation.
+# Hint text appended to the _check error when the SDK returns specific known codes. Keep these short --
+# the user's already looking at a traceback; we want the actionable suggestion in the message itself, not
+# a wall of explanation.
 _CODE_HINTS: dict[int, str] = {
     1: (
-        "code=1 ('Not Ready') means the arm is refusing commands. If "
-        "error_code/warn_code above are non-zero, a fault latched "
-        "(force-collision, servo error, etc.) -- check the motion path "
-        "and try clean_error + soft motion_enable cycle. If both are "
-        "zero, the controller itself is wedged: check e-stop / drag "
-        "mode, then power-cycle (off, wait 10 s, on)."
+        "code=1 ('Not Ready') means the arm is refusing commands. If error_code/warn_code above are "
+        "non-zero, a fault latched (force-collision, servo error, etc.) -- check the motion path and try "
+        "clean_error + soft motion_enable cycle. If both are zero, the controller itself is wedged: "
+        "check e-stop / drag mode, then power-cycle (off, wait 10 s, on)."
     ),
 }
 
 
 def _check(ret_code: int | tuple, op: str, arm: XArmAPI | None = None) -> None:
     """
-    Raise a RuntimeError if an xarm SDK call returned a non-zero
-    status code. Some calls return a plain int, others return a tuple
-    whose first element is the code; handle both. Known codes get an
-    actionable hint appended (see _CODE_HINTS).
+    Raise a RuntimeError if an xarm SDK call returned a non-zero status code. Some calls return a plain
+    int, others return a tuple whose first element is the code; handle both. Known codes get an actionable
+    hint appended (see _CODE_HINTS).
 
-    When arm is provided, error_code / warn_code are appended to the
-    message. This is essential for move commands: the SDK's
-    _check_code rewrites the firmware return to 1 (Not Ready) any
-    time state_is_ready is false at the moment of the call, which can
-    happen because a fault latched between streaming ticks (e.g. a
-    force-collision tripping mid-motion). Without error_code /
-    warn_code the real cause is hidden behind that opaque code=1.
+    When arm is provided, error_code / warn_code are appended to the message. This is essential for move
+    commands: the SDK's _check_code rewrites the firmware return to 1 (Not Ready) any time state_is_ready
+    is false at the moment of the call, which can happen because a fault latched between streaming ticks
+    (e.g. a force-collision tripping mid-motion). Without error_code / warn_code the real cause is hidden
+    behind that opaque code=1.
     """
     code = ret_code[0] if isinstance(ret_code, tuple) else ret_code
     if code == 0:
@@ -121,66 +107,54 @@ def _check(ret_code: int | tuple, op: str, arm: XArmAPI | None = None) -> None:
     raise RuntimeError(msg)
 
 
-# After motion_enable(True) the brakes release and the servos lock
-# onto current encoder readings; this takes ~2 s of micro-motion to
-# settle (observed empirically). Sleep before issuing further state
-# changes so set_mode / set_state don't race the bring-up.
+# After motion_enable(True) the brakes release and the servos lock onto current encoder readings; this
+# takes ~2 s of micro-motion to settle (observed empirically). Sleep before issuing further state changes
+# so set_mode / set_state don't race the bring-up.
 _MOTION_ENABLE_SETTLE_S = 2.0
 
-# How long to leave the motors disabled during soft recovery before
-# re-enabling. Long enough that the servos fully de-energise so the
-# next motion_enable starts from a known-clean state.
+# How long to leave the motors disabled during soft recovery before re-enabling. Long enough that the
+# servos fully de-energise so the next motion_enable starts from a known-clean state.
 _SOFT_RECOVERY_DISABLE_S = 1.0
 
-# Speed / acceleration for prime + unprime moves via mode 0
-# set_servo_angle (built-in trajectory generation). Deliberately well
-# below firmware ceilings (joint_speed_limit pi rad/s,
-# joint_acc_limit 20 rad/s^2 from the probe) so the motion is slow
-# enough for the operator to e-stop if anything looks wrong while
-# we're still characterising the hardware.
+# Speed / acceleration for prime + unprime moves via mode 0 set_servo_angle (built-in trajectory
+# generation). Deliberately well below firmware ceilings (joint_speed_limit pi rad/s, joint_acc_limit 20
+# rad/s^2 from the probe) so the motion is slow enough for the operator to e-stop if anything looks wrong
+# while we're still characterising the hardware.
 _PRIME_MOVE_SPEED_RAD_S = 0.3
 _PRIME_MOVE_ACC_RAD_S2 = 2.0
 
 
 def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     """
-    Bring the arm into a state where reads + writes work, then move
-    it to a known-clear operational pose (Lite6JointConfiguration.PRIME).
+    Bring the arm into a state where reads + writes work, then move it to a known-clear operational pose
+    (Lite6JointConfiguration.PRIME).
 
     Sequence:
 
     1. clean_warn() + clean_error() to wipe latched faults.
     2. motion_enable(True) turns motors on (audible click).
     3. Sleep _MOTION_ENABLE_SETTLE_S so servos lock onto encoder pose.
-    4. set_mode(0) -- always activate in motion-plan position mode so
-    we can use set_servo_angle's built-in trajectory generation to
-    move to PRIME.
-    5. set_state(0) puts the controller in READY; required before
-    motion calls.
-    6. Assert error_code == 0 and warn_code == 0, with
-    _try_soft_recover fallback on failure.
-    7. set_servo_angle to Lite6JointConfiguration.PRIME, getting clear
-    of the zero-pose self-collision envelope before exposing the arm
-    to operator commands.
+    4. set_mode(0) -- always activate in motion-plan position mode so we can use set_servo_angle's
+    built-in trajectory generation to move to PRIME.
+    5. set_state(0) puts the controller in READY; required before motion calls.
+    6. Assert error_code == 0 and warn_code == 0, with _try_soft_recover fallback on failure.
+    7. set_servo_angle to Lite6JointConfiguration.PRIME, getting clear of the zero-pose self-collision
+    envelope before exposing the arm to operator commands.
     8. Switch to mode if it's not mode 0.
 
-    Step 6 is load-bearing: motion_enable may return success at the
-    controller level while a servo-level error is latched on an
-    individual joint (e.g. servo_id=6, code=23 after a previous
-    abrupt unprime). Without this check we'd happily proceed and the
-    next motion command would fail with the unhelpful code=1 (Not
-    Ready). On failure we attempt a soft motion_enable toggle before
-    raising with a power-cycle hint.
+    Step 6 is load-bearing: motion_enable may return success at the controller level while a servo-level
+    error is latched on an individual joint (e.g. servo_id=6, code=23 after a previous abrupt unprime).
+    Without this check we'd happily proceed and the next motion command would fail with the unhelpful
+    code=1 (Not Ready). On failure we attempt a soft motion_enable toggle before raising with a
+    power-cycle hint.
 
-    Step 7 deliberately uses mode 0's set_servo_angle (with built-in
-    trajectory generation) rather than mode 1's set_servo_angle_j --
-    mode 1 is the call we're still characterising via the experiment
-    commands, so we don't want prime/unprime depending on it. Mode 0
-    is the canonical, well-understood "go to" interface.
+    Step 7 deliberately uses mode 0's set_servo_angle (with built-in trajectory generation) rather than
+    mode 1's set_servo_angle_j -- mode 1 is the call we're still characterising via the experiment
+    commands, so we don't want prime/unprime depending on it. Mode 0 is the canonical, well-understood
+    "go to" interface.
     """
-    # Always activate in mode 0 (motion-plan position) so step 7 can
-    # use set_servo_angle for the move to PRIME. Modes 1 and 4 get
-    # switched in at step 8 if that's what the caller asked for.
+    # Always activate in mode 0 (motion-plan position) so step 7 can use set_servo_angle for the move to
+    # PRIME. Modes 1 and 4 get switched in at step 8 if that's what the caller asked for.
     _run_prime_sequence(arm, mode=_XARM_MODE_POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         typer.echo(
@@ -190,11 +164,10 @@ def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
         _try_soft_recover(arm, mode=_XARM_MODE_POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         raise RuntimeError(
-            f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} "
-            f"after prime + soft recovery. Servo-level errors can survive both "
-            f"clean_error/clean_warn and motion_enable cycling -- power-cycle "
-            f"the controller (turn it off, wait a few seconds, turn back on) "
-            f"and retry."
+            f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} after prime + soft "
+            f"recovery. Servo-level errors can survive both clean_error/clean_warn and motion_enable "
+            f"cycling -- power-cycle the controller (turn it off, wait a few seconds, turn back on) and "
+            f"retry."
         )
 
     _move_to_configuration(arm, Lite6JointConfiguration.PRIME)
@@ -206,11 +179,9 @@ def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
 
 def _run_prime_sequence(arm: XArmAPI, mode: int) -> None:
     """
-    The five-step prime call sequence, factored out so soft recovery
-    can replay it after a motion_enable toggle. Each step is checked
-    via _check, so a controller-level failure surfaces immediately;
-    servo-level latched errors slip past these returns and only show
-    up via arm.error_code afterward.
+    The five-step prime call sequence, factored out so soft recovery can replay it after a motion_enable
+    toggle. Each step is checked via _check, so a controller-level failure surfaces immediately;
+    servo-level latched errors slip past these returns and only show up via arm.error_code afterward.
     """
     _check(arm.clean_warn(), "clean_warn", arm=arm)
     _check(arm.clean_error(), "clean_error", arm=arm)
@@ -222,14 +193,12 @@ def _run_prime_sequence(arm: XArmAPI, mode: int) -> None:
 
 def _try_soft_recover(arm: XArmAPI, mode: int) -> None:
     """
-    Re-cycle motion_enable off-then-on to clear servo-level errors
-    that survive clean_error / clean_warn. Best-effort -- we don't
-    _check the intermediate calls because they may legitimately fail
-    mid-recovery; the post-recovery arm.error_code read in prime is
-    what decides whether recovery succeeded.
+    Re-cycle motion_enable off-then-on to clear servo-level errors that survive clean_error / clean_warn.
+    Best-effort -- we don't _check the intermediate calls because they may legitimately fail mid-recovery;
+    the post-recovery arm.error_code read in prime is what decides whether recovery succeeded.
 
-    Not bulletproof: if a servo really won't release its latched
-    error, only physically power-cycling the controller will clear it.
+    Not bulletproof: if a servo really won't release its latched error, only physically power-cycling the
+    controller will clear it.
     """
     arm.motion_enable(enable=False)
     time.sleep(_SOFT_RECOVERY_DISABLE_S)
@@ -238,17 +207,13 @@ def _try_soft_recover(arm: XArmAPI, mode: int) -> None:
 
 def _switch_mode(arm: XArmAPI, mode: int) -> None:
     """
-    Change the active control mode mid-session. The xArm controller
-    requires going through STOP state to swap modes; the trio
-    set_state(STOP), set_mode(<new>), set_state(READY) is the
-    canonical sequence. Used to flip from the motion-plan position
-    mode that prime always activates into into whatever mode the
-    caller actually wants for operation, and back again on unprime.
+    Change the active control mode mid-session. The xArm controller requires going through STOP state to
+    swap modes; the trio set_state(STOP), set_mode(<new>), set_state(READY) is the canonical sequence.
+    Used to flip from the motion-plan position mode that prime always activates into into whatever mode
+    the caller actually wants for operation, and back again on unprime.
 
-    Idempotent through redundant STOP/READY cycling -- safe to call
-    when we're already in the target mode (which we can't reliably
-    detect because arm.mode is heartbeat-cached and lags recent
-    set_mode calls).
+    Idempotent through redundant STOP/READY cycling -- safe to call when we're already in the target mode
+    (which we can't reliably detect because arm.mode is heartbeat-cached and lags recent set_mode calls).
     """
     _check(arm.set_state(state=_XARM_STATE_STOP), "set_state(stop)", arm=arm)
     _check(arm.set_mode(mode=mode), f"set_mode({mode})", arm=arm)
@@ -257,17 +222,14 @@ def _switch_mode(arm: XArmAPI, mode: int) -> None:
 
 def _move_to_configuration(arm: XArmAPI, configuration: Lite6JointConfiguration) -> None:
     """
-    Move the arm to a named joint configuration via mode 0
-    set_servo_angle, which has built-in trajectory generation and a
-    blocking wait. The arm must already be in mode 0 before calling
-    this; prime activates in mode 0 by default, and unprime switches
-    back to mode 0 from whatever the operating command left behind.
+    Move the arm to a named joint configuration via mode 0 set_servo_angle, which has built-in trajectory
+    generation and a blocking wait. The arm must already be in mode 0 before calling this; prime activates
+    in mode 0 by default, and unprime switches back to mode 0 from whatever the operating command left
+    behind.
 
-    Used in preference to mode 1 streaming for prime + unprime
-    because mode 1 (set_servo_angle_j) is the call we're still
-    characterising via the experiment commands -- prime/unprime
-    shouldn't depend on it. Speed and acceleration are clamped well
-    below firmware ceilings (see _PRIME_MOVE_*).
+    Used in preference to mode 1 streaming for prime + unprime because mode 1 (set_servo_angle_j) is the
+    call we're still characterising via the experiment commands -- prime/unprime shouldn't depend on it.
+    Speed and acceleration are clamped well below firmware ceilings (see _PRIME_MOVE_*).
     """
     angles = configuration.get_joint_positions_vector().tolist()
     typer.echo(f"  moving to {configuration.name} pose...")
@@ -286,21 +248,16 @@ def _move_to_configuration(arm: XArmAPI, configuration: Lite6JointConfiguration)
 
 def unprime(arm: XArmAPI) -> None:
     """
-    Inverse of prime: move the arm back to
-    Lite6JointConfiguration.ZERO, stop motion, disable motors,
+    Inverse of prime: move the arm back to Lite6JointConfiguration.ZERO, stop motion, disable motors,
     disconnect.
 
-    The move-to-ZERO step is wrapped in its own try/except so a
-    wedged controller (e.g. recovering from a fault that the operating
-    command triggered) doesn't block motor disable + disconnect.
-    disconnect() is in the outer finally so we never leave a dangling
-    TCP session regardless of which step failed.
+    The move-to-ZERO step is wrapped in its own try/except so a wedged controller (e.g. recovering from a
+    fault that the operating command triggered) doesn't block motor disable + disconnect. disconnect() is
+    in the outer finally so we never leave a dangling TCP session regardless of which step failed.
 
-    Always switches back to mode 0 first because the move uses
-    set_servo_angle with built-in trajectory generation. The switch
-    is harmless when we're already in mode 0 -- safer than checking
-    arm.mode, which lags recent set_mode calls via the heartbeat
-    cache.
+    Always switches back to mode 0 first because the move uses set_servo_angle with built-in trajectory
+    generation. The switch is harmless when we're already in mode 0 -- safer than checking arm.mode, which
+    lags recent set_mode calls via the heartbeat cache.
     """
     try:
         try:
@@ -318,9 +275,8 @@ def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
     """
     Read positions + velocities in radians / radians-per-second.
 
-    The SDK's get_joint_states returns a 7-element vector for each
-    field regardless of arm DOF (the 7th slot is reserved for 7-DOF
-    models); slice to LITE6_DOF here.
+    The SDK's get_joint_states returns a 7-element vector for each field regardless of arm DOF (the 7th
+    slot is reserved for 7-DOF models); slice to LITE6_DOF here.
     """
     code, raw = arm.get_joint_states(is_radian=True)
     if code != 0:
@@ -332,10 +288,9 @@ def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
     )
 
 
-# Properties + zero-arg methods to interrogate in probe. Anything
-# that doesn't exist on the connected SDK falls back to "<no such
-# attr>" rather than crashing the probe -- the point of this
-# experiment is to discover what's exposed without prior knowledge.
+# Properties + zero-arg methods to interrogate in probe. Anything that doesn't exist on the connected SDK
+# falls back to "<no such attr>" rather than crashing the probe -- the point of this experiment is to
+# discover what's exposed without prior knowledge.
 _PROBE_PROPERTIES: tuple[str, ...] = (
     # Identity / firmware
     "version",
@@ -374,10 +329,9 @@ _PROBE_PROPERTIES: tuple[str, ...] = (
 
 def _safe_get(arm: XArmAPI, name: str) -> object:
     """
-    Read arm.<name> defensively. Some properties may not exist on the
-    installed SDK version, or may raise when the arm is in a
-    particular state -- the probe wants to print something for every
-    entry rather than abort.
+    Read arm.<name> defensively. Some properties may not exist on the installed SDK version, or may raise
+    when the arm is in a particular state -- the probe wants to print something for every entry rather
+    than abort.
     """
     try:
         return getattr(arm, name)
@@ -389,11 +343,10 @@ def _safe_get(arm: XArmAPI, name: str) -> object:
 
 def probe(arm: XArmAPI) -> None:
     """
-    Print every property the SDK exposes for the connected arm:
-    identity, live state, pose, calibration, limits, and motor state.
-    Pure read -- the caller doesn't prime first so motors stay
-    disabled. Any property that returns a sentinel or odd value is
-    itself a useful finding worth logging into xarm_api.md.
+    Print every property the SDK exposes for the connected arm: identity, live state, pose, calibration,
+    limits, and motor state. Pure read -- the caller doesn't prime first so motors stay disabled. Any
+    property that returns a sentinel or odd value is itself a useful finding worth logging into
+    xarm_api.md.
     """
     for name in _PROBE_PROPERTIES:
         typer.echo(f"  {name:<28} = {_safe_get(arm, name)!r}")
@@ -401,21 +354,16 @@ def probe(arm: XArmAPI) -> None:
 
 def send_joint_positions(arm: XArmAPI, targets: list[Optional[float]]) -> None:
     """
-    Move the arm to targets via mode 1 set_servo_angle_j -- the same
-    call Lite6Driver.write_joint_positions uses, so this experiment
-    exercises the production code path. Any None entry in targets is
-    replaced with the joint's current angle, so -j6 0.5 wiggles joint
-    6 in isolation.
+    Move the arm to targets via mode 1 set_servo_angle_j -- the same call Lite6Driver.write_joint_positions
+    uses, so this experiment exercises the production code path. Any None entry in targets is replaced
+    with the joint's current angle, so -j6 0.5 wiggles joint 6 in isolation.
 
-    set_servo_angle_j is a streaming setpoint, not a one-shot "go to"
-    command: the firmware applies a per-tick step cap, so a single
-    call only progresses the servo loop by that step before settling.
-    We therefore resend the target at _STREAM_RATE_HZ until the pose
-    lands (or _SETTLE_TIMEOUT_S elapses), which mirrors what Kyber
-    does in production -- it streams every tick with tiny per-tick
-    deltas and the firmware composes them into a continuous motion.
-    Speed is firmware-bounded by joint_speed_limit (pi rad/s)
-    regardless of the requested delta.
+    set_servo_angle_j is a streaming setpoint, not a one-shot "go to" command: the firmware applies a
+    per-tick step cap, so a single call only progresses the servo loop by that step before settling. We
+    therefore resend the target at _STREAM_RATE_HZ until the pose lands (or _SETTLE_TIMEOUT_S elapses),
+    which mirrors what Kyber does in production -- it streams every tick with tiny per-tick deltas and the
+    firmware composes them into a continuous motion. Speed is firmware-bounded by joint_speed_limit (pi
+    rad/s) regardless of the requested delta.
     """
     current, _ = read_joint_state(arm)
     resolved = [c if t is None else t for t, c in zip(targets, current, strict=True)]
@@ -428,26 +376,22 @@ def send_joint_positions(arm: XArmAPI, targets: list[Optional[float]]) -> None:
 
 def _stream_to_target(arm: XArmAPI, target: list[float]) -> None:
     """
-    Resend target to set_servo_angle_j at _STREAM_RATE_HZ until the
-    measured pose is within _SETTLE_TOLERANCE_RAD of it, or
-    _SETTLE_TIMEOUT_S elapses. The firmware advances the servo loop
-    by its per-tick step cap on every call, so streaming is what
-    actually moves the arm; a single call would stop part-way.
+    Resend target to set_servo_angle_j at _STREAM_RATE_HZ until the measured pose is within
+    _SETTLE_TOLERANCE_RAD of it, or _SETTLE_TIMEOUT_S elapses. The firmware advances the servo loop by its
+    per-tick step cap on every call, so streaming is what actually moves the arm; a single call would stop
+    part-way.
 
-    Reads the measured joint state via arm.angles (the SDK's cached
-    value updated from heartbeat reports), not via get_joint_states.
-    Earlier we suspected get_joint_states of returning the commanded
-    setpoint rather than the measured pose immediately after
-    set_servo_angle_j -- using arm.angles here side-steps that
-    ambiguity since it's populated by the controller's continuous
-    heartbeat regardless of what command we just sent.
+    Reads the measured joint state via arm.angles (the SDK's cached value updated from heartbeat reports),
+    not via get_joint_states. Earlier we suspected get_joint_states of returning the commanded setpoint
+    rather than the measured pose immediately after set_servo_angle_j -- using arm.angles here side-steps
+    that ambiguity since it's populated by the controller's continuous heartbeat regardless of what
+    command we just sent.
     """
     deadline = time.monotonic() + _SETTLE_TIMEOUT_S
     target_arr = np.asarray(target, dtype=np.float64)
     ticks = 0
-    # Streaming runs at 100 Hz; printing every tick is too chatty.
-    # Surface progress every 10th tick (~10 Hz) -- enough to see motion
-    # in real time without 500+ lines per move.
+    # Streaming runs at 100 Hz; printing every tick is too chatty. Surface progress every 10th tick (~10
+    # Hz) -- enough to see motion in real time without 500+ lines per move.
     print_every = 10
     while time.monotonic() < deadline:
         _check(arm.set_servo_angle_j(angles=target, is_radian=True), "set_servo_angle_j", arm=arm)
@@ -466,10 +410,9 @@ def _stream_to_target(arm: XArmAPI, target: list[float]) -> None:
 
 def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: float) -> None:
     """
-    Apply velocities (rad/s, length 6) for duration_s seconds, then
-    zero them. Mode 4 must already be active. The zero-out is in a
-    finally so an early Ctrl-C / exception still parks the arm
-    instead of leaving the velocity command latched.
+    Apply velocities (rad/s, length 6) for duration_s seconds, then zero them. Mode 4 must already be
+    active. The zero-out is in a finally so an early Ctrl-C / exception still parks the arm instead of
+    leaving the velocity command latched.
     """
     typer.echo(f"  velocities: {[f'{v:+0.4f}' for v in velocities]} for {duration_s:.3f} s")
     try:
@@ -489,8 +432,8 @@ def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: flo
 
 def stream_joint_state(arm: XArmAPI, hz: float, duration_s: Optional[float]) -> None:
     """
-    Print joint positions + velocities at hz Hz until either
-    duration_s elapses (if given) or Ctrl-C interrupts.
+    Print joint positions + velocities at hz Hz until either duration_s elapses (if given) or Ctrl-C
+    interrupts.
     """
     period = 1.0 / hz
     deadline = None if duration_s is None else time.monotonic() + duration_s
@@ -527,11 +470,9 @@ _IP_OPTION = typer.Option("--ip", help="Lite6 robot IP address.")
 @app.callback()
 def _main() -> None:
     """
-    Top-level callback so typer treats this as a multi-command app
-    even when only one @app.command is declared. Without it, typer
-    hoists the lone command's args to the top level (e.g. lite6_cli
-    --ip ... instead of lite6_cli stream --ip ...), which would break
-    invocations once a second experiment lands.
+    Top-level callback so typer treats this as a multi-command app even when only one @app.command is
+    declared. Without it, typer hoists the lone command's args to the top level (e.g. lite6_cli --ip ...
+    instead of lite6_cli stream --ip ...), which would break invocations once a second experiment lands.
     """
 
 
@@ -548,10 +489,9 @@ def cmd_stream(
     ] = None,
 ) -> None:
     """
-    Connect to the arm, prime it, and continuously print joint
-    positions + velocities. The arm is unprimed on exit (Ctrl-C,
-    duration elapsed, or unhandled exception) so motors are released
-    and the TCP session is closed.
+    Connect to the arm, prime it, and continuously print joint positions + velocities. The arm is unprimed
+    on exit (Ctrl-C, duration elapsed, or unhandled exception) so motors are released and the TCP session
+    is closed.
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
@@ -571,11 +511,9 @@ def cmd_probe(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Connect to the arm and dump every property the SDK exposes:
-    identity, live state, pose, calibration, limits, motor state.
-    Doesn't prime -- pure read; motors stay disabled. Anything
-    printed as "<no such attr>" or "<error: ...>" is itself a finding
-    worth recording in xarm_api.md.
+    Connect to the arm and dump every property the SDK exposes: identity, live state, pose, calibration,
+    limits, motor state. Doesn't prime -- pure read; motors stay disabled. Anything printed as
+    "<no such attr>" or "<error: ...>" is itself a finding worth recording in xarm_api.md.
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
@@ -597,18 +535,14 @@ def cmd_send_joint_positions(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Move the arm to a joint pose using mode 1 set_servo_angle_j --
-    the same SDK call Lite6Driver.write_joint_positions uses, so this
-    exercises the production code path. Any joint not specified on
-    the command line stays at its current angle, so -j6 0.5 wiggles
-    joint 6 in isolation.
+    Move the arm to a joint pose using mode 1 set_servo_angle_j -- the same SDK call
+    Lite6Driver.write_joint_positions uses, so this exercises the production code path. Any joint not
+    specified on the command line stays at its current angle, so -j6 0.5 wiggles joint 6 in isolation.
 
-    set_servo_angle_j is a streaming setpoint, not a one-shot "go to"
-    call -- the firmware advances the servo loop by a per-tick step
-    cap on each call. The CLI therefore resends the target at 100 Hz
-    until the pose lands (or 5 s elapses), matching how Kyber drives
-    the arm in production. Motion speed is firmware-bounded by
-    joint_speed_limit (pi rad/s) regardless of the requested delta.
+    set_servo_angle_j is a streaming setpoint, not a one-shot "go to" call -- the firmware advances the
+    servo loop by a per-tick step cap on each call. The CLI therefore resends the target at 100 Hz until
+    the pose lands (or 5 s elapses), matching how Kyber drives the arm in production. Motion speed is
+    firmware-bounded by joint_speed_limit (pi rad/s) regardless of the requested delta.
     """
     targets: list[Optional[float]] = [j1, j2, j3, j4, j5, j6]
     typer.echo(f"connecting to {ip}...")
@@ -638,10 +572,9 @@ def cmd_send_joint_velocities(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Apply the given joint velocity vector for --duration seconds,
-    then zero the velocity. Uses mode 4 (joint velocity). Unspecified
-    joints default to zero -- so -j6 0.3 -d 0.5 wiggles joint 6 only,
-    all others held still.
+    Apply the given joint velocity vector for --duration seconds, then zero the velocity. Uses mode 4
+    (joint velocity). Unspecified joints default to zero -- so -j6 0.3 -d 0.5 wiggles joint 6 only, all
+    others held still.
     """
     velocities = [j1, j2, j3, j4, j5, j6]
     typer.echo(f"connecting to {ip}...")
@@ -657,9 +590,8 @@ def cmd_send_joint_velocities(
         typer.echo("done.")
 
 
-# typer apps are click apps under the hood; expose the click
-# entry-point as cli so pyproject.toml's [project.scripts] can wire
-# lite6_cli to it directly (mirrors aegis_cli's pattern).
+# typer apps are click apps under the hood; expose the click entry-point as cli so pyproject.toml's
+# [project.scripts] can wire lite6_cli to it directly (mirrors aegis_cli's pattern).
 cli = typer.main.get_command(app)
 
 
