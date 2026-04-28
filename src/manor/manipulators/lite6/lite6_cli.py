@@ -123,6 +123,12 @@ _SOFT_RECOVERY_DISABLE_S = 1.0
 _PRIME_MOVE_SPEED_RAD_S = 1.0
 _PRIME_MOVE_ACC_RAD_S2 = 2.0
 
+# Maximum time to wait in _switch_mode for the heartbeat-cached arm.mode to catch up to a recent
+# set_mode call. Empirically the report rate is ~5 Hz so this only needs to cover one heartbeat
+# interval, but we leave a generous margin since wait_move bailing early on a stale arm.mode silently
+# breaks subsequent moves.
+_MODE_REPORT_SETTLE_S = 1.0
+
 
 def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     """
@@ -212,12 +218,25 @@ def _switch_mode(arm: XArmAPI, mode: int) -> None:
     Used to flip from the motion-plan position mode that prime always activates into into whatever mode
     the caller actually wants for operation, and back again on unprime.
 
+    After the swap we poll arm.mode until it reflects the new mode. arm.mode is heartbeat-cached and
+    lags the set_mode call by ~200ms, and several SDK functions (notably wait_move) check arm.mode
+    internally and bail out early if the cached value doesn't match -- e.g. a follow-up
+    set_servo_angle(wait=True) would return immediately without waiting if we don't pause for the report
+    to catch up, and the next set_state(STOP) would then cancel the un-waited motion.
+
     Idempotent through redundant STOP/READY cycling -- safe to call when we're already in the target mode
-    (which we can't reliably detect because arm.mode is heartbeat-cached and lags recent set_mode calls).
+    (the heartbeat poll just returns immediately).
     """
     _check(arm.set_state(state=_XARM_STATE_STOP), "set_state(stop)", arm=arm)
     _check(arm.set_mode(mode=mode), f"set_mode({mode})", arm=arm)
     _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)", arm=arm)
+    deadline = time.monotonic() + _MODE_REPORT_SETTLE_S
+    while time.monotonic() < deadline and arm.mode != mode:
+        time.sleep(0.05)
+    if arm.mode != mode:
+        typer.echo(
+            f"  warning: arm.mode={arm.mode} after set_mode({mode}) within {_MODE_REPORT_SETTLE_S:.1f}s; proceeding"
+        )
 
 
 def _move_to_configuration(arm: XArmAPI, configuration: Lite6JointConfiguration) -> None:
