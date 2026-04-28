@@ -56,19 +56,16 @@ _XARM_STATE_STOP = 4
 # bump per-invocation if you're scope-watching a fast motion.
 DEFAULT_STREAM_HZ = 20.0
 
-# Resend the target on each tick of _stream_to_target at this rate. The wrapper docstring for
-# set_servo_angle_j says "execute only the last instruction", so re-sending the same target is benign --
-# the firmware servoes toward it bounded by joint_speed_limit (pi rad/s, see probe). Production Kyber
-# drives this same call at ~500 Hz; 100 Hz is plenty for a one-shot CLI move.
+# Resend the target on each tick of send_joint_positions's streaming loop at this rate. The wrapper
+# docstring for set_servo_angle_j says "execute only the last instruction", so re-sending the same
+# target is benign -- the firmware servoes toward it bounded by joint_speed_limit (pi rad/s, see probe).
+# Production Kyber drives this same call at ~500 Hz; 100 Hz is plenty for a one-shot CLI move.
 _STREAM_RATE_HZ = 100.0
 _STREAM_PERIOD_S = 1.0 / _STREAM_RATE_HZ
 
-# After streaming all waypoints, poll for measured-pose convergence until either tolerance is met or this
-# timeout elapses. arm.angles updates at ~5 Hz from the SDK heartbeat (verified empirically), so
-# observations stutter; tolerance + timeout still works because the heartbeat will eventually report the
-# settled position.
+# Convergence tolerance for the streaming loop in send_joint_positions: max absolute joint-angle error
+# between arm.angles (heartbeat-cached measured pose) and the commanded target before we exit the loop.
 _SETTLE_TOLERANCE_RAD = 5e-3
-_SETTLE_TIMEOUT_S = 5.0
 
 
 # Hint text appended to the _check error when the SDK returns specific known codes. Keep these short --
@@ -371,58 +368,24 @@ def probe(arm: XArmAPI) -> None:
 
 def send_joint_positions(arm: XArmAPI, targets: list[Optional[float]]) -> None:
     """
-    Move the arm to targets via mode 1 set_servo_angle_j -- the same call Lite6Driver.write_joint_positions
-    uses, so this experiment exercises the production code path. Any None entry in targets is replaced
-    with the joint's current angle, so -j6 0.5 wiggles joint 6 in isolation.
+    Move the arm to targets via mode 1 set_servo_angle_j (the same call Lite6Driver.write_joint_positions
+    uses, so this exercises the production code path). Any None entry in targets is replaced with the
+    joint's current angle, so -j6 0.5 wiggles joint 6 in isolation.
 
-    set_servo_angle_j is a streaming setpoint, not a one-shot "go to" command: the firmware applies a
-    per-tick step cap, so a single call only progresses the servo loop by that step before settling. We
-    therefore resend the target at _STREAM_RATE_HZ until the pose lands (or _SETTLE_TIMEOUT_S elapses),
-    which mirrors what Kyber does in production -- it streams every tick with tiny per-tick deltas and the
-    firmware composes them into a continuous motion. Speed is firmware-bounded by joint_speed_limit (pi
-    rad/s) regardless of the requested delta.
+    set_servo_angle_j is a streaming setpoint, so we resend the target on every tick of a loop and only
+    return once arm.angles is within _SETTLE_TOLERANCE_RAD of the target. No timeout -- if the arm hasn't
+    converged, Ctrl-C.
     """
     current, _ = read_joint_state(arm)
     resolved = [c if t is None else t for t, c in zip(targets, current, strict=True)]
-    delta = max(abs(r - c) for r, c in zip(resolved, current, strict=True))
-    typer.echo(f"  current:   {[f'{v:+0.4f}' for v in current]}")
-    typer.echo(f"  target:    {[f'{v:+0.4f}' for v in resolved]}")
-    typer.echo(f"  max delta: {delta:.4f} rad")
-    _stream_to_target(arm, resolved)
-
-
-def _stream_to_target(arm: XArmAPI, target: list[float]) -> None:
-    """
-    Resend target to set_servo_angle_j at _STREAM_RATE_HZ until the measured pose is within
-    _SETTLE_TOLERANCE_RAD of it, or _SETTLE_TIMEOUT_S elapses. The firmware advances the servo loop by its
-    per-tick step cap on every call, so streaming is what actually moves the arm; a single call would stop
-    part-way.
-
-    Reads the measured joint state via arm.angles (the SDK's cached value updated from heartbeat reports),
-    not via get_joint_states. Earlier we suspected get_joint_states of returning the commanded setpoint
-    rather than the measured pose immediately after set_servo_angle_j -- using arm.angles here side-steps
-    that ambiguity since it's populated by the controller's continuous heartbeat regardless of what
-    command we just sent.
-    """
-    deadline = time.monotonic() + _SETTLE_TIMEOUT_S
-    target_arr = np.asarray(target, dtype=np.float64)
-    ticks = 0
-    # Streaming runs at 100 Hz; printing every tick is too chatty. Surface progress every 10th tick (~10
-    # Hz) -- enough to see motion in real time without 500+ lines per move.
-    print_every = 10
-    while time.monotonic() < deadline:
-        _check(arm.set_servo_angle_j(angles=target, is_radian=True), "set_servo_angle_j", arm=arm)
-        ticks += 1
+    target_arr = np.asarray(resolved, dtype=np.float64)
+    typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]}")
+    while True:
+        _check(arm.set_servo_angle_j(angles=resolved, is_radian=True), "set_servo_angle_j", arm=arm)
         measured = np.asarray(arm.angles, dtype=np.float64)[:LITE6_DOF]
-        diff = np.abs(measured - target_arr)
-        max_diff = float(np.max(diff))
-        if ticks % print_every == 0:
-            typer.echo(f"    tick {ticks:>3}: max_diff={max_diff:.4f} rad")
-        if max_diff <= _SETTLE_TOLERANCE_RAD:
-            typer.echo(f"  settled in {ticks} ticks ({ticks * _STREAM_PERIOD_S:.3f}s, max_diff={max_diff:.4f})")
+        if np.max(np.abs(measured - target_arr)) <= _SETTLE_TOLERANCE_RAD:
             return
         time.sleep(_STREAM_PERIOD_S)
-    typer.echo(f"  warning: pose did not settle within {_SETTLE_TIMEOUT_S:.1f}s ({ticks} ticks sent)")
 
 
 def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: float) -> None:
