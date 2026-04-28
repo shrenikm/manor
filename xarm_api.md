@@ -3,10 +3,10 @@
 Empirical notes captured while bringing up the Ufactory Lite6 against
 [`xarm-python-sdk`](https://github.com/xArm-Developer/xArm-Python-SDK)
 (installed as the `xarm` package). Each section corresponds to one
-experiment in `scripts/lite6_standalone.py`. The goal is to record
-quirks, return codes, and timing observations that aren't obvious
-from the SDK source — so we can lean on this file when wiring the
-hardware backends inside aegis.
+experiment in `src/manor/manipulators/lite6/lite6_cli.py`. The goal is
+to record quirks, return codes, and timing observations that aren't
+obvious from the SDK source — so we can lean on this file when wiring
+the hardware backends inside aegis.
 
 When something here is `TODO`, it means the experiment is written but
 hasn't been run on metal yet. When it's a fact, it's been verified.
@@ -20,7 +20,7 @@ hasn't been run on metal yet. When it's a fact, it's been verified.
   of the session.
 - `from xarm.wrapper import XArmAPI` prints `SDK_VERSION: <ver>` to
   stdout on import with no off switch — redirect stdout while loading
-  to keep our own output clean (`scripts/lite6_standalone.py` does this).
+  to keep our own output clean (`lite6_cli.py` does this).
 
 ## Activation (`prime` / `unprime`)
 
@@ -122,19 +122,107 @@ its `RuntimeError` when it sees `code=1`, so future failures surface
 with the actionable steps in the message itself.
 
 
-Sequence used by both `Lite6Driver.prime()` and `lite6_standalone.prime`:
+### Current `lite6_cli` lifecycle (verified on hardware)
 
-1. `clean_error()` — wipe any latched fault before enabling motors.
-2. `motion_enable(enable=True)` — turn motors on (audible relay click).
-3. `set_mode(mode=1)` — servo position mode (lets `set_servo_angle_j`
-   work in a streaming loop).
-4. `set_state(state=0)` — `READY`; required before motion calls.
+The `lite6_cli` prime/unprime/disconnect split below is what we
+actually run. It deliberately diverges from the older
+`Lite6Driver.prime()` sequence in a couple of places (notably: prime
+moves to a known-clear pose, and `unprime` does NOT call
+`motion_enable(False)`); the production driver should adopt these
+once we're done characterising mode 1.
 
-Inverse for shutdown:
+**`prime(mode=...)`** — bring the arm up + move to a known-clear pose:
 
-1. `set_state(state=4)` — `STOP`.
+1. `clean_warn()` + `clean_error()` — wipe any latched faults.
+2. `motion_enable(enable=True)` — energize motors (audible relay click).
+3. Sleep `_MOTION_ENABLE_SETTLE_S = 2.0 s` — servos lock onto encoder pose.
+4. `set_mode(0)` — **always** activate mode 0 (motion-plan position) so we can
+   use `set_servo_angle` for the move-to-PRIME step.
+5. `set_state(0)` — READY.
+6. Check `arm.error_code` / `arm.warn_code`; on non-zero, attempt soft
+   recovery (`motion_enable` toggle + replay) and re-check; raise with
+   power-cycle hint if still latched.
+7. `set_servo_angle(angle=PRIME, wait=True)` — move to the
+   `Lite6JointConfiguration.PRIME` pose. Done in mode 0 so we don't
+   depend on mode 1 (the call we're characterising) for safe positioning.
+8. If the caller's `mode` isn't 0, switch to it now via
+   `STOP / set_mode(mode) / READY`.
+
+**`unprime`** — return to ZERO and halt, but stay energized:
+
+1. `STOP / set_mode(0) / READY` (always; idempotent if we're already there).
+2. `set_servo_angle(angle=ZERO, wait=True)`.
+3. `set_state(STOP)`.
+
+Critically does NOT call `motion_enable(False)` or `disconnect()` —
+motors stay energized so the next prime skips the audible-click /
+encoder-relock cycle, and the TCP session stays open so we skip the
+SDK re-handshake. See "set_state vs motion_enable vs disconnect"
+below for the reasoning.
+
+**`disconnect`** — full teardown when truly done:
+
+1. `set_state(STOP)`.
 2. `motion_enable(enable=False)`.
-3. `disconnect()` — close the TCP session.
+3. `disconnect()`.
+
+Run this at end-of-session, before powering down, or when the arm
+will be idle long enough that energized servos would warm up.
+
+### `wait_move` bails out when `arm.mode` is stale (heartbeat-cached lag)
+
+**Verified by reading SDK source + reproduced on hardware.** This
+bites anyone who calls `set_servo_angle(wait=True)` shortly after a
+mode switch, and silently breaks `unprime`-style "move then stop"
+sequences. Worth understanding once.
+
+`xarm/x3/base.py:wait_move` (the function `set_servo_angle(wait=True)`
+calls internally) has this check at the top of every iteration:
+
+```python
+if self.mode != 0 and self.mode != 11:
+    return 0
+```
+
+It bails out **with success** when `arm.mode` doesn't match mode 0
+(or the rarely-used 11). The catch: `arm.mode` is updated from the
+SDK's heartbeat report (~5 Hz), so it lags the most recent
+`set_mode()` call by up to ~200 ms. So if you call:
+
+```python
+arm.set_mode(0)                                  # firmware now in mode 0
+arm.set_state(0)                                 # READY
+arm.set_servo_angle(angle=..., wait=True)        # wait_move sees stale arm.mode -> returns 0 instantly
+arm.set_state(4)                                 # cancels the just-queued motion before firmware executes it
+```
+
+…your `wait=True` becomes effectively `wait=False`, and the trailing
+`set_state(STOP)` cancels the queued trajectory.
+
+`prime()` happens to hide this: the 2 s `_MOTION_ENABLE_SETTLE_S`
+sleep before the move-to-PRIME step gives the heartbeat plenty of
+time to catch up. `unprime` had no such accidental delay, which made
+the bug surface only there.
+
+**Workaround:** poll `arm.mode` after every `set_mode()` until it
+reflects the new mode (or short timeout). `_switch_mode` in
+`lite6_cli.py` does this with `_MODE_REPORT_SETTLE_S = 1.0 s`.
+
+### `set_state(STOP)` vs `motion_enable(False)` vs `disconnect()` — the practical diff
+
+| call | what it does | reversal cost |
+| ---- | ------------ | ------------- |
+| `set_state(state=4)` (STOP) | Software state-machine flip. Halts pending motion, makes the controller reject new motion commands until READY. **Motors stay energized; brakes stay released; servos still hold position via active control.** | `set_state(0)` is essentially instant. |
+| `motion_enable(enable=False)` | Hardware-level motor de-energize. Servos lose power, mechanical brakes engage. | `motion_enable(True)` triggers the audible click + ~2 s encoder-relock on every cycle. |
+| `disconnect()` | Closes the TCP socket. **No effect on motor or controller state.** | `XArmAPI(...)` reconnects with a full SDK init handshake. |
+
+**Practical implication for tooling:** Across rapid CLI invocations,
+prefer `set_state(STOP)` over `motion_enable(False)` between
+commands — motors stay energized, no 2 s relock. Only run a full
+`STOP → motion_enable(False) → disconnect()` teardown at end of
+session (or before powering down). `lite6_cli` reflects this:
+`unprime` does only `set_state(STOP)`; the dedicated `lite6_cli
+disconnect` command does the full teardown.
 
 ### xarm mode constants
 
@@ -313,6 +401,13 @@ rejection is correlated with a fault, not with the streaming pattern.
 - A `code=1` on a move command means "state not ready right now",
   not "this target is invalid". Always check `arm.error_code` /
   `arm.warn_code` after such a failure to find the real cause.
+- **The simple convergence-poll streaming loop works on hardware.**
+  `lite6_cli send_joint_positions` is now just a single function:
+  read current → fill in `None` slots → loop calling
+  `set_servo_angle_j` at 100 Hz until `arm.angles` is within
+  `_SETTLE_TOLERANCE_RAD = 5e-3` rad of the target. No per-tick step
+  cap needed on the client side; firmware handles the velocity
+  bound. (Verified working post-`unprime` fix, 2026-04-27.)
 - TODO: behavior when target exceeds joint range — error code vs.
   silent clamp vs. fault?
 - TODO: per-call return latency — does `set_servo_angle_j` return
@@ -364,6 +459,13 @@ we own the lifetime client-side.
 
 ### Findings
 
+- **Basic flow works on hardware** (verified 2026-04-27): set the
+  velocity via `vc_set_joint_velocity(speeds=..., duration=0)`, sleep
+  for `--duration`, then send zero speeds. The arm tracks the
+  commanded velocity and stops when the zero comes through.
+- Mode-switch from mode 0 (prime's default) to mode 4 happens inside
+  `prime()` after the move-to-PRIME via `_switch_mode` — same
+  arm.mode-poll fix as everywhere else.
 - TODO: SDK `duration` parameter semantics — confirm `0` means "until
   next command" vs. some default timeout.
 - TODO: clamping vs. fault when `speeds[i]` exceeds firmware joint maxvel.
