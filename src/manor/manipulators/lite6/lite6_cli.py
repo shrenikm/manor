@@ -120,7 +120,7 @@ _SOFT_RECOVERY_DISABLE_S = 1.0
 # generation). Deliberately well below firmware ceilings (joint_speed_limit pi rad/s, joint_acc_limit 20
 # rad/s^2 from the probe) so the motion is slow enough for the operator to e-stop if anything looks wrong
 # while we're still characterising the hardware.
-_PRIME_MOVE_SPEED_RAD_S = 0.3
+_PRIME_MOVE_SPEED_RAD_S = 1.0
 _PRIME_MOVE_ACC_RAD_S2 = 2.0
 
 
@@ -248,27 +248,25 @@ def _move_to_configuration(arm: XArmAPI, configuration: Lite6JointConfiguration)
 
 def unprime(arm: XArmAPI) -> None:
     """
-    Inverse of prime: move the arm back to Lite6JointConfiguration.ZERO, stop motion, disable motors,
-    disconnect.
+    Inverse of prime: move the arm back to Lite6JointConfiguration.ZERO and flip the controller to STOP.
+    Does NOT call motion_enable(False) or disconnect -- motors stay energized so the next prime skips the
+    brake-release / encoder-relock latency, and the TCP session stays open so we skip the re-handshake.
+    Use "lite6_cli disconnect" for full teardown (stop + motor disable + session release) when you're
+    done with the session.
 
-    The move-to-ZERO step is wrapped in its own try/except so a wedged controller (e.g. recovering from a
-    fault that the operating command triggered) doesn't block motor disable + disconnect. disconnect() is
-    in the outer finally so we never leave a dangling TCP session regardless of which step failed.
+    The move-to-ZERO step is wrapped in try/except so a wedged controller (e.g. recovering from a fault
+    that the operating command triggered) doesn't block the set_state(STOP) we still want to issue.
 
     Always switches back to mode 0 first because the move uses set_servo_angle with built-in trajectory
     generation. The switch is harmless when we're already in mode 0 -- safer than checking arm.mode, which
     lags recent set_mode calls via the heartbeat cache.
     """
     try:
-        try:
-            _switch_mode(arm, mode=_XARM_MODE_POSITION)
-            _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
-        except Exception as exc:
-            typer.echo(f"  warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
-        arm.set_state(state=_XARM_STATE_STOP)
-        arm.motion_enable(enable=False)
-    finally:
-        arm.disconnect()
+        _switch_mode(arm, mode=_XARM_MODE_POSITION)
+        _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
+    except Exception as exc:
+        typer.echo(f"  warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
+    arm.set_state(state=_XARM_STATE_STOP)
 
 
 def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
@@ -517,11 +515,26 @@ def cmd_probe(
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
-    try:
-        probe(arm)
-    finally:
-        arm.disconnect()
-        typer.echo("disconnected.")
+    probe(arm)
+
+
+@app.command("disconnect")
+def cmd_disconnect(
+    ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
+) -> None:
+    """
+    Full teardown: set_state(STOP), motion_enable(False), disconnect. Other commands deliberately leave
+    motors energized + session open after returning so the next prime skips the brake-release /
+    encoder-relock latency we see when motion_enable cycles -- run this when you're done with the session
+    (or before powering down or handing the arm off). Note: leaving motors energized between commands
+    burns a bit of power and warms the servos over time, so end of session = run this.
+    """
+    typer.echo(f"connecting to {ip}...")
+    arm = XArmAPI(port=ip, is_radian=True)
+    arm.set_state(state=_XARM_STATE_STOP)
+    arm.motion_enable(enable=False)
+    arm.disconnect()
+    typer.echo("disconnected (motors disabled, session released).")
 
 
 @app.command("send_joint_positions")
