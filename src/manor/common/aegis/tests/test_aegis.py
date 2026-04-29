@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 
 import attr
+import numpy as np
 import pytest
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram
@@ -34,7 +35,7 @@ from manor.common.aegis.helios.helios import HeliosConfig
 from manor.common.aegis.kyber.controllers.zero_velocity_controller import ZeroVelocityControllerConfig
 from manor.common.aegis.kyber.kyber import KyberConfig
 from manor.common.aegis.metis.metis import MetisConfig
-from manor.common.aegis.metis.policies.zero_velocity_policy import ZeroVelocityPolicyConfig
+from manor.common.aegis.metis.policies.constant_policies import ConstantJointVelocitiesPolicyConfig
 from manor.common.aegis.mode import AegisMode
 from manor.common.aegis.talos.talos import TalosConfig
 from manor.common.exceptions import AegisConfigError
@@ -46,7 +47,7 @@ from manor.manipulators.lite6.variant import Lite6Variant
 def _fast_metis_config() -> MetisConfig:
     return MetisConfig(
         publish_frequency_hz=10.0,
-        policy_config=ZeroVelocityPolicyConfig(num_joints=LITE6_ARM_DOF),
+        policy_config=ConstantJointVelocitiesPolicyConfig(velocities=np.zeros(LITE6_ARM_DOF, dtype=np.float64)),
     )
 
 
@@ -131,7 +132,10 @@ def _full_yaml_dict(mode: str = "sim") -> dict:
         "manipulator_model": {"type": "lite6", "variant": "parallel_gripper_normal"},
         "metis_config": {
             "publish_frequency_hz": 10.0,
-            "policy_config": {"type": "zero_velocity", "num_joints": LITE6_ARM_DOF},
+            "policy_config": {
+                "type": "constant_joint_velocities",
+                "velocities": [0.0] * LITE6_ARM_DOF,
+            },
         },
         "kyber_config": {
             "publish_frequency_hz": 50.0,
@@ -149,7 +153,7 @@ class TestAegisYamlDict:
     def test_full_round_trip_sim(self) -> None:
         config = AegisConfig.from_yaml_dict(_full_yaml_dict(mode="sim"))
         assert config.mode is AegisMode.SIM
-        assert isinstance(config.metis_config.policy_config, ZeroVelocityPolicyConfig)
+        assert isinstance(config.metis_config.policy_config, ConstantJointVelocitiesPolicyConfig)
         assert isinstance(config.kyber_config.controller_config, ZeroVelocityControllerConfig)
         # Required blocks are now always populated; inner fields default cleanly.
         assert isinstance(config.environment_config, EnvironmentConfig)

@@ -11,15 +11,17 @@ from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
 from manor.common.aegis.metis.metis import Metis, MetisConfig, MetisPorts
+from manor.common.aegis.metis.policies.constant_policies import (
+    ConstantJointPositionsPolicy,
+    ConstantJointPositionsPolicyConfig,
+    ConstantJointVelocitiesPolicy,
+    ConstantJointVelocitiesPolicyConfig,
+)
 from manor.common.aegis.metis.policies.identity_policy import IdentityPolicy, IdentityPolicyConfig
 from manor.common.aegis.metis.policies.policy_manager import (
     MetisPolicy,
     MetisPolicyManager,
     MetisPolicyType,
-)
-from manor.common.aegis.metis.policies.zero_velocity_policy import (
-    ZeroVelocityPolicy,
-    ZeroVelocityPolicyConfig,
 )
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
@@ -130,57 +132,131 @@ class TestIdentityPolicy:
         assert action.joint_positions.positions.shape == (4,)
 
 
-class TestZeroVelocityPolicy:
+class TestConstantJointPositionsPolicy:
     def test_is_a_policy(self) -> None:
-        assert isinstance(ZeroVelocityPolicy(), MetisPolicy)
+        assert isinstance(ConstantJointPositionsPolicy(positions=np.zeros(6)), MetisPolicy)
 
-    def test_emits_zero_velocity_sized_to_proprioception(self) -> None:
-        policy = ZeroVelocityPolicy()
-        positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64)
-        observation = Observation(
+    def test_emits_constant_positions_irrespective_of_observation(self) -> None:
+        target = np.array([0.1, -0.2, 0.3, 0.0, 0.5, -0.4], dtype=np.float64)
+        policy = ConstantJointPositionsPolicy(positions=target)
+
+        observed = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64)
+        observation_with = Observation(
             header=TimestampHeader(monotonic_ns=1, system_ns=2),
-            proprioception=_make_proprioception(positions),
+            proprioception=_make_proprioception(observed),
         )
-        action = policy.step(observation)
-        assert action.joint_velocities is not None
-        np.testing.assert_array_equal(action.joint_velocities.velocities, np.zeros(5))
+        observation_without = Observation(header=TimestampHeader(monotonic_ns=3, system_ns=4))
 
-    def test_emits_zero_velocity_using_num_joints_without_proprioception(self) -> None:
-        policy = ZeroVelocityPolicy(num_joints=6)
-        observation = Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2))
-        action = policy.step(observation)
+        for observation in (observation_with, observation_without):
+            action = policy.step(observation)
+            assert action.joint_positions is not None
+            np.testing.assert_array_equal(action.joint_positions.positions, target)
+
+    def test_action_does_not_alias_config_array(self) -> None:
+        target = np.array([0.1, 0.2, 0.3], dtype=np.float64)
+        policy = ConstantJointPositionsPolicy(positions=target)
+        action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
+        assert action.joint_positions is not None
+        action.joint_positions.positions[0] = 99.0
+        assert policy.positions[0] == 0.1
+
+
+class TestConstantJointVelocitiesPolicy:
+    def test_is_a_policy(self) -> None:
+        assert isinstance(ConstantJointVelocitiesPolicy(velocities=np.zeros(6)), MetisPolicy)
+
+    def test_emits_constant_velocities_irrespective_of_observation(self) -> None:
+        target = np.array([0.05, -0.1, 0.2, 0.0, -0.3, 0.15], dtype=np.float64)
+        policy = ConstantJointVelocitiesPolicy(velocities=target)
+
+        observed = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64)
+        observation_with = Observation(
+            header=TimestampHeader(monotonic_ns=1, system_ns=2),
+            proprioception=_make_proprioception(observed),
+        )
+        observation_without = Observation(header=TimestampHeader(monotonic_ns=3, system_ns=4))
+
+        for observation in (observation_with, observation_without):
+            action = policy.step(observation)
+            assert action.joint_velocities is not None
+            np.testing.assert_array_equal(action.joint_velocities.velocities, target)
+
+    def test_zero_velocities_special_case(self) -> None:
+        policy = ConstantJointVelocitiesPolicy(velocities=np.zeros(6, dtype=np.float64))
+        action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
         assert action.joint_velocities is not None
         np.testing.assert_array_equal(action.joint_velocities.velocities, np.zeros(6))
 
+    def test_action_does_not_alias_config_array(self) -> None:
+        target = np.array([0.1, 0.2, 0.3], dtype=np.float64)
+        policy = ConstantJointVelocitiesPolicy(velocities=target)
+        action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
+        assert action.joint_velocities is not None
+        action.joint_velocities.velocities[0] = 99.0
+        assert policy.velocities[0] == 0.1
+
 
 class TestMetisPolicyConfigs:
-    def test_zero_velocity_config_pins_enum(self) -> None:
-        assert ZeroVelocityPolicyConfig.POLICY_TYPE is MetisPolicyType.ZERO_VELOCITY
-
     def test_identity_config_pins_enum(self) -> None:
         assert IdentityPolicyConfig.POLICY_TYPE is MetisPolicyType.IDENTITY
 
+    def test_constant_joint_positions_config_pins_enum(self) -> None:
+        assert ConstantJointPositionsPolicyConfig.POLICY_TYPE is MetisPolicyType.CONSTANT_JOINT_POSITIONS
+
+    def test_constant_joint_velocities_config_pins_enum(self) -> None:
+        assert ConstantJointVelocitiesPolicyConfig.POLICY_TYPE is MetisPolicyType.CONSTANT_JOINT_VELOCITIES
+
 
 class TestMetisPolicyManager:
-    def test_from_config_zero_velocity(self) -> None:
-        policy = MetisPolicyManager.from_config(ZeroVelocityPolicyConfig(num_joints=6))
-        assert isinstance(policy, ZeroVelocityPolicy)
-        assert policy.num_joints == 6
-
     def test_from_config_identity(self) -> None:
         policy = MetisPolicyManager.from_config(IdentityPolicyConfig(num_joints=3))
         assert isinstance(policy, IdentityPolicy)
         assert policy.num_joints == 3
 
-    def test_config_from_yaml_dict_zero_velocity(self) -> None:
-        config = MetisPolicyManager.config_from_yaml_dict({"type": "zero_velocity", "num_joints": 6})
-        assert isinstance(config, ZeroVelocityPolicyConfig)
-        assert config.num_joints == 6
+    def test_from_config_constant_joint_positions(self) -> None:
+        target = np.array([0.0, 0.5, -0.5, 1.0, 0.1, 0.2], dtype=np.float64)
+        policy = MetisPolicyManager.from_config(ConstantJointPositionsPolicyConfig(positions=target))
+        assert isinstance(policy, ConstantJointPositionsPolicy)
+        np.testing.assert_array_equal(policy.positions, target)
+
+    def test_from_config_constant_joint_velocities(self) -> None:
+        target = np.array([0.0, 0.1, -0.1, 0.05, -0.05, 0.0], dtype=np.float64)
+        policy = MetisPolicyManager.from_config(ConstantJointVelocitiesPolicyConfig(velocities=target))
+        assert isinstance(policy, ConstantJointVelocitiesPolicy)
+        np.testing.assert_array_equal(policy.velocities, target)
 
     def test_config_from_yaml_dict_identity(self) -> None:
         config = MetisPolicyManager.config_from_yaml_dict({"type": "identity", "num_joints": 4})
         assert isinstance(config, IdentityPolicyConfig)
         assert config.num_joints == 4
+
+    def test_config_from_yaml_dict_constant_joint_positions(self) -> None:
+        config = MetisPolicyManager.config_from_yaml_dict(
+            {"type": "constant_joint_positions", "positions": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]}
+        )
+        assert isinstance(config, ConstantJointPositionsPolicyConfig)
+        np.testing.assert_array_equal(config.positions, np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64))
+
+    def test_config_from_yaml_dict_constant_joint_positions_rejects_empty_list(self) -> None:
+        with pytest.raises(AegisConfigError):
+            MetisPolicyManager.config_from_yaml_dict({"type": "constant_joint_positions", "positions": []})
+
+    def test_config_from_yaml_dict_constant_joint_positions_rejects_non_numeric_entry(self) -> None:
+        with pytest.raises(AegisConfigError):
+            MetisPolicyManager.config_from_yaml_dict(
+                {"type": "constant_joint_positions", "positions": [0.0, "oops", 0.2]}
+            )
+
+    def test_config_from_yaml_dict_constant_joint_velocities(self) -> None:
+        config = MetisPolicyManager.config_from_yaml_dict(
+            {"type": "constant_joint_velocities", "velocities": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+        )
+        assert isinstance(config, ConstantJointVelocitiesPolicyConfig)
+        np.testing.assert_array_equal(config.velocities, np.zeros(6, dtype=np.float64))
+
+    def test_config_from_yaml_dict_constant_joint_velocities_rejects_empty_list(self) -> None:
+        with pytest.raises(AegisConfigError):
+            MetisPolicyManager.config_from_yaml_dict({"type": "constant_joint_velocities", "velocities": []})
 
     def test_config_from_yaml_dict_rejects_missing_type(self) -> None:
         with pytest.raises(AegisConfigError):
@@ -192,17 +268,17 @@ class TestMetisPolicyManager:
 
     def test_config_from_yaml_dict_rejects_unknown_keys(self) -> None:
         with pytest.raises(AegisConfigError):
-            MetisPolicyManager.config_from_yaml_dict({"type": "zero_velocity", "garbage": 7})
+            MetisPolicyManager.config_from_yaml_dict({"type": "identity", "garbage": 7})
 
 
 class TestMetisConfigYaml:
     def test_round_trips_minimal_block(self) -> None:
         config = MetisConfig.from_yaml_dict(
             {
-                "policy_config": {"type": "zero_velocity", "num_joints": 6},
+                "policy_config": {"type": "constant_joint_velocities", "velocities": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
             }
         )
-        assert isinstance(config.policy_config, ZeroVelocityPolicyConfig)
+        assert isinstance(config.policy_config, ConstantJointVelocitiesPolicyConfig)
         assert config.publish_frequency_hz == 10.0
 
     def test_round_trips_full_block(self) -> None:
@@ -224,7 +300,7 @@ class TestMetisConfigYaml:
         with pytest.raises(AegisConfigError):
             MetisConfig.from_yaml_dict(
                 {
-                    "policy_config": {"type": "zero_velocity", "num_joints": 6},
+                    "policy_config": {"type": "identity", "num_joints": 6},
                     "extra": True,
                 }
             )

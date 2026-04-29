@@ -267,10 +267,11 @@ tag used in YAML).
 
 Currently shipped:
 
-| `MetisPolicyType` | what it does                                                |
-| ----------------- | ----------------------------------------------------------- |
-| `zero_velocity`   | emits a zero joint-velocity action regardless of input.     |
-| `identity`        | mirrors the measured joint positions back as a joint-position action. |
+| `MetisPolicyType`            | what it does                                                          |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `identity`                   | mirrors the measured joint positions back as a joint-position action. |
+| `constant_joint_positions`   | emits a fixed joint-position action regardless of input.              |
+| `constant_joint_velocities`  | emits a fixed joint-velocity action regardless of input (an all-zero `velocities` recovers the previous zero-velocity bring-up default). |
 
 ### KyberController
 
@@ -362,7 +363,7 @@ talos_config:
   hardware_backend_config: {}
 metis_config:
   publish_frequency_hz: 10.0
-  policy_config: { type: zero_velocity, num_joints: 6 }
+  policy_config: { type: constant_joint_positions, positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0] }
 kyber_config:
   publish_frequency_hz: 500.0
   controller_config: { type: zero_velocity, num_dof: 6 }

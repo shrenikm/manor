@@ -42,8 +42,11 @@ talos_config:
 metis_config:
   publish_frequency_hz: 10.0
   policy_config:
-    type: zero_velocity
-    num_joints: 6
+    # Constant target matches Lite6JointConfiguration.PRIME so the sim
+    # exercises a non-trivial joint-position action through the full
+    # metis -> kyber -> talos -> gaia path.
+    type: constant_joint_positions
+    positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0]
 
 kyber_config:
   publish_frequency_hz: 500.0

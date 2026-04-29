@@ -43,8 +43,9 @@ class MetisPolicyType(StrEnum):
     the ``policy_config`` block of an aegis YAML.
     """
 
-    ZERO_VELOCITY = "zero_velocity"
     IDENTITY = "identity"
+    CONSTANT_JOINT_POSITIONS = "constant_joint_positions"
+    CONSTANT_JOINT_VELOCITIES = "constant_joint_velocities"
 
 
 @runtime_checkable
@@ -103,16 +104,20 @@ class MetisPolicyManager:
         config's runtime type (which is itself anchored to
         ``POLICY_TYPE``).
         """
-        from manor.common.aegis.metis.policies.identity_policy import IdentityPolicy, IdentityPolicyConfig
-        from manor.common.aegis.metis.policies.zero_velocity_policy import (
-            ZeroVelocityPolicy,
-            ZeroVelocityPolicyConfig,
+        from manor.common.aegis.metis.policies.constant_policies import (
+            ConstantJointPositionsPolicy,
+            ConstantJointPositionsPolicyConfig,
+            ConstantJointVelocitiesPolicy,
+            ConstantJointVelocitiesPolicyConfig,
         )
+        from manor.common.aegis.metis.policies.identity_policy import IdentityPolicy, IdentityPolicyConfig
 
-        if isinstance(config, ZeroVelocityPolicyConfig):
-            return ZeroVelocityPolicy(num_joints=config.num_joints)
         if isinstance(config, IdentityPolicyConfig):
             return IdentityPolicy(num_joints=config.num_joints)
+        if isinstance(config, ConstantJointPositionsPolicyConfig):
+            return ConstantJointPositionsPolicy(positions=config.positions)
+        if isinstance(config, ConstantJointVelocitiesPolicyConfig):
+            return ConstantJointVelocitiesPolicy(velocities=config.velocities)
         raise AegisConfigError(f"Unknown policy config type: {type(config).__name__}")
 
     @classmethod
@@ -124,8 +129,11 @@ class MetisPolicyManager:
         values; the rest of the block is forwarded to that subclass's
         ``from_yaml_dict``.
         """
+        from manor.common.aegis.metis.policies.constant_policies import (
+            ConstantJointPositionsPolicyConfig,
+            ConstantJointVelocitiesPolicyConfig,
+        )
         from manor.common.aegis.metis.policies.identity_policy import IdentityPolicyConfig
-        from manor.common.aegis.metis.policies.zero_velocity_policy import ZeroVelocityPolicyConfig
 
         if not isinstance(raw, dict):
             raise AegisConfigError(f"policy_config must be a mapping; got {type(raw).__name__}")
@@ -141,8 +149,10 @@ class MetisPolicyManager:
             ) from e
 
         body = {k: v for k, v in raw.items() if k != _POLICY_TYPE_YAML_KEY}
-        if policy_type is MetisPolicyType.ZERO_VELOCITY:
-            return ZeroVelocityPolicyConfig.from_yaml_dict(body)
         if policy_type is MetisPolicyType.IDENTITY:
             return IdentityPolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.CONSTANT_JOINT_POSITIONS:
+            return ConstantJointPositionsPolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.CONSTANT_JOINT_VELOCITIES:
+            return ConstantJointVelocitiesPolicyConfig.from_yaml_dict(body)
         raise AegisConfigError(f"No config parser registered for policy type {policy_type!r}")
