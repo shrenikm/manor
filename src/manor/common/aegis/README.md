@@ -233,6 +233,17 @@ Gaia is the simulated world. Used in sim mode only.
   `apply_joint_position_command` / `apply_joint_velocity_command`,
   `read_joint_state`, `set_joint_positions`, `render_rgb`,
   `render_depth`.
+- **Tracking controller.** Gaia wires an `InverseDynamicsController`
+  on the manipulator's actuation port, fed by an internal
+  `_DesiredStateSource` that builds `(q_des, v_des)` from the latest
+  stashed command + the plant's measured state. Mapping rules: a
+  velocity command sets `v_des[arm] = command_v` (with
+  `q_des = q_measured`); a position command sets
+  `q_des[arm] = command_q` (with `v_des = 0`); no command yet → hold
+  measured pose. **Velocity command takes priority over position
+  command** when both have been stashed -- matches the deprecated
+  `Lite6PliantMultiplexer`. Gripper joints are always held at their
+  measured pose; gripper actuation isn't routed through Gaia yet.
 - **Plant time step:** `0.0` by default (continuous-time integration);
   set `gaia_config.time_step` to a small positive value for discrete
   integration (faster, slightly less accurate).
@@ -358,7 +369,7 @@ helios_config:
   sim_backend_config:      { camera_id: default }
   hardware_backend_config: { serial_number: "", rgb_height: 480, ... }
 talos_config:
-  publish_frequency_hz: 200.0
+  publish_frequency_hz: 100.0
   sim_backend_config: {}
   hardware_backend_config: {}
 metis_config:
@@ -366,7 +377,7 @@ metis_config:
   policy_config: { type: constant_joint_positions, positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0] }
 kyber_config:
   publish_frequency_hz: 500.0
-  controller_config: { type: zero_velocity, num_dof: 6 }
+  controller_config: { type: passthrough, num_dof: 6 }
 gaia_config:
   time_step: 0.0
   enable_meshcat: true
@@ -376,7 +387,7 @@ gaia_config:
   depth_height: 480
   depth_width: 640
 gaia_advancer_config:
-  advance_frequency_hz: 500.0
+  advance_frequency_hz: 100.0
 ```
 
 Top-level keys map 1:1 to attrs fields on `AegisConfig`; sub-blocks
@@ -539,7 +550,7 @@ You should see:
 - `AEGIS_RGB_IMAGE` / `AEGIS_DEPTH_IMAGE` — helios publishing (via gylos in sim, helios process on hw).
 
 Counts are typically below the configured frequencies because gylos
-runs slightly below realtime (lots of periodic events plus continuous
+runs slightly below realtime (kyber at 500 Hz + IDC + continuous-time
 integration); the wiring is correct as long as every channel fires at
 least once.
 
@@ -555,12 +566,6 @@ runner imports, CLI commands). The CLI tests sandbox PID files into a
 
 ## Caveats / known limits
 
-- **The arm doesn't move on command yet.** `Gaia.apply_joint_*_command`
-  stashes the latest command but the plant's actuation port is force-
-  fixed to zero. The pipeline ticks correctly end-to-end; the visible
-  behaviour is the arm sitting (or drooping under gravity, depending on
-  the URDF). Wiring a tracking controller into Gaia is the obvious next
-  milestone.
 - **Talos's EEF FK is stubbed.** `_compute_eef_pose` /
   `_compute_eef_twist` return identity / zeros. Doesn't affect the
   pipeline; just means downstream consumers of EEF state get
@@ -569,7 +574,18 @@ runner imports, CLI commands). The CLI tests sandbox PID files into a
   via Drake's `RgbdSensor` and the real-camera SDK paths are both
   stubbed; the channels publish at the configured rates but the
   payloads are placeholder images.
+- **Gripper isn't independently commanded in sim.** Gaia's
+  `_DesiredStateSource` only routes the arm DOFs of a position /
+  velocity command into the IDC's desired state; gripper joints are
+  always held at their measured pose. Sending an EEF-space action
+  drops the EEF intent silently in `SimManipulatorBackend.send_command`.
 - **gylos runs below realtime.** kyber at 500 Hz + helios at 30 Hz +
-  gaia advancer at 500 Hz + continuous-time integration adds up.
-  Switching `gaia_config.time_step` to a small discrete value (e.g.
-  `0.001`) speeds it up at the cost of integration accuracy.
+  gaia advancer + continuous-time integration adds up. Switching
+  `gaia_config.time_step` to a small discrete value (e.g. `0.001`)
+  speeds it up at the cost of integration accuracy. Lowering
+  `gaia_advancer_config.advance_frequency_hz` (default `100.0` in the
+  bundled YAML) also helps.
+- **REPL config is pinned at session start.** `aegis repl` parses the
+  YAML once and reuses that snapshot for every `run` issued inside
+  the session; editing the YAML mid-session has no effect until you
+  exit and restart the REPL.
