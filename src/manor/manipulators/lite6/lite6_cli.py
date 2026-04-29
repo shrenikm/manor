@@ -44,6 +44,7 @@ LITE6_DOF = 6
 # side).
 _XARM_MODE_POSITION = 0  # motion-plan position (set_servo_angle, set_position)
 _XARM_MODE_SERVO_POSITION = 1  # low-latency joint streaming (set_servo_angle_j)
+_XARM_MODE_MANUAL = 2  # joint teaching / manual drag (motors gravity-compensate; user drags by hand)
 _XARM_MODE_VELOCITY = 4  # joint velocity (vc_set_joint_velocity)
 
 # xarm SDK state constants:
@@ -517,6 +518,40 @@ def cmd_disconnect(
     arm.motion_enable(enable=False)
     arm.disconnect()
     typer.echo("disconnected (motors disabled, session released).")
+
+
+@app.command("manual")
+def cmd_manual(
+    ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
+) -> None:
+    """
+    Enter joint teaching (manual drag) mode: motors stay energized but gravity-compensate, so you can
+    physically push / pull the arm into any pose by hand. Ctrl-C exits and switches back to mode 0 with
+    motors still energized so the arm holds the new pose. Useful for inspecting connections,
+    photographing the arm at specific poses, or scouting good operational poses to bake into
+    Lite6JointConfiguration.
+
+    Does NOT call prime() (no auto-move to PRIME) -- the whole point is to leave the arm where it
+    currently is and let the operator move it. Run lite6_cli disconnect afterward for full teardown if
+    you're done with the session.
+    """
+    typer.echo(f"connecting to {ip}...")
+    arm = XArmAPI(port=ip, is_radian=True)
+    typer.echo("activating motors and entering manual mode...")
+    _check(arm.clean_warn(), "clean_warn", arm=arm)
+    _check(arm.clean_error(), "clean_error", arm=arm)
+    _check(arm.motion_enable(enable=True), "motion_enable", arm=arm)
+    time.sleep(_MOTION_ENABLE_SETTLE_S)
+    _switch_mode(arm, mode=_XARM_MODE_MANUAL)
+    typer.echo("manual mode active. drag the arm freely. press Ctrl-C when done.")
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        typer.echo("\nexiting manual mode...")
+    finally:
+        _switch_mode(arm, mode=_XARM_MODE_POSITION)
+        typer.echo("done. (motors still energized; run 'lite6_cli disconnect' for full teardown)")
 
 
 @app.command("send_joint_positions")
