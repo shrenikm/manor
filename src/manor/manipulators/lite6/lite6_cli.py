@@ -444,6 +444,7 @@ def stream_joint_state(arm: XArmAPI, hz: float, duration_s: Optional[float]) -> 
 app = typer.Typer(
     add_completion=False,
     help="Standalone hardware experiments against the Lite6 over xarm-python-sdk.",
+    no_args_is_help=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
