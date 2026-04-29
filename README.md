@@ -27,13 +27,4 @@ pytest src/ -v
 
 ## Project Layout
 
-```
-src/manor/           # Main package
-  common/            # Shared utilities, types, exceptions, control abstractions
-  lite6/             # Lite6 manipulator code (pliant control, systems, utilities)
-  analysis/          # Analysis and choreography tools
-  inspection/        # Visualization and debugging scripts
-  algorithms/        # Manipulation algorithm implementations
-models/              # URDF/SDF files for environments and objects
-robot_models/        # Git submodule with Lite6 robot description files
-```
+# TODO
