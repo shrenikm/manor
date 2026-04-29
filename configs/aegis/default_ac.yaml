@@ -1,11 +1,3 @@
-# Canonical aegis config: Lite6 (parallel-gripper, normal trim) running
-# in sim mode against the bundled lite6_table environment, with
-# zero-velocity policy + zero-velocity controller as the bring-up
-# default. Treat this file as the round-trip reference for the
-# AegisConfig YAML schema -- top-level keys match the attrs field
-# names of AegisConfig so adding a new field means adding a new key
-# here too.
-
 mode: sim
 
 manipulator_model:
@@ -42,23 +34,16 @@ talos_config:
 metis_config:
   publish_frequency_hz: 10.0
   policy_config:
-    # Constant target matches Lite6JointConfiguration.PRIME so the sim
-    # exercises a non-trivial joint-position action through the full
-    # metis -> kyber -> talos -> gaia path.
     type: constant_joint_positions
     positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0]
 
 kyber_config:
   publish_frequency_hz: 500.0
   controller_config:
-    type: zero_velocity
+    type: passthrough
     num_dof: 6
 
 gaia_config:
-  # Continuous-time integration: discrete-time TAMSI diverges on the
-  # current unactuated stub plant under gravity. Performance comes
-  # from the loose-tolerance integrator config in Gaia.finalize, not
-  # from this knob.
   time_step: 0.0
   enable_meshcat: true
   target_realtime_rate: 1.0
@@ -68,8 +53,4 @@ gaia_config:
   depth_width: 640
 
 gaia_advancer_config:
-  # 100 Hz is plenty: meshcat re-renders at ~64 Hz internally, talos
-  # polls at 200 Hz against whatever-the-latest-gaia-state-is, and
-  # the integration cost lives in time_step (above) regardless of how
-  # often we ask for an advance.
   advance_frequency_hz: 100.0
