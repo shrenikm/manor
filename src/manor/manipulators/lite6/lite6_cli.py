@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import io
 import time
+from enum import IntEnum
 from typing import Annotated, Optional
 
 import numpy as np
@@ -40,33 +41,39 @@ DEFAULT_IP = "192.168.1.178"
 # slice down to this many.
 LITE6_DOF = 6
 
-# xarm SDK mode constants (see xarm/wrapper/xarm_api.py and manor.manipulators.lite6.driver for the manor
-# side).
-_XARM_MODE_POSITION = 0  # motion-plan position (set_servo_angle, set_position)
-_XARM_MODE_SERVO_POSITION = 1  # low-latency joint streaming (set_servo_angle_j)
-_XARM_MODE_MANUAL = 2  # joint teaching / manual drag (motors gravity-compensate; user drags by hand)
-_XARM_MODE_VELOCITY = 4  # joint velocity (vc_set_joint_velocity)
 
-# xarm SDK state constants:
-#   0 - READY
-#   4 - STOP
-_XARM_STATE_READY = 0
-_XARM_STATE_STOP = 4
+class XArmMode(IntEnum):
+    """
+    xarm SDK mode constants (see xarm/wrapper/xarm_api.py and manor.manipulators.lite6.driver for the
+    manor side).
+    """
+
+    POSITION = 0  # motion-plan position (set_servo_angle, set_position)
+    SERVO_POSITION = 1  # low-latency joint streaming (set_servo_angle_j)
+    MANUAL = 2  # joint teaching / manual drag (motors gravity-compensate; user drags by hand)
+    VELOCITY = 4  # joint velocity (vc_set_joint_velocity)
+
+
+class XArmState(IntEnum):
+    """
+    xarm SDK state constants -- the small subset we actually use from this CLI.
+    """
+
+    READY = 0
+    STOP = 4
+
 
 # Default streaming rate for the joint-state dump experiment. Slow enough that the terminal can keep up;
 # bump per-invocation if you're scope-watching a fast motion.
 DEFAULT_STREAM_HZ = 20.0
 
-# Resend the target on each tick of send_joint_positions's streaming loop at this rate. The wrapper
-# docstring for set_servo_angle_j says "execute only the last instruction", so re-sending the same
-# target is benign -- the firmware servoes toward it bounded by joint_speed_limit (pi rad/s, see probe).
-# Production Kyber drives this same call at ~500 Hz; 100 Hz is plenty for a one-shot CLI move.
-_STREAM_RATE_HZ = 100.0
-_STREAM_PERIOD_S = 1.0 / _STREAM_RATE_HZ
-
-# Convergence tolerance for the streaming loop in send_joint_positions: max absolute joint-angle error
-# between arm.angles (heartbeat-cached measured pose) and the commanded target before we exit the loop.
+# Convergence tolerance for send_joint_positions: max absolute joint-angle error between arm.angles
+# (heartbeat-cached measured pose) and the commanded target before we exit the convergence-poll loop.
 _SETTLE_TOLERANCE_RAD = 5e-3
+
+# Polling period for the convergence-poll loop in send_joint_positions. arm.angles updates at the
+# heartbeat rate (~5 Hz), so anything finer than ~50 ms is wasted work.
+_CONVERGE_POLL_PERIOD_S = 0.05
 
 
 # Hint text appended to the _check error when the SDK returns specific known codes. Keep these short --
@@ -128,7 +135,7 @@ _PRIME_MOVE_ACC_RAD_S2 = 2.0
 _MODE_REPORT_SETTLE_S = 1.0
 
 
-def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
+def prime(arm: XArmAPI, mode: XArmMode = XArmMode.SERVO_POSITION) -> None:
     """
     Bring the arm into a state where reads + writes work, then move it to a known-clear operational pose
     (Lite6JointConfiguration.PRIME).
@@ -159,13 +166,13 @@ def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
     """
     # Always activate in mode 0 (motion-plan position) so step 7 can use set_servo_angle for the move to
     # PRIME. Modes 1 and 4 get switched in at step 8 if that's what the caller asked for.
-    _run_prime_sequence(arm, mode=_XARM_MODE_POSITION)
+    _run_prime_sequence(arm, mode=XArmMode.POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         typer.echo(
             f"  prime caught error_code={arm.error_code}, warn_code={arm.warn_code}; "
             f"attempting soft recovery (motion_enable off/on cycle)..."
         )
-        _try_soft_recover(arm, mode=_XARM_MODE_POSITION)
+        _try_soft_recover(arm, mode=XArmMode.POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         raise RuntimeError(
             f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} after prime + soft "
@@ -176,12 +183,12 @@ def prime(arm: XArmAPI, mode: int = _XARM_MODE_SERVO_POSITION) -> None:
 
     _move_to_configuration(arm, Lite6JointConfiguration.PRIME)
 
-    if mode != _XARM_MODE_POSITION:
-        typer.echo(f"  switching from mode {_XARM_MODE_POSITION} to mode {mode}...")
+    if mode != XArmMode.POSITION:
+        typer.echo(f"  switching from mode {XArmMode.POSITION} to mode {mode}...")
         _switch_mode(arm, mode=mode)
 
 
-def _run_prime_sequence(arm: XArmAPI, mode: int) -> None:
+def _run_prime_sequence(arm: XArmAPI, mode: XArmMode) -> None:
     """
     The five-step prime call sequence, factored out so soft recovery can replay it after a motion_enable
     toggle. Each step is checked via _check, so a controller-level failure surfaces immediately;
@@ -192,10 +199,10 @@ def _run_prime_sequence(arm: XArmAPI, mode: int) -> None:
     _check(arm.motion_enable(enable=True), "motion_enable", arm=arm)
     time.sleep(_MOTION_ENABLE_SETTLE_S)
     _check(arm.set_mode(mode=mode), f"set_mode({mode})", arm=arm)
-    _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)", arm=arm)
+    _check(arm.set_state(state=XArmState.READY), "set_state(ready)", arm=arm)
 
 
-def _try_soft_recover(arm: XArmAPI, mode: int) -> None:
+def _try_soft_recover(arm: XArmAPI, mode: XArmMode) -> None:
     """
     Re-cycle motion_enable off-then-on to clear servo-level errors that survive clean_error / clean_warn.
     Best-effort -- we don't _check the intermediate calls because they may legitimately fail mid-recovery;
@@ -209,7 +216,7 @@ def _try_soft_recover(arm: XArmAPI, mode: int) -> None:
     _run_prime_sequence(arm, mode=mode)
 
 
-def _switch_mode(arm: XArmAPI, mode: int) -> None:
+def _switch_mode(arm: XArmAPI, mode: XArmMode) -> None:
     """
     Change the active control mode mid-session. The xArm controller requires going through STOP state to
     swap modes; the trio set_state(STOP), set_mode(<new>), set_state(READY) is the canonical sequence.
@@ -225,9 +232,9 @@ def _switch_mode(arm: XArmAPI, mode: int) -> None:
     Idempotent through redundant STOP/READY cycling -- safe to call when we're already in the target mode
     (the heartbeat poll just returns immediately).
     """
-    _check(arm.set_state(state=_XARM_STATE_STOP), "set_state(stop)", arm=arm)
+    _check(arm.set_state(state=XArmState.STOP), "set_state(stop)", arm=arm)
     _check(arm.set_mode(mode=mode), f"set_mode({mode})", arm=arm)
-    _check(arm.set_state(state=_XARM_STATE_READY), "set_state(ready)", arm=arm)
+    _check(arm.set_state(state=XArmState.READY), "set_state(ready)", arm=arm)
     deadline = time.monotonic() + _MODE_REPORT_SETTLE_S
     while time.monotonic() < deadline and arm.mode != mode:
         time.sleep(0.05)
@@ -279,11 +286,11 @@ def unprime(arm: XArmAPI) -> None:
     lags recent set_mode calls via the heartbeat cache.
     """
     try:
-        _switch_mode(arm, mode=_XARM_MODE_POSITION)
+        _switch_mode(arm, mode=XArmMode.POSITION)
         _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
     except Exception as exc:
         typer.echo(f"  warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
-    arm.set_state(state=_XARM_STATE_STOP)
+    arm.set_state(state=XArmState.STOP)
 
 
 def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
@@ -373,20 +380,17 @@ def send_joint_positions(arm: XArmAPI, targets: list[Optional[float]]) -> None:
     uses, so this exercises the production code path). Any None entry in targets is replaced with the
     joint's current angle, so -j6 0.5 wiggles joint 6 in isolation.
 
-    set_servo_angle_j is a streaming setpoint, so we resend the target on every tick of a loop and only
-    return once arm.angles is within _SETTLE_TOLERANCE_RAD of the target. No timeout -- if the arm hasn't
-    converged, Ctrl-C.
+    Empirically (verified 2026-04-28) a single set_servo_angle_j call is enough -- the firmware servoes
+    to the latched target on its own under joint_speed_limit. We just poll arm.angles until it lands
+    within _SETTLE_TOLERANCE_RAD of the target. No timeout -- if the arm hasn't converged, Ctrl-C.
     """
     current, _ = read_joint_state(arm)
     resolved = [c if t is None else t for t, c in zip(targets, current, strict=True)]
     target_arr = np.asarray(resolved, dtype=np.float64)
     typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]}")
-    while True:
-        _check(arm.set_servo_angle_j(angles=resolved, is_radian=True), "set_servo_angle_j", arm=arm)
-        measured = np.asarray(arm.angles, dtype=np.float64)[:LITE6_DOF]
-        if np.max(np.abs(measured - target_arr)) <= _SETTLE_TOLERANCE_RAD:
-            return
-        time.sleep(_STREAM_PERIOD_S)
+    _check(arm.set_servo_angle_j(angles=resolved, is_radian=True), "set_servo_angle_j", arm=arm)
+    while np.max(np.abs(np.asarray(arm.angles, dtype=np.float64)[:LITE6_DOF] - target_arr)) > _SETTLE_TOLERANCE_RAD:
+        time.sleep(_CONVERGE_POLL_PERIOD_S)
 
 
 def send_joint_velocities(arm: XArmAPI, velocities: list[float], duration_s: float) -> None:
@@ -514,7 +518,7 @@ def cmd_disconnect(
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
-    arm.set_state(state=_XARM_STATE_STOP)
+    arm.set_state(state=XArmState.STOP)
     arm.motion_enable(enable=False)
     arm.disconnect()
     typer.echo("disconnected (motors disabled, session released).")
@@ -542,7 +546,7 @@ def cmd_manual(
     _check(arm.clean_error(), "clean_error", arm=arm)
     _check(arm.motion_enable(enable=True), "motion_enable", arm=arm)
     time.sleep(_MOTION_ENABLE_SETTLE_S)
-    _switch_mode(arm, mode=_XARM_MODE_MANUAL)
+    _switch_mode(arm, mode=XArmMode.MANUAL)
     typer.echo("manual mode active. drag the arm freely. press Ctrl-C when done.")
     try:
         while True:
@@ -550,12 +554,13 @@ def cmd_manual(
     except KeyboardInterrupt:
         typer.echo("\nexiting manual mode...")
     finally:
-        _switch_mode(arm, mode=_XARM_MODE_POSITION)
-        typer.echo("done. (motors still energized; run 'lite6_cli disconnect' for full teardown)")
+        typer.echo("unpriming...")
+        unprime(arm)
+        typer.echo("done.")
 
 
-@app.command("send_joint_positions")
-def cmd_send_joint_positions(
+@app.command("send_jp")
+def cmd_send_jp(
     j1: Annotated[Optional[float], typer.Option("-j1", "--j1", help="Joint 1 target (rad). Default: current.")] = None,
     j2: Annotated[Optional[float], typer.Option("-j2", "--j2", help="Joint 2 target (rad). Default: current.")] = None,
     j3: Annotated[Optional[float], typer.Option("-j3", "--j3", help="Joint 3 target (rad). Default: current.")] = None,
@@ -569,17 +574,16 @@ def cmd_send_joint_positions(
     Lite6Driver.write_joint_positions uses, so this exercises the production code path. Any joint not
     specified on the command line stays at its current angle, so -j6 0.5 wiggles joint 6 in isolation.
 
-    set_servo_angle_j is a streaming setpoint, not a one-shot "go to" call -- the firmware advances the
-    servo loop by a per-tick step cap on each call. The CLI therefore resends the target at 100 Hz until
-    the pose lands (or 5 s elapses), matching how Kyber drives the arm in production. Motion speed is
-    firmware-bounded by joint_speed_limit (pi rad/s) regardless of the requested delta.
+    A single set_servo_angle_j call is enough; the firmware servoes to the latched target on its own,
+    bounded by joint_speed_limit (pi rad/s, see probe). The CLI just polls arm.angles after the call
+    until the pose lands within _SETTLE_TOLERANCE_RAD.
     """
     targets: list[Optional[float]] = [j1, j2, j3, j4, j5, j6]
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
     try:
         typer.echo("priming (target mode: servo position)...")
-        prime(arm, mode=_XARM_MODE_SERVO_POSITION)
+        prime(arm, mode=XArmMode.SERVO_POSITION)
         typer.echo("primed.")
         send_joint_positions(arm, targets=targets)
     finally:
@@ -588,8 +592,8 @@ def cmd_send_joint_positions(
         typer.echo("done.")
 
 
-@app.command("send_joint_velocities")
-def cmd_send_joint_velocities(
+@app.command("send_jv")
+def cmd_send_jv(
     duration: Annotated[
         float, typer.Option("-d", "--duration", help="Duration to apply velocity (seconds). Required.")
     ],
@@ -611,7 +615,7 @@ def cmd_send_joint_velocities(
     arm = XArmAPI(port=ip, is_radian=True)
     try:
         typer.echo("priming (target mode: velocity)...")
-        prime(arm, mode=_XARM_MODE_VELOCITY)
+        prime(arm, mode=XArmMode.VELOCITY)
         typer.echo("primed.")
         send_joint_velocities(arm, velocities=velocities, duration_s=duration)
     finally:

@@ -83,11 +83,11 @@ on the next motion command.
 #### Likely root cause of servo error code 23
 
 Triggered by an abrupt `motion_enable(False)` while a servo loop
-was actively tracking an unmet setpoint. The streaming version of
-`send_joint_positions` should prevent this since it polls until the
-pose lands before unpriming, but **never call `set_servo_angle_j`
-once and immediately unprime** -- it's a recipe for latched servo
-errors.
+was actively tracking an unmet setpoint. The current `send_jp`
+implementation prevents this by polling `arm.angles` until the
+pose lands before returning (and only then does the caller unprime),
+but **never call `set_servo_angle_j` once and immediately
+unprime/disable motors** -- it's a recipe for latched servo errors.
 
 (The `code=23` value itself isn't documented in our notes yet --
 add the lookup if anyone hits it again.)
@@ -226,20 +226,25 @@ disconnect` command does the full teardown.
 
 ### xarm mode constants
 
+Captured in `lite6_cli.py` as `XArmMode(IntEnum)`:
+
 | value | name             | use                                                   |
 | ----- | ---------------- | ----------------------------------------------------- |
-| `0`   | position         | motion-plan-style API (`set_position`, `set_servo_angle`) |
-| `1`   | servo position   | low-latency joint streaming via `set_servo_angle_j`   |
-| `4`   | joint velocity   | `vc_set_joint_velocity`                                |
+| `0`   | `POSITION`       | motion-plan-style API (`set_position`, `set_servo_angle`) |
+| `1`   | `SERVO_POSITION` | low-latency joint streaming via `set_servo_angle_j`   |
+| `2`   | `MANUAL`         | joint teaching / manual drag (gravity-comp, drag by hand) |
+| `4`   | `VELOCITY`       | `vc_set_joint_velocity`                                |
 
-(There are other modes — these are the three manor uses.)
+(There are other modes — these are the four manor uses.)
 
 ### xarm state constants
 
+Captured in `lite6_cli.py` as `XArmState(IntEnum)`:
+
 | value | name    |
 | ----- | ------- |
-| `0`   | READY   |
-| `4`   | STOP    |
+| `0`   | `READY` |
+| `4`   | `STOP`  |
 
 ## Reading joint state
 
@@ -282,7 +287,7 @@ that connects.
 | `axis`                    | `6`                                         | matches `LITE6_DOF`. |
 | `dof`                     | `<no such attr>`                            | drop from the probe list. |
 | `is_simulation_robot`     | `False`                                     | real hardware. |
-| `state`                   | `5`                                         | observed at connect (pre-prime). State 5 = "stopped"-ish; not in our `_XARM_STATE_*` table. After `prime` it should be `0`/READY -- TODO confirm next probe-after-prime. |
+| `state`                   | `5`                                         | observed at connect (pre-prime). State 5 = "stopped"-ish; not in our `XArmState` enum. After `prime` it should be `0`/READY -- TODO confirm next probe-after-prime. |
 | `mode`                    | `0`                                         | default mode at boot is `0` (motion-plan position), not `1` -- so if a tool relies on mode being 1, it must `set_mode(1)` itself. |
 | `error_code` / `warn_code`| `0` / `0`                                   | clean. |
 | `cmdnum`                  | `<no such attr>`                            | drop from the probe list. |
@@ -319,7 +324,7 @@ that connects.
   `self_collision_detection` from `_PROBE_PROPERTIES` next time we
   touch the script.
 
-## Sending position commands (`lite6_cli send_joint_positions`)
+## Sending position commands (`lite6_cli send_jp`)
 
 Uses mode 1 (servo position) and `set_servo_angle_j(angles=...,
 is_radian=True)` -- the same SDK call that
@@ -353,18 +358,28 @@ wrong inferences that have since been corrected.
   far-away targets and servoing toward them under the joint speed
   bound — there is no requirement to interpolate before sending.
 
-**Firmware-side (opaque, observed behaviour):**
+**Firmware-side (verified empirically, 2026-04-28):**
 
 - A single `set_servo_angle_j` call does **not** instantly move the
   arm to the target. The arm progresses toward it over time, bounded
   by `joint_speed_limit` (`[0.001, π]` rad/s, see probe).
-- Whether the firmware also applies a per-tick step cap on top of
-  the velocity bound is **not directly observable** from SDK source.
-  Observed motion is consistent with either "velocity-limited servo
-  chasing a latched target" or "per-tick step + retarget every call".
-- TODO: settle this by sending one `set_servo_angle_j` call (no
-  re-send) and watching whether the arm reaches the target or stops
-  short. Don't run this until the hardware is recovered.
+- **One call is enough.** No per-tick step cap, no continuous
+  streaming required: the firmware servoes to the latched target on
+  its own under the velocity bound. Verified with two trials from
+  PRIME pose:
+  - `j6` from PRIME → `+0.5` rad: target reached in ~0.4 s with one
+    SDK call.
+  - `j6` from PRIME → `-1.5` rad: target reached in ~0.6 s with one
+    SDK call.
+  No additional `set_servo_angle_j` calls were issued during either
+  trial; `arm.angles[5]` walked smoothly to the target and held.
+- This resolves the earlier ambiguity ("velocity-limited servo
+  chasing a latched target" vs. "per-tick step + retarget every
+  call") in favour of the former. So `Lite6Driver.write_joint_positions`
+  doesn't actually need a streaming loop to *complete* a motion --
+  Kyber's 500 Hz cadence is for **smooth retargeting** (each tick
+  replaces the latched target with the next IK solution), not for
+  keeping the firmware servoing.
 
 **Why "code=1 on the second streaming call" doesn't mean "target rejected":**
 
@@ -401,24 +416,23 @@ rejection is correlated with a fault, not with the streaming pattern.
 - A `code=1` on a move command means "state not ready right now",
   not "this target is invalid". Always check `arm.error_code` /
   `arm.warn_code` after such a failure to find the real cause.
-- **The simple convergence-poll streaming loop works on hardware.**
-  `lite6_cli send_joint_positions` is now just a single function:
-  read current → fill in `None` slots → loop calling
-  `set_servo_angle_j` at 100 Hz until `arm.angles` is within
-  `_SETTLE_TOLERANCE_RAD = 5e-3` rad of the target. No per-tick step
-  cap needed on the client side; firmware handles the velocity
-  bound. (Verified working post-`unprime` fix, 2026-04-27.)
+- **One call + convergence poll is enough.** `lite6_cli send_jp`
+  issues a single `set_servo_angle_j` then polls `arm.angles` at
+  ~20 Hz until within `_SETTLE_TOLERANCE_RAD = 5e-3` rad of the
+  target. No streaming loop on the client side; firmware servoes
+  under the velocity bound on its own. (Verified 2026-04-28 -- see
+  the firmware-side notes above.)
 - TODO: behavior when target exceeds joint range — error code vs.
   silent clamp vs. fault?
 - TODO: per-call return latency — does `set_servo_angle_j` return
   in <1 ms (lets us run the production 500 Hz loop comfortably) or
   is it more like several ms? Run `lite6_cli stream` after a
-  `send_joint_positions` and watch what tick rate the streaming loop
-  actually achieves.
+  `send_jp` and watch what tick rate the streaming loop actually
+  achieves.
 
 ### Self-collision: firmware does NOT prevent it (incident, 2026-04-26)
 
-While experimenting with `send_joint_positions -j6 0` to swing joint
+While experimenting with `send_jp -j6 0` to swing joint
 6 back through its range during streaming bring-up, the arm
 **self-collided**. The first call appeared to begin the motion;
 subsequent calls returned `code=1`. After investigation
@@ -447,7 +461,7 @@ Recovery from this state required power-cycling the controller
 matching the "servo-level errors can survive `clean_error()`"
 section above).
 
-## Sending velocity commands (`lite6_cli send_joint_velocities`)
+## Sending velocity commands (`lite6_cli send_jv`)
 
 Uses mode 4 (joint velocity) and `vc_set_joint_velocity(speeds=...,
 is_radian=True, duration=0)`. The script applies the commanded vector
