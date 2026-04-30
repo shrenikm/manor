@@ -1,0 +1,11 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_cartesian_trajectory_command {
+    lcmt_timestamp_header header;
+
+    // One of: 0 = cartesian_pose_trajectory, 1 = cartesian_twist_trajectory
+    int8_t variant;
+
+    lcmt_cartesian_pose_trajectory cartesian_pose_trajectory;
+    lcmt_cartesian_twist_trajectory cartesian_twist_trajectory;
+}

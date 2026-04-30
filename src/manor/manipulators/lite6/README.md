@@ -353,7 +353,7 @@ wrong inferences that have since been corrected.
   treats every call as a fresh target replace.
 - `Lite6Driver.write_joint_positions` (production driver) does not
   interpolate. It just forwards `set_servo_angle_j(angles=..., is_radian=True)`.
-  Kyber may send a far-away EEF-IK joint solution in a single tick,
+  Kyber may send a far-away Cartesian-IK joint solution in a single tick,
   which means the firmware itself must be capable of accepting
   far-away targets and servoing toward them under the joint speed
   bound — there is no requirement to interpolate before sending.
@@ -502,7 +502,7 @@ These will get filled in as we run the matching experiment.
 - TODO: rate ceiling for `set_servo_angle_j` streaming (manor wants
   500 Hz; the SDK doc claims 250 Hz).
 - TODO: is there any `get_lite6_gripper_*` call that reports gripper
-  position / state? (driver currently returns `None` for both EEF
+  position / state? (driver currently returns `None` for both EE
   reads on the assumption that there isn't one.)
 - TODO: `vc_set_joint_velocity` semantics — does `duration=0` mean
   "until next command", or "one tick"? does sending zeros stop, or

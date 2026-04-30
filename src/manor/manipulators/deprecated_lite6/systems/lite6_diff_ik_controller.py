@@ -14,7 +14,7 @@ from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import (
     Lite6ModelGroups,
     Lite6ModelType,
     get_default_lite6_joint_positions_vector,
-    get_lite6_urdf_eef_tip_frame_name,
+    get_lite6_urdf_cartesian_tip_frame_name,
 )
 
 IK_PE_IP_NAME = "pe_input"
@@ -43,8 +43,8 @@ class Lite6DiffIKController(LeafSystem):
         assert plant.num_actuators() == LITE6_DOF
 
         self._context = plant.CreateDefaultContext()
-        self._eef_tip_frame = plant.GetBodyByName(
-            name=get_lite6_urdf_eef_tip_frame_name(
+        self._cartesian_tip_frame = plant.GetBodyByName(
+            name=get_lite6_urdf_cartesian_tip_frame_name(
                 lite6_model_type=lite6_model_type,
             ),
         ).body_frame()
@@ -105,7 +105,7 @@ class Lite6DiffIKController(LeafSystem):
         jacobian = self._plant.CalcJacobianSpatialVelocity(
             context=self._context,
             with_respect_to=JacobianWrtVariable.kV,
-            frame_B=self._eef_tip_frame,
+            frame_B=self._cartesian_tip_frame,
             p_BoBp_B=np.zeros(3, dtype=np.float64),
             frame_A=self._plant.world_frame(),
             frame_E=self._plant.world_frame(),

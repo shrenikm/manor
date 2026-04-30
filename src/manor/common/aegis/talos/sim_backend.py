@@ -2,7 +2,7 @@
 Simulation ManipulatorBackend.
 
 Closes over a ``Gaia`` instance: forwards Talos's outgoing Command
-into the simulation, and reads the simulation's joint + EEF state
+into the simulation, and reads the simulation's joint + EE state
 back. Gaia is *not* advanced from here -- that's the
 ``GaiaAdvancer`` LeafSystem's job.
 """
@@ -17,9 +17,9 @@ import numpy as np
 from manor.common.aegis.gaia.gaia import Gaia
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.command import Command
-from manor.common.definitions.eef_positions import EEFPositions
-from manor.common.definitions.eef_state import EEFState
-from manor.common.definitions.eef_velocities import EEFVelocities
+from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_state import EEState
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
 
@@ -27,7 +27,7 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 @attr.frozen
 class SimManipulatorBackendConfig:
     """
-    Configuration for the simulation manipulator backend. EEF DOF
+    Configuration for the simulation manipulator backend. EE DOF
     counts come from the manipulator model, not from this config.
     """
 
@@ -53,29 +53,32 @@ class SimManipulatorBackend:
         return
 
     def send_command(self, command: Command) -> None:
-        if command.joint_positions is not None:
-            self.gaia.apply_joint_position_command(command.joint_positions)
-        elif command.joint_velocities is not None:
-            self.gaia.apply_joint_velocity_command(command.joint_velocities)
-        # EEF-pose / EEF-twist commands aren't yet wired into Gaia; they
-        # fall through silently until a tracking controller is added.
+        joint_command = command.joint_command
+        if joint_command.joint_positions is not None:
+            self.gaia.apply_joint_position_command(joint_command.joint_positions)
+        elif joint_command.joint_velocities is not None:
+            self.gaia.apply_joint_velocity_command(joint_command.joint_velocities)
+        # EE-side commands aren't wired into Gaia yet; gripper joints
+        # are held at their measured pose by Gaia's _DesiredStateSource,
+        # so command.ee_command falls through silently until a gripper
+        # tracking path lands.
 
     def read_joint_state(self) -> JointState:
         return self.gaia.read_joint_state()
 
-    def read_eef_state(self) -> EEFState:
+    def read_ee_state(self) -> EEState:
         # Gaia doesn't yet model gripper state separately; emit a zero
-        # EEFState sized to the manipulator model's EEF DOF count.
-        num_eef_dofs = self.gaia.manipulator_model.get_num_eef_dofs()
+        # EEState sized to the manipulator model's EE DOF count.
+        num_ee_dofs = self.gaia.manipulator_model.get_num_ee_dofs()
         header = TimestampHeader.from_system_time()
-        return EEFState(
+        return EEState(
             header=header,
-            eef_positions=EEFPositions(
+            ee_positions=EEPositions(
                 header=header,
-                positions=np.zeros(num_eef_dofs, dtype=np.float64),
+                positions=np.zeros(num_ee_dofs, dtype=np.float64),
             ),
-            eef_velocities=EEFVelocities(
+            ee_velocities=EEVelocities(
                 header=header,
-                velocities=np.zeros(num_eef_dofs, dtype=np.float64),
+                velocities=np.zeros(num_ee_dofs, dtype=np.float64),
             ),
         )

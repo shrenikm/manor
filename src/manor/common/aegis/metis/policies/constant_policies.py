@@ -25,6 +25,7 @@ from manor.common.aegis.metis.policies.policy_manager import MetisPolicyConfigBa
 from manor.common.aegis.yaml_utils import parse_attrs_yaml, require_number
 from manor.common.custom_types import JointPositionsVector, JointVelocitiesVector
 from manor.common.definitions.action import Action
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.observation import Observation
@@ -74,9 +75,12 @@ class ConstantJointPositionsPolicy:
         header = TimestampHeader.from_system_time()
         return Action(
             header=header,
-            joint_positions=JointPositions(
+            joint_command=JointCommand(
                 header=header,
-                positions=np.asarray(self.positions, dtype=np.float64).copy(),
+                joint_positions=JointPositions(
+                    header=header,
+                    positions=np.asarray(self.positions, dtype=np.float64).copy(),
+                ),
             ),
         )
 
@@ -118,8 +122,11 @@ class ConstantJointVelocitiesPolicy:
         header = TimestampHeader.from_system_time()
         return Action(
             header=header,
-            joint_velocities=JointVelocities(
+            joint_command=JointCommand(
                 header=header,
-                velocities=np.asarray(self.velocities, dtype=np.float64).copy(),
+                joint_velocities=JointVelocities(
+                    header=header,
+                    velocities=np.asarray(self.velocities, dtype=np.float64).copy(),
+                ),
             ),
         )

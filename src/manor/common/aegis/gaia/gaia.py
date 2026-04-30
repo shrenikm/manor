@@ -154,7 +154,7 @@ class _DesiredStateSource(LeafSystem):
 
     Gripper joints (anything past the arm DOFs) always stay at
     ``desired_q[gripper] = measured_q[gripper]`` and
-    ``desired_v[gripper] = 0`` -- gripper is commanded via the EEF
+    ``desired_v[gripper] = 0`` -- gripper is commanded via the EE
     channel, not joint commands, and that path isn't routed through
     Gaia yet. So the gripper is held at whatever position the URDF
     initialised it to.

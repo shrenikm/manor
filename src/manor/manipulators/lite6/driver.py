@@ -5,10 +5,10 @@ Wraps ``XArmAPI`` to satisfy ``IManipulatorDriver``. End-effector
 read/write semantics on the Lite6 are limited by the SDK:
 
 * The SDK exposes joint-only state (the 6 arm positions / velocities);
-  gripper position is not readable. Both ``read_eef_*`` methods return
+  gripper position is not readable. Both ``read_ee_*`` methods return
   ``None``.
-* Gripper actuation is binary (open / close / stop). ``write_eef_*``
-  methods threshold the supplied EEF vector to map onto those calls.
+* Gripper actuation is binary (open / close / stop). ``write_ee_*``
+  methods threshold the supplied EE vector to map onto those calls.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from typing import Any, override
 import attr
 import numpy as np
 
-from manor.common.definitions.eef_positions import EEFPositions
-from manor.common.definitions.eef_velocities import EEFVelocities
+from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -50,7 +50,7 @@ _XARM_MODE_VELOCITY = 4
 _XARM_STATE_READY = 0
 _XARM_STATE_STOP = 4
 
-# Heuristic threshold for collapsing a continuous EEF position vector
+# Heuristic threshold for collapsing a continuous EE position vector
 # onto the parallel gripper's binary open / close command. The
 # parallel-gripper URDFs use ~0.008 m for "open"; halfway is fine.
 _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M = 0.004
@@ -72,8 +72,8 @@ class Lite6Driver(IManipulatorDriver):
         return self.model.get_num_dof()
 
     @override
-    def get_num_eef_dofs(self) -> int:
-        return self.model.get_num_eef_dofs()
+    def get_num_ee_dofs(self) -> int:
+        return self.model.get_num_ee_dofs()
 
     @override
     def prime(self) -> None:
@@ -110,13 +110,13 @@ class Lite6Driver(IManipulatorDriver):
         )
 
     @override
-    def read_eef_positions(self) -> EEFPositions | None:
+    def read_ee_positions(self) -> EEPositions | None:
         # The xarm SDK does not expose gripper position as readable state.
         return None
 
     @override
-    def read_eef_velocities(self) -> EEFVelocities | None:
-        # Same as read_eef_positions: not exposed by the xarm SDK.
+    def read_ee_velocities(self) -> EEVelocities | None:
+        # Same as read_ee_positions: not exposed by the xarm SDK.
         return None
 
     @override
@@ -143,22 +143,22 @@ class Lite6Driver(IManipulatorDriver):
         )
 
     @override
-    def write_eef_positions(self, eef_positions: EEFPositions) -> None:
+    def write_ee_positions(self, ee_positions: EEPositions) -> None:
         self._require_armed()
-        # Map the continuous EEF position vector onto the SDK's binary
+        # Map the continuous EE position vector onto the SDK's binary
         # open / close command via a threshold on the max element.
-        is_open = bool(np.any(np.abs(eef_positions.positions) > _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M))
+        is_open = bool(np.any(np.abs(ee_positions.positions) > _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M))
         self._send_gripper_command(open_command=is_open)
 
     @override
-    def write_eef_velocities(self, eef_velocities: EEFVelocities) -> None:
+    def write_ee_velocities(self, ee_velocities: EEVelocities) -> None:
         self._require_armed()
         # Sign of the velocity vector picks the direction; zero stops.
-        max_abs = float(np.max(np.abs(eef_velocities.velocities))) if eef_velocities.velocities.size > 0 else 0.0
+        max_abs = float(np.max(np.abs(ee_velocities.velocities))) if ee_velocities.velocities.size > 0 else 0.0
         if max_abs == 0.0:
             self._send_gripper_stop()
         else:
-            is_open = bool(np.max(eef_velocities.velocities) > 0.0)
+            is_open = bool(np.max(ee_velocities.velocities) > 0.0)
             self._send_gripper_command(open_command=is_open)
 
     def _read_joint_state(self) -> tuple[np.ndarray, np.ndarray]:

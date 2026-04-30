@@ -57,15 +57,15 @@ class TestLite6ModelShape:
         assert m.get_num_states() == 2 * expected_q
 
 
-class TestLite6ModelEEFDof:
-    def test_vacuum_eef_dof_is_one(self) -> None:
+class TestLite6ModelEEDof:
+    def test_vacuum_ee_dof_is_one(self) -> None:
         # Vacuum gripper is binary (on/off) -> a single DOF on the
-        # EEFPositions / EEFVelocities vector.
-        assert _model(Lite6Variant.VACUUM_GRIPPER).get_num_eef_dofs() == 1
+        # EEPositions / EEVelocities vector.
+        assert _model(Lite6Variant.VACUUM_GRIPPER).get_num_ee_dofs() == 1
 
     @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_gripper_eef_dof_matches_prismatic_count(self, variant: Lite6Variant) -> None:
-        assert _model(variant).get_num_eef_dofs() == LITE6_PARALLEL_GRIPPER_DOF
+    def test_parallel_gripper_ee_dof_matches_prismatic_count(self, variant: Lite6Variant) -> None:
+        assert _model(variant).get_num_ee_dofs() == LITE6_PARALLEL_GRIPPER_DOF
 
 
 class TestLite6ModelDescription:
@@ -78,7 +78,7 @@ class TestLite6ModelDescription:
     def test_frame_names_are_lite6_canonical(self, variant: Lite6Variant) -> None:
         m = _model(variant)
         assert m.get_base_frame_name() == "link_base"
-        assert m.get_eef_tip_frame_name() == "link_eef_tip"
+        assert m.get_cartesian_tip_frame_name() == "link_eef_tip"
 
 
 if __name__ == "__main__":

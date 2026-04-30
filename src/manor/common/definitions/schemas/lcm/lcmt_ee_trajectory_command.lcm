@@ -1,0 +1,11 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_ee_trajectory_command {
+    lcmt_timestamp_header header;
+
+    // One of: 0 = ee_positions_trajectory, 1 = ee_velocities_trajectory
+    int8_t variant;
+
+    lcmt_ee_positions_trajectory ee_positions_trajectory;
+    lcmt_ee_velocities_trajectory ee_velocities_trajectory;
+}

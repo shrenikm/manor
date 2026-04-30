@@ -202,7 +202,7 @@ def get_lite6_urdf_base_frame_name(lite6_model_type: Lite6ModelType) -> str:
     }[lite6_model_type]
 
 
-def get_lite6_urdf_eef_tip_frame_name(lite6_model_type: Lite6ModelType) -> str:
+def get_lite6_urdf_cartesian_tip_frame_name(lite6_model_type: Lite6ModelType) -> str:
     assert lite6_model_type in Lite6ModelGroups.LITE6_ROBOT_WITH_GRIPPER_MODELS
     return "link_eef_tip"
 

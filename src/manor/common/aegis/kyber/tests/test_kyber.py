@@ -26,6 +26,7 @@ from manor.common.aegis.kyber.controllers.zero_velocity_controller import (
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -53,9 +54,12 @@ def _make_kyber(**overrides) -> Kyber:
 def _make_action(positions: np.ndarray) -> Action:
     return Action(
         header=TimestampHeader(monotonic_ns=1, system_ns=2),
-        joint_positions=JointPositions(
+        joint_command=JointCommand(
             header=TimestampHeader(monotonic_ns=3, system_ns=4),
-            positions=positions,
+            joint_positions=JointPositions(
+                header=TimestampHeader(monotonic_ns=5, system_ns=6),
+                positions=positions,
+            ),
         ),
     )
 
@@ -124,9 +128,12 @@ class TestKyberControllerDispatch:
     def test_periodic_update_calls_controller_with_inputs(self) -> None:
         canned = Command(
             header=TimestampHeader.from_system_time(),
-            joint_velocities=JointVelocities(
+            joint_command=JointCommand(
                 header=TimestampHeader.from_system_time(),
-                velocities=np.zeros(LITE6_ARM_DOF),
+                joint_velocities=JointVelocities(
+                    header=TimestampHeader.from_system_time(),
+                    velocities=np.zeros(LITE6_ARM_DOF),
+                ),
             ),
         )
         controller = _RecordingController(canned)
@@ -161,8 +168,8 @@ class TestKyberControllerDispatch:
         simulator.AdvanceTo(0.05)
 
         command = _read_command(kyber, simulator.get_context())
-        assert command.joint_velocities is not None
-        np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
+        assert command.joint_command.joint_velocities is not None
+        np.testing.assert_array_equal(command.joint_command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
 
 class TestZeroVelocityController:
@@ -174,8 +181,8 @@ class TestZeroVelocityController:
         action = _make_action(np.full(LITE6_ARM_DOF, 0.5))
         proprioception = _make_proprioception(n_joints=LITE6_ARM_DOF)
         command = controller.step(action, proprioception)
-        assert command.joint_velocities is not None
-        np.testing.assert_array_equal(command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
+        assert command.joint_command.joint_velocities is not None
+        np.testing.assert_array_equal(command.joint_command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 
 
 class TestPassthroughController:
@@ -187,8 +194,8 @@ class TestPassthroughController:
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float64)
         action = _make_action(positions)
         command = controller.step(action, _make_proprioception(n_joints=LITE6_ARM_DOF))
-        assert command.joint_positions is not None
-        np.testing.assert_array_equal(command.joint_positions.positions, positions)
+        assert command.joint_command.joint_positions is not None
+        np.testing.assert_array_equal(command.joint_command.joint_positions.positions, positions)
 
 
 class TestKyberControllerConfigs:

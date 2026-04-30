@@ -29,6 +29,7 @@ from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
 from manor.common.definitions.depth_image_data import DepthImageData
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
@@ -209,7 +210,10 @@ class TestAdapterPreservesPayload:
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float64)
         source_msg = Action(
             header=TimestampHeader.from_system_time(),
-            joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
+            joint_command=JointCommand(
+                header=TimestampHeader.from_system_time(),
+                joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
+            ),
         )
 
         builder = DiagramBuilder()
@@ -243,8 +247,9 @@ class TestAdapterPreservesPayload:
         decoded = subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT).Eval(sub_context)
 
         assert isinstance(decoded, Action)
-        assert decoded.joint_positions is not None
-        np.testing.assert_array_equal(decoded.joint_positions.positions, positions)
+        assert decoded.joint_command is not None
+        assert decoded.joint_command.joint_positions is not None
+        np.testing.assert_array_equal(decoded.joint_command.joint_positions.positions, positions)
 
 
 class TestAdapterPublishCadence:

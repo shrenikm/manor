@@ -14,8 +14,8 @@ from unittest import mock
 import numpy as np
 import pytest
 
-from manor.common.definitions.eef_positions import EEFPositions
-from manor.common.definitions.eef_velocities import EEFVelocities
+from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -79,13 +79,13 @@ class TestDofAccessors:
     def test_get_num_dof_delegates_to_model(self, parallel_driver: Lite6Driver) -> None:
         assert parallel_driver.get_num_dof() == parallel_driver.model.get_num_dof()
 
-    def test_get_num_eef_dofs_delegates_to_model(
+    def test_get_num_ee_dofs_delegates_to_model(
         self,
         parallel_driver: Lite6Driver,
         vacuum_driver: Lite6Driver,
     ) -> None:
-        assert parallel_driver.get_num_eef_dofs() == parallel_driver.model.get_num_eef_dofs()
-        assert vacuum_driver.get_num_eef_dofs() == vacuum_driver.model.get_num_eef_dofs()
+        assert parallel_driver.get_num_ee_dofs() == parallel_driver.model.get_num_ee_dofs()
+        assert vacuum_driver.get_num_ee_dofs() == vacuum_driver.model.get_num_ee_dofs()
 
 
 class TestPrimeUnprime:
@@ -135,11 +135,11 @@ class TestReadCalls:
         assert isinstance(result, JointVelocities)
         np.testing.assert_array_equal(result.velocities, velocities)
 
-    def test_read_eef_state_returns_none(self, parallel_driver: Lite6Driver) -> None:
+    def test_read_ee_state_returns_none(self, parallel_driver: Lite6Driver) -> None:
         arm = _make_arm_mock()
         _prime_with_mock(parallel_driver, arm)
-        assert parallel_driver.read_eef_positions() is None
-        assert parallel_driver.read_eef_velocities() is None
+        assert parallel_driver.read_ee_positions() is None
+        assert parallel_driver.read_ee_velocities() is None
 
     def test_read_without_prime_raises(self, parallel_driver: Lite6Driver) -> None:
         with pytest.raises(Lite6DriverError):
@@ -182,14 +182,14 @@ class TestWriteJointCalls:
         assert np.allclose(kwargs["speeds"], velocities)
 
 
-class TestWriteEEFCallsParallelGripper:
+class TestWriteEECallsParallelGripper:
     def test_open_position_threshold_dispatches_open(self, parallel_driver: Lite6Driver) -> None:
         arm = _make_arm_mock()
         _prime_with_mock(parallel_driver, arm)
 
         # Above-threshold position vector -> open
-        parallel_driver.write_eef_positions(
-            EEFPositions(
+        parallel_driver.write_ee_positions(
+            EEPositions(
                 header=TimestampHeader.from_system_time(),
                 positions=np.array([0.008, -0.008], dtype=np.float64),
             )
@@ -201,8 +201,8 @@ class TestWriteEEFCallsParallelGripper:
         arm = _make_arm_mock()
         _prime_with_mock(parallel_driver, arm)
 
-        parallel_driver.write_eef_positions(
-            EEFPositions(
+        parallel_driver.write_ee_positions(
+            EEPositions(
                 header=TimestampHeader.from_system_time(),
                 positions=np.zeros(2, dtype=np.float64),
             )
@@ -214,8 +214,8 @@ class TestWriteEEFCallsParallelGripper:
         arm = _make_arm_mock()
         _prime_with_mock(parallel_driver, arm)
 
-        parallel_driver.write_eef_velocities(
-            EEFVelocities(
+        parallel_driver.write_ee_velocities(
+            EEVelocities(
                 header=TimestampHeader.from_system_time(),
                 velocities=np.zeros(2, dtype=np.float64),
             )
@@ -223,13 +223,13 @@ class TestWriteEEFCallsParallelGripper:
         arm.stop_lite6_gripper.assert_called_once()
 
 
-class TestWriteEEFCallsVacuumGripper:
+class TestWriteEECallsVacuumGripper:
     def test_open_position_threshold_turns_vacuum_on(self, vacuum_driver: Lite6Driver) -> None:
         arm = _make_arm_mock()
         _prime_with_mock(vacuum_driver, arm)
 
-        vacuum_driver.write_eef_positions(
-            EEFPositions(
+        vacuum_driver.write_ee_positions(
+            EEPositions(
                 header=TimestampHeader.from_system_time(),
                 positions=np.array([0.01], dtype=np.float64),
             )
@@ -240,8 +240,8 @@ class TestWriteEEFCallsVacuumGripper:
         arm = _make_arm_mock()
         _prime_with_mock(vacuum_driver, arm)
 
-        vacuum_driver.write_eef_positions(
-            EEFPositions(
+        vacuum_driver.write_ee_positions(
+            EEPositions(
                 header=TimestampHeader.from_system_time(),
                 positions=np.zeros(1, dtype=np.float64),
             )

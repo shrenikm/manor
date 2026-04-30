@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_cartesian_pose {
+    lcmt_timestamp_header header;
+    double translation[3];
+    double orientation[4];
+}

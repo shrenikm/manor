@@ -25,6 +25,7 @@ from manor.common.aegis.metis.policies.policy_manager import (
 )
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -84,9 +85,12 @@ class TestMetisPolicyFlow:
         positions = np.array([0.1, 0.2, 0.3], dtype=np.float64)
         canned = Action(
             header=TimestampHeader(monotonic_ns=100, system_ns=101),
-            joint_positions=JointPositions(
+            joint_command=JointCommand(
                 header=TimestampHeader(monotonic_ns=102, system_ns=103),
-                positions=positions,
+                joint_positions=JointPositions(
+                    header=TimestampHeader(monotonic_ns=104, system_ns=105),
+                    positions=positions,
+                ),
             ),
         )
         policy = _RecordingPolicy(canned)
@@ -107,7 +111,7 @@ class TestMetisPolicyFlow:
 
         assert len(policy.observations) >= 1
         action = metis.GetOutputPort(MetisPorts.OUTPUT_ACTION).Eval(simulator.get_context())
-        np.testing.assert_array_equal(action.joint_positions.positions, positions)
+        np.testing.assert_array_equal(action.joint_command.joint_positions.positions, positions)
 
 
 class TestIdentityPolicy:
@@ -122,14 +126,15 @@ class TestIdentityPolicy:
             proprioception=_make_proprioception(positions),
         )
         action = policy.step(observation)
-        np.testing.assert_array_equal(action.joint_positions.positions, positions)
+        np.testing.assert_array_equal(action.joint_command.joint_positions.positions, positions)
 
     def test_falls_back_to_defaults_without_proprioception(self) -> None:
         policy = IdentityPolicy(num_joints=4)
         observation = Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2))
         action = policy.step(observation)
-        assert action.joint_positions is not None
-        assert action.joint_positions.positions.shape == (4,)
+        assert action.joint_command is not None
+        assert action.joint_command.joint_positions is not None
+        assert action.joint_command.joint_positions.positions.shape == (4,)
 
 
 class TestConstantJointPositionsPolicy:
@@ -149,15 +154,17 @@ class TestConstantJointPositionsPolicy:
 
         for observation in (observation_with, observation_without):
             action = policy.step(observation)
-            assert action.joint_positions is not None
-            np.testing.assert_array_equal(action.joint_positions.positions, target)
+            assert action.joint_command is not None
+            assert action.joint_command.joint_positions is not None
+            np.testing.assert_array_equal(action.joint_command.joint_positions.positions, target)
 
     def test_action_does_not_alias_config_array(self) -> None:
         target = np.array([0.1, 0.2, 0.3], dtype=np.float64)
         policy = ConstantJointPositionsPolicy(positions=target)
         action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
-        assert action.joint_positions is not None
-        action.joint_positions.positions[0] = 99.0
+        assert action.joint_command is not None
+        assert action.joint_command.joint_positions is not None
+        action.joint_command.joint_positions.positions[0] = 99.0
         assert policy.positions[0] == 0.1
 
 
@@ -178,21 +185,24 @@ class TestConstantJointVelocitiesPolicy:
 
         for observation in (observation_with, observation_without):
             action = policy.step(observation)
-            assert action.joint_velocities is not None
-            np.testing.assert_array_equal(action.joint_velocities.velocities, target)
+            assert action.joint_command is not None
+            assert action.joint_command.joint_velocities is not None
+            np.testing.assert_array_equal(action.joint_command.joint_velocities.velocities, target)
 
     def test_zero_velocities_special_case(self) -> None:
         policy = ConstantJointVelocitiesPolicy(velocities=np.zeros(6, dtype=np.float64))
         action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
-        assert action.joint_velocities is not None
-        np.testing.assert_array_equal(action.joint_velocities.velocities, np.zeros(6))
+        assert action.joint_command is not None
+        assert action.joint_command.joint_velocities is not None
+        np.testing.assert_array_equal(action.joint_command.joint_velocities.velocities, np.zeros(6))
 
     def test_action_does_not_alias_config_array(self) -> None:
         target = np.array([0.1, 0.2, 0.3], dtype=np.float64)
         policy = ConstantJointVelocitiesPolicy(velocities=target)
         action = policy.step(Observation(header=TimestampHeader(monotonic_ns=1, system_ns=2)))
-        assert action.joint_velocities is not None
-        action.joint_velocities.velocities[0] = 99.0
+        assert action.joint_command is not None
+        assert action.joint_command.joint_velocities is not None
+        action.joint_command.joint_velocities.velocities[0] = 99.0
         assert policy.velocities[0] == 0.1
 
 

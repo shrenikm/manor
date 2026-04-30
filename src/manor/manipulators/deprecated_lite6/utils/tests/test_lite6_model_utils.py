@@ -34,7 +34,7 @@ from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import (
     get_lite6_table_urdf_lite6_position_frame_name,
     get_lite6_table_urdf_path,
     get_lite6_urdf_base_frame_name,
-    get_lite6_urdf_eef_tip_frame_name,
+    get_lite6_urdf_cartesian_tip_frame_name,
     get_parallel_gripper_positions,
     get_parallel_gripper_velocities,
     get_positions_from_lite6_state,
@@ -111,7 +111,7 @@ def test_lite6_urdf_base_frame_name() -> None:
         assert isinstance(base_frame_name, str)
 
 
-def test_get_lite6_urdf_eef_tip_frame_name() -> None:
+def test_get_lite6_urdf_cartesian_tip_frame_name() -> None:
     valid_model_types = [
         Lite6ModelType.ROBOT_WITH_ANP_GRIPPER,
         Lite6ModelType.ROBOT_WITH_ARP_GRIPPER,
@@ -120,11 +120,11 @@ def test_get_lite6_urdf_eef_tip_frame_name() -> None:
         Lite6ModelType.ROBOT_WITH_V_GRIPPER,
     ]
     for lite6_model_type in valid_model_types:
-        assert isinstance(get_lite6_urdf_eef_tip_frame_name(lite6_model_type=lite6_model_type), str)
+        assert isinstance(get_lite6_urdf_cartesian_tip_frame_name(lite6_model_type=lite6_model_type), str)
 
     for lite6_model_type in set(Lite6ModelType) - set(valid_model_types):
         with pytest.raises(AssertionError):
-            get_lite6_urdf_eef_tip_frame_name(lite6_model_type=lite6_model_type)
+            get_lite6_urdf_cartesian_tip_frame_name(lite6_model_type=lite6_model_type)
 
 
 def test_get_lite6_table_urdf_lite6_position_frame_name() -> None:

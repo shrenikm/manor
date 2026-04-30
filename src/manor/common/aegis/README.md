@@ -150,9 +150,13 @@ Metis is the high-level brain: observation → action.
 
 - **Inputs:** `INPUT_PROPRIOCEPTION`, `INPUT_RGB_IMAGE`, `INPUT_DEPTH_IMAGE`
   (all received from LCM in the metis process).
-- **Output:** `OUTPUT_ACTION` — what the robot should do at the policy
-  level (currently a joint-position or joint-velocity intent; designed
-  to extend to EEF-space actions).
+- **Output:** `OUTPUT_ACTION` — a structured policy-level intent. An
+  `Action` carries exactly one of four arm-side fields
+  (`joint_command`, `joint_trajectory_command`, `cartesian_command`,
+  `cartesian_trajectory_command`) and at most one ee-side field
+  (`ee_command`, `ee_trajectory_command`). Joint and Cartesian shapes
+  cover both instantaneous setpoints and full trajectories; the gripper
+  side is independently optional.
 - **Internals:** every `1 / publish_frequency_hz` it bundles the
   current proprioception + RGB into an `Observation`, calls
   `policy.step(observation)`, and zero-order-holds the resulting
@@ -171,8 +175,10 @@ Kyber is the low-level servo loop: action → command.
 
 - **Inputs:** `INPUT_ACTION` (from Metis over LCM),
   `INPUT_PROPRIOCEPTION` (from Talos, direct in-process).
-- **Output:** `OUTPUT_COMMAND` — motor-level setpoint. Wired directly
-  to Talos in the same process; never serialized over LCM.
+- **Output:** `OUTPUT_COMMAND` — motor-level setpoint. A `Command`
+  always carries a `joint_command` (the arm setpoint) and optionally
+  carries an `ee_command` (the gripper setpoint). Wired directly to
+  Talos in the same process; never serialized over LCM.
 - **Internals:** every `1 / publish_frequency_hz` it calls
   `controller.step(action, proprioception)` and zero-order-holds the
   result on its output port.
@@ -195,10 +201,12 @@ proprioception.
   from the metis process).
 - **Internals:** owns its own FK-only `MultibodyPlant` (no scene
   graph) built from `manipulator_model`. Every tick it forwards the
-  command to its backend, reads joint+EEF state back, computes EEF
-  pose/twist via FK, and assembles a `Proprioception` message.
+  command to its backend, reads `JointState` + `EEState` back, computes
+  a `CartesianState` (tip pose + twist) via FK, and assembles a
+  `Proprioception` message (joint state required, cartesian / ee state
+  optional).
 - **Backend:** the `ManipulatorBackend` Protocol (`send_command`,
-  `read_joint_state`, `read_eef_state`, `start`, `stop`). In sim the
+  `read_joint_state`, `read_ee_state`, `start`, `stop`). In sim the
   backend closes over `Gaia`; on hardware it wraps an
   `IManipulatorDriver` (currently `Lite6Driver` over the xarm SDK).
 - **Default rate:** 200 Hz.
@@ -300,7 +308,7 @@ Currently shipped:
 | `KyberControllerType` | what it does                                            |
 | --------------------- | ------------------------------------------------------- |
 | `zero_velocity`       | emits a zero joint-velocity command (safe default).     |
-| `passthrough`         | passes the action's joint positions through verbatim.   |
+| `passthrough`         | passes the action's `joint_command` and `ee_command` straight through; falls back to a zero-velocity joint command for Cartesian / trajectory arm shapes. |
 
 ### Adding a new policy or controller
 
@@ -566,10 +574,11 @@ runner imports, CLI commands). The CLI tests sandbox PID files into a
 
 ## Caveats / known limits
 
-- **Talos's EEF FK is stubbed.** `_compute_eef_pose` /
-  `_compute_eef_twist` return identity / zeros. Doesn't affect the
-  pipeline; just means downstream consumers of EEF state get
-  placeholders.
+- **Talos's Cartesian FK is stubbed.** `_compute_cartesian_pose` /
+  `_compute_cartesian_twist` return identity / zeros, so the
+  `CartesianState` published inside `Proprioception` is a placeholder.
+  Doesn't affect the pipeline; just means downstream consumers of
+  Cartesian state see identity.
 - **Helios sim/hardware backends return empty frames.** RGB-D rendering
   via Drake's `RgbdSensor` and the real-camera SDK paths are both
   stubbed; the channels publish at the configured rates but the
@@ -577,8 +586,11 @@ runner imports, CLI commands). The CLI tests sandbox PID files into a
 - **Gripper isn't independently commanded in sim.** Gaia's
   `_DesiredStateSource` only routes the arm DOFs of a position /
   velocity command into the IDC's desired state; gripper joints are
-  always held at their measured pose. Sending an EEF-space action
-  drops the EEF intent silently in `SimManipulatorBackend.send_command`.
+  always held at their measured pose. Even when a `Command` carries an
+  `ee_command`, `SimManipulatorBackend.send_command` drops it silently
+  until a gripper-tracking path lands. Cartesian-shaped actions also
+  fall through Kyber's passthrough as zero-velocity arm commands until
+  an IK / trajectory-tracking controller is implemented.
 - **gylos runs below realtime.** kyber at 500 Hz + helios at 30 Hz +
   gaia advancer + continuous-time integration adds up. Switching
   `gaia_config.time_step` to a small discrete value (e.g. `0.001`)

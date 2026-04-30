@@ -2,46 +2,45 @@
 Robot command.
 
 The controller (Kyber) emits a Command to the hardware interface (Talos).
-Exactly one of the variant fields must be non-None.
+Every Command carries a JointCommand (the joint-level setpoint Talos
+actuates) and may optionally carry an EECommand (a gripper-side
+setpoint). The joint side is required because the arm always needs a
+target on every tick; the gripper side is optional because gripper
+control is not always needed and many policies leave it untouched.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, ClassVar, Self, get_args, get_type_hints, override
+from typing import Any, ClassVar, Self, override
 
 import attr
 
-from manor.common.definitions.eef_pose import EEFPose
-from manor.common.definitions.eef_twist import EEFTwist
-from manor.common.definitions.joint_positions import JointPositions
-from manor.common.definitions.joint_velocities import JointVelocities
+from manor.common.definitions.ee_command import EECommand
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.lcmtypes.lcmt_command import lcmt_command
+from manor.common.definitions.lcmtypes.lcmt_ee_command import lcmt_ee_command
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
-from manor.common.exceptions import InvalidDefinitionError
 
 
 class _CapnpField(StrEnum):
     HEADER = "header"
-    JOINT_POSITIONS = "jointPositions"
-    JOINT_VELOCITIES = "jointVelocities"
-    EEF_POSE = "eefPose"
-    EEF_TWIST = "eefTwist"
+    JOINT_COMMAND = "jointCommand"
+    EE_COMMAND = "eeCommand"
 
 
 @attr.frozen
 class Command(DefinitionBase):
     """
-    A hardware-facing command. Exactly one of the variant fields must be non-None.
+    A hardware-facing command. Carries a required JointCommand for the
+    arm and an optional EECommand for the gripper.
     """
 
     header: TimestampHeader
-    joint_positions: JointPositions | None = None
-    joint_velocities: JointVelocities | None = None
-    eef_pose: EEFPose | None = None
-    eef_twist: EEFTwist | None = None
+    joint_command: JointCommand
+    ee_command: EECommand | None = None
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
@@ -55,86 +54,42 @@ class Command(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_command
 
-    @classmethod
-    def _variant_fields(cls) -> list[attr.Attribute]:
-        # Every attrs field except header is a variant slot, in declaration order.
-        return [f for f in attr.fields(cls) if f.name != _CapnpField.HEADER.name.lower()]
-
-    def _active_variant_field(self) -> attr.Attribute:
-        for f in self._variant_fields():
-            if getattr(self, f.name) is not None:
-                return f
-        raise InvalidDefinitionError("Command has no active variant")
-
-    @classmethod
-    def get_capnp_arm(cls, field: attr.Attribute) -> _CapnpField:
-        return _CapnpField[field.name.upper()]
-
-    def get_lcm_variant(self) -> int:
-        active = self._active_variant_field()
-        return self._variant_fields().index(active)
-
-    @classmethod
-    def get_lcm_type_from_variant(cls, tag: int) -> type:
-        field = cls._variant_fields()[tag]
-        hint = get_type_hints(cls)[field.name]
-        return next(a for a in get_args(hint) if a is not type(None))
-
-    def __attrs_post_init__(self) -> None:
-        active = [f for f in self._variant_fields() if getattr(self, f.name) is not None]
-        if len(active) != 1:
-            raise InvalidDefinitionError(
-                f"Command requires exactly one variant field to be set; got {len(active)}: {[f.name for f in active]}"
-            )
-
     @override
     def to_capnp_current(self, builder: Any) -> None:
         self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
-        active = self._active_variant_field()
-        arm = self.get_capnp_arm(active)
-        getattr(self, active.name).to_versioned_capnp(builder.init(arm))
+        self.joint_command.to_versioned_capnp(builder.init(_CapnpField.JOINT_COMMAND))
+        if self.ee_command is None:
+            builder.eeCommand.none = None
+        else:
+            self.ee_command.to_versioned_capnp(builder.eeCommand.init("some"))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:
-        arm = reader.which()
-        try:
-            capnp_field = _CapnpField(arm)
-        except ValueError as e:
-            raise InvalidDefinitionError(f"Unknown command capnp arm {arm!r}") from e
-        attr_field_name = capnp_field.name.lower()
-        hint = get_type_hints(cls)[attr_field_name]
-        variant_cls = next(a for a in get_args(hint) if a is not type(None))
-        value = variant_cls.from_versioned_capnp(getattr(reader, arm))
+        ee_command = (
+            EECommand.from_versioned_capnp(reader.eeCommand.some) if reader.eeCommand.which() == "some" else None
+        )
         return cls(
             header=TimestampHeader.from_versioned_capnp(reader.header),
-            **{attr_field_name: value},
+            joint_command=JointCommand.from_versioned_capnp(reader.jointCommand),
+            ee_command=ee_command,
         )
 
     @override
     def to_lcm_message(self) -> lcmt_command:
-        # lcm-gen's generated __init__ default-constructs every nested struct field,
-        # so inactive variants just carry empty defaults on the wire -- we only have
-        # to set the active variant and the tag.
         msg = lcmt_command()
         msg.header = self.header.to_lcm_message()
-        msg.variant = self.get_lcm_variant()
-        active = self._active_variant_field()
-        setattr(msg, active.name, getattr(self, active.name).to_lcm_message())
+        msg.joint_command = self.joint_command.to_lcm_message()
+        msg.has_ee_command = self.ee_command is not None
+        msg.ee_command = self.ee_command.to_lcm_message() if self.ee_command is not None else lcmt_ee_command()
         return msg
 
     @classmethod
     @override
     def from_lcm_message(cls, msg: Any) -> Self:
-        variant = int(msg.variant)
-        variant_fields = cls._variant_fields()
-        if not (0 <= variant < len(variant_fields)):
-            raise InvalidDefinitionError(f"Unknown command variant tag {variant}")
-        field = variant_fields[variant]
-        variant_cls = cls.get_lcm_type_from_variant(variant)
-        value = variant_cls.from_lcm_message(getattr(msg, field.name))
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
-            **{field.name: value},
+            joint_command=JointCommand.from_lcm_message(msg.joint_command),
+            ee_command=EECommand.from_lcm_message(msg.ee_command) if msg.has_ee_command else None,
         )
 
     @classmethod
@@ -142,5 +97,5 @@ class Command(DefinitionBase):
     def construct_default(cls, num_joints: int = 0) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
-            joint_positions=JointPositions.construct_default(num_joints=num_joints),
+            joint_command=JointCommand.construct_default(num_joints=num_joints),
         )

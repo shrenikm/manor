@@ -20,6 +20,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -55,8 +56,11 @@ class ZeroVelocityController:
         header = TimestampHeader.from_system_time()
         return Command(
             header=header,
-            joint_velocities=JointVelocities(
+            joint_command=JointCommand(
                 header=header,
-                velocities=np.zeros(self.num_dof, dtype=np.float64),
+                joint_velocities=JointVelocities(
+                    header=header,
+                    velocities=np.zeros(self.num_dof, dtype=np.float64),
+                ),
             ),
         )

@@ -4,8 +4,8 @@ proprioception state.
 
 On each periodic tick Talos:
   1. forwards the latest Command on its input port to the backend,
-  2. polls the backend for the current joint + EEF state,
-  3. runs forward kinematics on the joint state to compute EEF pose + twist,
+  2. polls the backend for the current joint + EE state,
+  3. runs forward kinematics on the joint state to compute Cartesian pose + twist,
   4. assembles a Proprioception message and writes it into abstract state.
 
 The output port is a zero-order hold of that state.
@@ -16,7 +16,7 @@ Kyber's IK plant -- same URDF, three independent instances.
 
 The current FK implementation is a stub (identity pose, zero twist);
 once the per-system plant is consulted properly, only
-``_compute_eef_pose`` / ``_compute_eef_twist`` need to change.
+``_compute_cartesian_pose`` / ``_compute_cartesian_twist`` need to change.
 """
 
 from __future__ import annotations
@@ -33,10 +33,11 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
+from manor.common.definitions.cartesian_pose import CartesianPose
+from manor.common.definitions.cartesian_state import CartesianState
+from manor.common.definitions.cartesian_twist import CartesianTwist
 from manor.common.definitions.command import Command
-from manor.common.definitions.eef_pose import EEFPose
-from manor.common.definitions.eef_state import EEFState
-from manor.common.definitions.eef_twist import EEFTwist
+from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -86,7 +87,7 @@ class ManipulatorBackend(Protocol):
 
     Exactly one backend owns the robot's actual state at a time. Talos
     drives the backend on every tick by calling ``send_command`` and
-    reads state back via ``read_joint_state`` / ``read_eef_state``.
+    reads state back via ``read_joint_state`` / ``read_ee_state``.
     Forward kinematics is Talos's responsibility, not the backend's.
     """
 
@@ -94,7 +95,7 @@ class ManipulatorBackend(Protocol):
 
     def read_joint_state(self) -> JointState: ...
 
-    def read_eef_state(self) -> EEFState: ...
+    def read_ee_state(self) -> EEState: ...
 
     def start(self) -> None: ...
 
@@ -166,25 +167,30 @@ class Talos(LeafSystem):
         self.backend.send_command(command)
 
         joint_state = self.backend.read_joint_state()
-        eef_state = self.backend.read_eef_state()
+        ee_state = self.backend.read_ee_state()
+        header = TimestampHeader.from_system_time()
+        cartesian_state = CartesianState(
+            header=header,
+            cartesian_pose=self._compute_cartesian_pose(joint_state),
+            cartesian_twist=self._compute_cartesian_twist(joint_state),
+        )
 
         proprioception = Proprioception(
-            header=TimestampHeader.from_system_time(),
+            header=header,
             joint_state=joint_state,
-            eef_state=eef_state,
-            eef_pose=self._compute_eef_pose(joint_state),
-            eef_twist=self._compute_eef_twist(joint_state),
+            cartesian_state=cartesian_state,
+            ee_state=ee_state,
         )
         state.get_mutable_abstract_state(self._proprioception_state_index).set_value(proprioception)
         return EventStatus.Succeeded()
 
-    def _compute_eef_pose(self, joint_state: JointState) -> EEFPose:
+    def _compute_cartesian_pose(self, joint_state: JointState) -> CartesianPose:
         # TODO: use ``self.plant`` to run FK on ``joint_state`` and
-        # extract the EEF-tip frame's pose in the world frame.
+        # extract the end-effector tip frame's pose in the world frame.
         del joint_state
-        return EEFPose.construct_default()
+        return CartesianPose.construct_default()
 
-    def _compute_eef_twist(self, joint_state: JointState) -> EEFTwist:
+    def _compute_cartesian_twist(self, joint_state: JointState) -> CartesianTwist:
         # TODO: spatial-Jacobian-based twist via ``self.plant``.
         del joint_state
-        return EEFTwist.construct_default()
+        return CartesianTwist.construct_default()

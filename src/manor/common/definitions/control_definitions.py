@@ -7,7 +7,7 @@ class ManipulatorControlTarget(StrEnum):
     """
 
     JOINT = "joint"
-    EEF = "eef"
+    EE = "ee"
 
 
 class ManipulatorControlType(StrEnum):

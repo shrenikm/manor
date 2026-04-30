@@ -32,14 +32,14 @@ from manor.manipulators.deprecated_lite6.utils.lite6_model_utils import (
     Lite6ModelType,
     create_lite6_plant_for_system,
     get_default_height_for_object_model_type,
-    get_lite6_urdf_eef_tip_frame_name,
+    get_lite6_urdf_cartesian_tip_frame_name,
     get_unactuated_parallel_gripper_counterpart,
 )
 
 OBJECT_TO_GRIPPER_Z = 0.0
 G_TO_F_Z = -0.03
 G_WAIT_TIME = 1.0
-EEF_LINEAR_VELOCITY = 0.05
+CARTESIAN_LINEAR_VELOCITY = 0.05
 
 
 def _construct_trajectory_sources(
@@ -78,15 +78,15 @@ def _construct_trajectory_sources(
     # To compute the times estimate, we use an estimated required gripper velocity and the
     # Euclidean distance between poses.
     GFPick_distance = np.linalg.norm(X_WG.translation() - X_WFPick.translation())
-    GFPick_time = GFPick_distance / EEF_LINEAR_VELOCITY
+    GFPick_time = GFPick_distance / CARTESIAN_LINEAR_VELOCITY
 
     GPickFPlace_distance = np.linalg.norm(X_WGPick.translation() - X_WFPlace.translation())
-    GPickFPlace_time = GPickFPlace_distance / EEF_LINEAR_VELOCITY
+    GPickFPlace_time = GPickFPlace_distance / CARTESIAN_LINEAR_VELOCITY
 
     FPlaceG_distance = np.linalg.norm(X_WFPlace.translation() - X_WG.translation())
-    FPlaceG_time = FPlaceG_distance / EEF_LINEAR_VELOCITY
+    FPlaceG_time = FPlaceG_distance / CARTESIAN_LINEAR_VELOCITY
 
-    g_f_time = np.abs(G_TO_F_Z / EEF_LINEAR_VELOCITY)
+    g_f_time = np.abs(G_TO_F_Z / CARTESIAN_LINEAR_VELOCITY)
 
     pick_time = GFPick_time + g_f_time + G_WAIT_TIME
     place_time = pick_time + GPickFPlace_time + g_f_time
@@ -163,7 +163,7 @@ def execute_simple_pick_and_place(
     X_WG = main_plant.EvalBodyPoseInWorld(
         context=main_plant_context,
         body=main_plant.GetBodyByName(
-            name=get_lite6_urdf_eef_tip_frame_name(
+            name=get_lite6_urdf_cartesian_tip_frame_name(
                 lite6_model_type=config.lite6_model_type,
             ),
         ),

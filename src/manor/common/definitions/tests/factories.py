@@ -11,18 +11,25 @@ from __future__ import annotations
 import numpy as np
 
 from manor.common.definitions.action import Action
+from manor.common.definitions.cartesian_command import CartesianCommand
+from manor.common.definitions.cartesian_pose import CartesianPose
+from manor.common.definitions.cartesian_pose_trajectory import CartesianPoseTrajectory
+from manor.common.definitions.cartesian_state import CartesianState
+from manor.common.definitions.cartesian_trajectory_command import CartesianTrajectoryCommand
 from manor.common.definitions.command import Command
 from manor.common.definitions.depth_image_data import DepthImageData
-from manor.common.definitions.eef_pose import EEFPose
-from manor.common.definitions.eef_pose_trajectory import EEFPoseTrajectory
-from manor.common.definitions.eef_positions import EEFPositions
-from manor.common.definitions.eef_positions_trajectory import EEFPositionsTrajectory
-from manor.common.definitions.eef_state import EEFState
-from manor.common.definitions.eef_state_trajectory import EEFStateTrajectory
-from manor.common.definitions.eef_twist import EEFTwist
-from manor.common.definitions.eef_twist_trajectory import EEFTwistTrajectory
-from manor.common.definitions.eef_velocities import EEFVelocities
-from manor.common.definitions.eef_velocities_trajectory import EEFVelocitiesTrajectory
+from manor.common.definitions.ee_command import EECommand
+from manor.common.definitions.ee_trajectory_command import EETrajectoryCommand
+from manor.common.definitions.joint_command import JointCommand
+from manor.common.definitions.joint_trajectory_command import JointTrajectoryCommand
+from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_positions_trajectory import EEPositionsTrajectory
+from manor.common.definitions.ee_state import EEState
+from manor.common.definitions.ee_state_trajectory import EEStateTrajectory
+from manor.common.definitions.cartesian_twist import CartesianTwist
+from manor.common.definitions.cartesian_twist_trajectory import CartesianTwistTrajectory
+from manor.common.definitions.ee_velocities import EEVelocities
+from manor.common.definitions.ee_velocities_trajectory import EEVelocitiesTrajectory
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_positions_trajectory import JointPositionsTrajectory
 from manor.common.definitions.joint_state import JointState
@@ -104,86 +111,94 @@ def random_joint_state_trajectory(rng: np.random.Generator) -> JointStateTraject
     )
 
 
-def random_eef_positions(rng: np.random.Generator, num_coords: int | None = None) -> EEFPositions:
+def random_ee_positions(rng: np.random.Generator, num_coords: int | None = None) -> EEPositions:
     n = num_coords if num_coords is not None else _random_int(rng, 1, 6)
-    return EEFPositions(
+    return EEPositions(
         header=random_timestamp_header(rng),
         positions=rng.uniform(0.0, 0.1, size=n),
     )
 
 
-def random_eef_velocities(rng: np.random.Generator, num_coords: int | None = None) -> EEFVelocities:
+def random_ee_velocities(rng: np.random.Generator, num_coords: int | None = None) -> EEVelocities:
     n = num_coords if num_coords is not None else _random_int(rng, 1, 6)
-    return EEFVelocities(
+    return EEVelocities(
         header=random_timestamp_header(rng),
         velocities=rng.uniform(-0.5, 0.5, size=n),
     )
 
 
-def random_eef_state(rng: np.random.Generator) -> EEFState:
+def random_ee_state(rng: np.random.Generator) -> EEState:
     n = _random_int(rng, 1, 6)
-    return EEFState(
+    return EEState(
         header=random_timestamp_header(rng),
-        eef_positions=random_eef_positions(rng, num_coords=n),
-        eef_velocities=random_eef_velocities(rng, num_coords=n),
+        ee_positions=random_ee_positions(rng, num_coords=n),
+        ee_velocities=random_ee_velocities(rng, num_coords=n),
     )
 
 
-def random_eef_positions_trajectory(rng: np.random.Generator) -> EEFPositionsTrajectory:
+def random_ee_positions_trajectory(rng: np.random.Generator) -> EEPositionsTrajectory:
     num_steps = _random_int(rng, 1, 20)
     num_coords = _random_int(rng, 1, 6)
-    return EEFPositionsTrajectory(
+    return EEPositionsTrajectory(
         header=random_timestamp_header(rng),
         times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
-        eef_positions_array=rng.uniform(0.0, 0.1, size=(num_steps, num_coords)),
+        ee_positions_array=rng.uniform(0.0, 0.1, size=(num_steps, num_coords)),
     )
 
 
-def random_eef_velocities_trajectory(rng: np.random.Generator) -> EEFVelocitiesTrajectory:
+def random_ee_velocities_trajectory(rng: np.random.Generator) -> EEVelocitiesTrajectory:
     num_steps = _random_int(rng, 1, 20)
     num_coords = _random_int(rng, 1, 6)
-    return EEFVelocitiesTrajectory(
+    return EEVelocitiesTrajectory(
         header=random_timestamp_header(rng),
         times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
-        eef_velocities_array=rng.uniform(-0.5, 0.5, size=(num_steps, num_coords)),
+        ee_velocities_array=rng.uniform(-0.5, 0.5, size=(num_steps, num_coords)),
     )
 
 
-def random_eef_state_trajectory(rng: np.random.Generator) -> EEFStateTrajectory:
+def random_ee_state_trajectory(rng: np.random.Generator) -> EEStateTrajectory:
     num_steps = _random_int(rng, 1, 20)
     num_coords = _random_int(rng, 1, 6)
-    return EEFStateTrajectory(
+    return EEStateTrajectory(
         header=random_timestamp_header(rng),
         times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
-        eef_positions_array=rng.uniform(0.0, 0.1, size=(num_steps, num_coords)),
-        eef_velocities_array=rng.uniform(-0.5, 0.5, size=(num_steps, num_coords)),
+        ee_positions_array=rng.uniform(0.0, 0.1, size=(num_steps, num_coords)),
+        ee_velocities_array=rng.uniform(-0.5, 0.5, size=(num_steps, num_coords)),
     )
 
 
-def random_eef_pose(rng: np.random.Generator) -> EEFPose:
+def random_cartesian_pose(rng: np.random.Generator) -> CartesianPose:
     q = rng.normal(size=4)
     q = q / np.linalg.norm(q)
-    return EEFPose(
+    return CartesianPose(
         header=random_timestamp_header(rng),
         translation=rng.uniform(-1.0, 1.0, size=3),
         orientation=q,
     )
 
 
-def random_eef_twist(rng: np.random.Generator) -> EEFTwist:
-    return EEFTwist(
+def random_cartesian_twist(rng: np.random.Generator) -> CartesianTwist:
+    return CartesianTwist(
         header=random_timestamp_header(rng),
         linear=rng.uniform(-1.0, 1.0, size=3),
         angular=rng.uniform(-1.0, 1.0, size=3),
     )
 
 
-def random_eef_pose_trajectory(rng: np.random.Generator) -> EEFPoseTrajectory:
+def random_cartesian_state(rng: np.random.Generator) -> CartesianState:
+    return CartesianState(
+        header=random_timestamp_header(rng),
+        cartesian_pose=random_cartesian_pose(rng),
+        cartesian_twist=random_cartesian_twist(rng),
+    )
+
+
+def random_cartesian_pose_trajectory(rng: np.random.Generator) -> CartesianPoseTrajectory:
     num_steps = _random_int(rng, 1, 20)
     translations = rng.uniform(-1.0, 1.0, size=(num_steps, 3))
     orientations = rng.normal(size=(num_steps, 4))
     orientations = orientations / np.linalg.norm(orientations, axis=1, keepdims=True)
-    return EEFPoseTrajectory(
+    return CartesianPoseTrajectory(
         header=random_timestamp_header(rng),
         times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
         translations_array=translations,
@@ -191,9 +206,9 @@ def random_eef_pose_trajectory(rng: np.random.Generator) -> EEFPoseTrajectory:
     )
 
 
-def random_eef_twist_trajectory(rng: np.random.Generator) -> EEFTwistTrajectory:
+def random_cartesian_twist_trajectory(rng: np.random.Generator) -> CartesianTwistTrajectory:
     num_steps = _random_int(rng, 1, 20)
-    return EEFTwistTrajectory(
+    return CartesianTwistTrajectory(
         header=random_timestamp_header(rng),
         times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
         linear_array=rng.uniform(-1.0, 1.0, size=(num_steps, 3)),
@@ -251,7 +266,7 @@ def random_rgbd_image_data(rng: np.random.Generator) -> RGBDImageData:
 
 def random_proprioception(rng: np.random.Generator, all_none: bool) -> Proprioception:
     """
-    Proprioception with either all optional fields populated or all None.
+    Proprioception with either all optional sub-states populated or all None.
     """
     if all_none:
         return Proprioception(
@@ -261,9 +276,8 @@ def random_proprioception(rng: np.random.Generator, all_none: bool) -> Proprioce
     return Proprioception(
         header=random_timestamp_header(rng),
         joint_state=random_joint_state(rng),
-        eef_state=random_eef_state(rng),
-        eef_pose=random_eef_pose(rng),
-        eef_twist=random_eef_twist(rng),
+        cartesian_state=random_cartesian_state(rng),
+        ee_state=random_ee_state(rng),
     )
 
 
@@ -281,39 +295,134 @@ def random_observation(rng: np.random.Generator, all_none: bool) -> Observation:
     )
 
 
-_ACTION_VARIANT_FACTORIES = {
+_JOINT_COMMAND_VARIANT_FACTORIES = {
     "joint_positions": random_joint_positions,
+    "joint_velocities": random_joint_velocities,
+}
+
+
+_JOINT_TRAJECTORY_COMMAND_VARIANT_FACTORIES = {
     "joint_positions_trajectory": random_joint_positions_trajectory,
-    "joint_velocities": random_joint_velocities,
     "joint_velocities_trajectory": random_joint_velocities_trajectory,
-    "eef_pose": random_eef_pose,
-    "eef_pose_trajectory": random_eef_pose_trajectory,
-    "eef_twist": random_eef_twist,
-    "eef_twist_trajectory": random_eef_twist_trajectory,
 }
 
 
-_COMMAND_VARIANT_FACTORIES = {
-    "joint_positions": random_joint_positions,
-    "joint_velocities": random_joint_velocities,
-    "eef_pose": random_eef_pose,
-    "eef_twist": random_eef_twist,
+_CARTESIAN_COMMAND_VARIANT_FACTORIES = {
+    "cartesian_pose": random_cartesian_pose,
+    "cartesian_twist": random_cartesian_twist,
 }
 
 
-def random_action(rng: np.random.Generator, variant_field: str) -> Action:
-    return Action(
+_CARTESIAN_TRAJECTORY_COMMAND_VARIANT_FACTORIES = {
+    "cartesian_pose_trajectory": random_cartesian_pose_trajectory,
+    "cartesian_twist_trajectory": random_cartesian_twist_trajectory,
+}
+
+
+_EE_COMMAND_VARIANT_FACTORIES = {
+    "ee_positions": random_ee_positions,
+    "ee_velocities": random_ee_velocities,
+}
+
+
+_EE_TRAJECTORY_COMMAND_VARIANT_FACTORIES = {
+    "ee_positions_trajectory": random_ee_positions_trajectory,
+    "ee_velocities_trajectory": random_ee_velocities_trajectory,
+}
+
+
+def random_joint_command(rng: np.random.Generator, variant_field: str) -> JointCommand:
+    return JointCommand(
         header=random_timestamp_header(rng),
-        **{variant_field: _ACTION_VARIANT_FACTORIES[variant_field](rng)},
+        **{variant_field: _JOINT_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
     )
 
 
-def random_command(rng: np.random.Generator, variant_field: str) -> Command:
+def random_joint_trajectory_command(rng: np.random.Generator, variant_field: str) -> JointTrajectoryCommand:
+    return JointTrajectoryCommand(
+        header=random_timestamp_header(rng),
+        **{variant_field: _JOINT_TRAJECTORY_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+    )
+
+
+def random_cartesian_command(rng: np.random.Generator, variant_field: str) -> CartesianCommand:
+    return CartesianCommand(
+        header=random_timestamp_header(rng),
+        **{variant_field: _CARTESIAN_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+    )
+
+
+def random_cartesian_trajectory_command(rng: np.random.Generator, variant_field: str) -> CartesianTrajectoryCommand:
+    return CartesianTrajectoryCommand(
+        header=random_timestamp_header(rng),
+        **{variant_field: _CARTESIAN_TRAJECTORY_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+    )
+
+
+def random_ee_command(rng: np.random.Generator, variant_field: str) -> EECommand:
+    return EECommand(
+        header=random_timestamp_header(rng),
+        **{variant_field: _EE_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+    )
+
+
+def random_ee_trajectory_command(rng: np.random.Generator, variant_field: str) -> EETrajectoryCommand:
+    return EETrajectoryCommand(
+        header=random_timestamp_header(rng),
+        **{variant_field: _EE_TRAJECTORY_COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+    )
+
+
+def random_command(
+    rng: np.random.Generator,
+    joint_variant_field: str,
+    ee_variant_field: str | None = None,
+) -> Command:
+    joint_command = random_joint_command(rng, joint_variant_field)
+    ee_command = random_ee_command(rng, ee_variant_field) if ee_variant_field is not None else None
     return Command(
         header=random_timestamp_header(rng),
-        **{variant_field: _COMMAND_VARIANT_FACTORIES[variant_field](rng)},
+        joint_command=joint_command,
+        ee_command=ee_command,
     )
 
 
-ACTION_VARIANT_FIELDS = tuple(_ACTION_VARIANT_FACTORIES)
-COMMAND_VARIANT_FIELDS = tuple(_COMMAND_VARIANT_FACTORIES)
+JOINT_COMMAND_VARIANT_FIELDS = tuple(_JOINT_COMMAND_VARIANT_FACTORIES)
+JOINT_TRAJECTORY_COMMAND_VARIANT_FIELDS = tuple(_JOINT_TRAJECTORY_COMMAND_VARIANT_FACTORIES)
+CARTESIAN_COMMAND_VARIANT_FIELDS = tuple(_CARTESIAN_COMMAND_VARIANT_FACTORIES)
+CARTESIAN_TRAJECTORY_COMMAND_VARIANT_FIELDS = tuple(_CARTESIAN_TRAJECTORY_COMMAND_VARIANT_FACTORIES)
+EE_COMMAND_VARIANT_FIELDS = tuple(_EE_COMMAND_VARIANT_FACTORIES)
+EE_TRAJECTORY_COMMAND_VARIANT_FIELDS = tuple(_EE_TRAJECTORY_COMMAND_VARIANT_FACTORIES)
+
+
+_ACTION_ARM_FIELD_FACTORIES = {
+    "joint_command": (random_joint_command, JOINT_COMMAND_VARIANT_FIELDS),
+    "joint_trajectory_command": (random_joint_trajectory_command, JOINT_TRAJECTORY_COMMAND_VARIANT_FIELDS),
+    "cartesian_command": (random_cartesian_command, CARTESIAN_COMMAND_VARIANT_FIELDS),
+    "cartesian_trajectory_command": (random_cartesian_trajectory_command, CARTESIAN_TRAJECTORY_COMMAND_VARIANT_FIELDS),
+}
+
+
+_ACTION_EE_FIELD_FACTORIES = {
+    "ee_command": (random_ee_command, EE_COMMAND_VARIANT_FIELDS),
+    "ee_trajectory_command": (random_ee_trajectory_command, EE_TRAJECTORY_COMMAND_VARIANT_FIELDS),
+}
+
+
+def random_action(
+    rng: np.random.Generator,
+    arm_field: str,
+    ee_field: str | None = None,
+) -> Action:
+    arm_factory, arm_variants = _ACTION_ARM_FIELD_FACTORIES[arm_field]
+    arm_variant = arm_variants[int(rng.integers(0, len(arm_variants)))]
+    kwargs: dict = {arm_field: arm_factory(rng, arm_variant)}
+    if ee_field is not None:
+        ee_factory, ee_variants = _ACTION_EE_FIELD_FACTORIES[ee_field]
+        ee_variant = ee_variants[int(rng.integers(0, len(ee_variants)))]
+        kwargs[ee_field] = ee_factory(rng, ee_variant)
+    return Action(header=random_timestamp_header(rng), **kwargs)
+
+
+ACTION_ARM_FIELDS = tuple(_ACTION_ARM_FIELD_FACTORIES)
+ACTION_EE_FIELDS = tuple(_ACTION_EE_FIELD_FACTORIES)

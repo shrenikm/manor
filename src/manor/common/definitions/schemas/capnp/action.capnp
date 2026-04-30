@@ -1,27 +1,29 @@
 @0xd3c86a063a393cb4;
 
 using Header = import "/timestamp_header.capnp";
-using JP = import "/joint_positions.capnp";
-using JPT = import "/joint_positions_trajectory.capnp";
-using JV = import "/joint_velocities.capnp";
-using JVT = import "/joint_velocities_trajectory.capnp";
-using EP = import "/eef_pose.capnp";
-using EPT = import "/eef_pose_trajectory.capnp";
-using ET = import "/eef_twist.capnp";
-using ETT = import "/eef_twist_trajectory.capnp";
+using JC = import "/joint_command.capnp";
+using JTC = import "/joint_trajectory_command.capnp";
+using CC = import "/cartesian_command.capnp";
+using CTC = import "/cartesian_trajectory_command.capnp";
+using EC = import "/ee_command.capnp";
+using ETC = import "/ee_trajectory_command.capnp";
 
+# Action carries one of four group-1 arm commands (required) and at most
+# one group-2 ee command (optional).
 struct ActionV1 {
     header @0 :Header.VersionedTimestampHeader;
 
-    union {
-        jointPositions            @1 :JP.VersionedJointPositions;
-        jointPositionsTrajectory  @2 :JPT.VersionedJointPositionsTrajectory;
-        jointVelocities           @3 :JV.VersionedJointVelocities;
-        jointVelocitiesTrajectory @4 :JVT.VersionedJointVelocitiesTrajectory;
-        eefPose                   @5 :EP.VersionedEEFPose;
-        eefPoseTrajectory         @6 :EPT.VersionedEEFPoseTrajectory;
-        eefTwist                  @7 :ET.VersionedEEFTwist;
-        eefTwistTrajectory        @8 :ETT.VersionedEEFTwistTrajectory;
+    arm :union {
+        jointCommand                @1 :JC.VersionedJointCommand;
+        jointTrajectoryCommand      @2 :JTC.VersionedJointTrajectoryCommand;
+        cartesianCommand            @3 :CC.VersionedCartesianCommand;
+        cartesianTrajectoryCommand  @4 :CTC.VersionedCartesianTrajectoryCommand;
+    }
+
+    ee :union {
+        none                @5 :Void;
+        eeCommand           @6 :EC.VersionedEECommand;
+        eeTrajectoryCommand @7 :ETC.VersionedEETrajectoryCommand;
     }
 }
 

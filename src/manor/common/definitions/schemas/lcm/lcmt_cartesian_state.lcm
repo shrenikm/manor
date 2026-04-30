@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_cartesian_state {
+    lcmt_timestamp_header header;
+    lcmt_cartesian_pose cartesian_pose;
+    lcmt_cartesian_twist cartesian_twist;
+}

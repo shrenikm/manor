@@ -1,11 +1,12 @@
 """
-``PassthroughController``: forwards a joint-positions or
-joint-velocities Action through as the matching Command variant.
+PassthroughController: forwards an Action's group-1 joint command and
+group-2 ee command straight through as the matching Command. The
+gripper side passes through verbatim; the arm side passes only when the
+Action carries an instantaneous JointCommand.
 
-Falls back to a zero-velocity command if the Action carries an
-EEF-space variant (those need IK, which a passthrough can't provide).
-Useful when a policy is already producing command-shaped actions and a
-real low-level controller hasn't landed yet.
+Cartesian or trajectory arm shapes need IK or trajectory tracking, which
+a passthrough cannot provide, so the controller falls back to a
+zero-velocity joint command sized to num_dof in those cases.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 from manor.common.definitions.command import Command
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -30,9 +32,9 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 @attr.frozen
 class PassthroughControllerConfig(KyberControllerConfigBase):
     """
-    Config for ``PassthroughController``. ``num_dof`` sizes the
-    fallback zero-velocity command emitted when an EEF-space Action
-    arrives.
+    Config for PassthroughController. num_dof sizes the fallback
+    zero-velocity joint command emitted when the Action's arm side is
+    Cartesian or trajectory-shaped.
     """
 
     CONTROLLER_TYPE: ClassVar[KyberControllerType] = KyberControllerType.PASSTHROUGH
@@ -47,9 +49,10 @@ class PassthroughControllerConfig(KyberControllerConfigBase):
 @attr.frozen
 class PassthroughController:
     """
-    Forward joint-space Actions through as the matching Command, with
-    an EEF-space fallback to a zero-velocity command sized to
-    ``num_dof``.
+    Forward an Action's joint and ee command sides straight through as
+    the matching Command. Falls back to a zero-velocity joint command
+    sized to num_dof when the Action's arm side is Cartesian or
+    trajectory-shaped.
     """
 
     num_dof: int = 0
@@ -57,14 +60,14 @@ class PassthroughController:
     def step(self, action: Action, proprioception: Proprioception) -> Command:
         del proprioception
         header = TimestampHeader.from_system_time()
-        if action.joint_positions is not None:
-            return Command(header=header, joint_positions=action.joint_positions)
-        if action.joint_velocities is not None:
-            return Command(header=header, joint_velocities=action.joint_velocities)
-        return Command(
-            header=header,
-            joint_velocities=JointVelocities(
+        if action.joint_command is not None:
+            joint_command = action.joint_command
+        else:
+            joint_command = JointCommand(
                 header=header,
-                velocities=np.zeros(self.num_dof, dtype=np.float64),
-            ),
-        )
+                joint_velocities=JointVelocities(
+                    header=header,
+                    velocities=np.zeros(self.num_dof, dtype=np.float64),
+                ),
+            )
+        return Command(header=header, joint_command=joint_command, ee_command=action.ee_command)

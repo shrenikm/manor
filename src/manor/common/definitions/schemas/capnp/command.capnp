@@ -1,19 +1,16 @@
 @0xa3980f723764a3c7;
 
 using Header = import "/timestamp_header.capnp";
-using JP = import "/joint_positions.capnp";
-using JV = import "/joint_velocities.capnp";
-using EP = import "/eef_pose.capnp";
-using ET = import "/eef_twist.capnp";
+using JC = import "/joint_command.capnp";
+using EC = import "/ee_command.capnp";
 
 struct CommandV1 {
-    header @0 :Header.VersionedTimestampHeader;
+    header       @0 :Header.VersionedTimestampHeader;
+    jointCommand @1 :JC.VersionedJointCommand;
 
-    union {
-        jointPositions  @1 :JP.VersionedJointPositions;
-        jointVelocities @2 :JV.VersionedJointVelocities;
-        eefPose         @3 :EP.VersionedEEFPose;
-        eefTwist        @4 :ET.VersionedEEFTwist;
+    eeCommand :union {
+        none @2 :Void;
+        some @3 :EC.VersionedEECommand;
     }
 }
 

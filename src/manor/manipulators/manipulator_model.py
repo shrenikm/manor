@@ -39,11 +39,11 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_num_eef_dofs(self) -> int:
+    def get_num_ee_dofs(self) -> int:
         """
         Number of end-effector generalized DOFs reported on
-        ``EEFPositions`` / ``EEFVelocities`` for this variant. Zero for
-        variants without an actuated EEF; conventionally 1 for binary
+        ``EEPositions`` / ``EEVelocities`` for this variant. Zero for
+        variants without an actuated EE; conventionally 1 for binary
         on/off vacuum grippers; equal to the gripper's prismatic-joint
         count for actuated parallel grippers.
         """
@@ -66,7 +66,7 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_eef_tip_frame_name(self) -> str:
+    def get_cartesian_tip_frame_name(self) -> str:
         """
         Name of the end-effector tip frame (used for FK / IK targeting).
         """
@@ -76,7 +76,7 @@ class IManipulatorModel(abc.ABC):
     def get_num_positions(self) -> int:
         """
         Number of generalized positions in the MultibodyPlant for this
-        model (arm DOFs + any actuated EEF DOFs). Used for sizing /
+        model (arm DOFs + any actuated EE DOFs). Used for sizing /
         slicing Drake state vectors.
         """
         ...

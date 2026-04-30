@@ -16,6 +16,7 @@ import attr
 from manor.common.aegis.metis.policies.policy_manager import MetisPolicyConfigBase, MetisPolicyType
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.observation import Observation
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -52,4 +53,8 @@ class IdentityPolicy:
         else:
             joint_positions = JointPositions.construct_default(num_joints=self.num_joints)
 
-        return Action(header=TimestampHeader.from_system_time(), joint_positions=joint_positions)
+        header = TimestampHeader.from_system_time()
+        return Action(
+            header=header,
+            joint_command=JointCommand(header=header, joint_positions=joint_positions),
+        )

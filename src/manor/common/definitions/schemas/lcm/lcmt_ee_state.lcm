@@ -1,0 +1,7 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_ee_state {
+    lcmt_timestamp_header header;
+    lcmt_ee_positions ee_positions;
+    lcmt_ee_velocities ee_velocities;
+}

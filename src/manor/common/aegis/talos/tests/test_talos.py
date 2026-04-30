@@ -16,10 +16,10 @@ from manor.common.aegis.gaia.gaia import Gaia
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend, HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
+from manor.common.definitions.cartesian_state import CartesianState
 from manor.common.definitions.command import Command
-from manor.common.definitions.eef_pose import EEFPose
-from manor.common.definitions.eef_state import EEFState
-from manor.common.definitions.eef_twist import EEFTwist
+from manor.common.definitions.ee_state import EEState
+from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
@@ -42,8 +42,8 @@ class _RecordingBackend:
     def read_joint_state(self) -> JointState:
         return JointState.construct_default(num_joints=3)
 
-    def read_eef_state(self) -> EEFState:
-        return EEFState.construct_default(num_eef_dofs=1)
+    def read_ee_state(self) -> EEState:
+        return EEState.construct_default(num_ee_dofs=1)
 
     def start(self) -> None:
         self.started = True
@@ -55,9 +55,12 @@ class _RecordingBackend:
 def _make_command(positions: np.ndarray) -> Command:
     return Command(
         header=TimestampHeader(monotonic_ns=1, system_ns=2),
-        joint_positions=JointPositions(
+        joint_command=JointCommand(
             header=TimestampHeader(monotonic_ns=3, system_ns=4),
-            positions=positions,
+            joint_positions=JointPositions(
+                header=TimestampHeader(monotonic_ns=5, system_ns=6),
+                positions=positions,
+            ),
         ),
     )
 
@@ -105,7 +108,7 @@ class TestTalosPeriodic:
         simulator.AdvanceTo(0.05)
 
         assert len(backend.commands) >= 1
-        np.testing.assert_array_equal(backend.commands[-1].joint_positions.positions, positions)
+        np.testing.assert_array_equal(backend.commands[-1].joint_command.joint_positions.positions, positions)
 
     def test_publishes_assembled_proprioception(self) -> None:
         talos = _make_talos()
@@ -118,9 +121,8 @@ class TestTalosPeriodic:
         proprioception = talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION).Eval(simulator.get_context())
         assert isinstance(proprioception, Proprioception)
         assert isinstance(proprioception.joint_state, JointState)
-        assert isinstance(proprioception.eef_state, EEFState)
-        assert isinstance(proprioception.eef_pose, EEFPose)
-        assert isinstance(proprioception.eef_twist, EEFTwist)
+        assert isinstance(proprioception.cartesian_state, CartesianState)
+        assert isinstance(proprioception.ee_state, EEState)
         assert proprioception.header.monotonic_ns > 0
 
 
@@ -144,7 +146,10 @@ class TestSimManipulatorBackend:
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
         command = Command(
             header=TimestampHeader.from_system_time(),
-            joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
+            joint_command=JointCommand(
+                header=TimestampHeader.from_system_time(),
+                joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
+            ),
         )
         backend.send_command(command)
         gaia.apply_joint_position_command.assert_called_once()

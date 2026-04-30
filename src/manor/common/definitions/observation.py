@@ -119,10 +119,10 @@ class Observation(DefinitionBase):
 
     @classmethod
     @override
-    def construct_default(cls, num_joints: int = 0, num_eef_dofs: int = 0) -> Self:
+    def construct_default(cls, num_joints: int = 0, num_ee_dofs: int = 0) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
-            proprioception=Proprioception.construct_default(num_joints=num_joints, num_eef_dofs=num_eef_dofs),
+            proprioception=Proprioception.construct_default(num_joints=num_joints, num_ee_dofs=num_ee_dofs),
             rgb_image=RGBImageData.construct_default(),
             rgbd_image=None,
         )
