@@ -25,7 +25,7 @@ from manor.common.aegis.kyber.controllers.zero_velocity_controller import (
 )
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
@@ -86,16 +86,16 @@ def _fix_inputs(kyber: Kyber, context, action: Action, proprioception: Proprioce
     kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION).FixValue(context, AbstractValue.Make(proprioception))
 
 
-def _read_command(kyber: Kyber, context) -> Command:
-    return kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND).Eval(context)
+def _read_joint_ee_command(kyber: Kyber, context) -> JointEECommand:
+    return kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND).Eval(context)
 
 
 class _RecordingController:
-    def __init__(self, canned_command: Command) -> None:
-        self.canned = canned_command
+    def __init__(self, canned_joint_ee_command: JointEECommand) -> None:
+        self.canned = canned_joint_ee_command
         self.calls: list[tuple[Action, Proprioception]] = []
 
-    def step(self, action: Action, proprioception: Proprioception) -> Command:
+    def step(self, action: Action, proprioception: Proprioception) -> JointEECommand:
         self.calls.append((action, proprioception))
         return self.canned
 
@@ -113,7 +113,7 @@ class TestKyberConstruction:
         assert kyber.num_output_ports() == 1
         assert kyber.GetInputPort(KyberPorts.INPUT_ACTION) is not None
         assert kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION) is not None
-        assert kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND) is not None
+        assert kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND) is not None
 
     def test_owns_no_plant(self) -> None:
         kyber = _make_kyber()
@@ -126,7 +126,7 @@ class TestKyberConstruction:
 
 class TestKyberControllerDispatch:
     def test_periodic_update_calls_controller_with_inputs(self) -> None:
-        canned = Command(
+        canned = JointEECommand(
             header=TimestampHeader.from_system_time(),
             joint_command=JointCommand(
                 header=TimestampHeader.from_system_time(),
@@ -167,7 +167,7 @@ class TestKyberControllerDispatch:
         simulator = Simulator(kyber, context)
         simulator.AdvanceTo(0.05)
 
-        command = _read_command(kyber, simulator.get_context())
+        command = _read_joint_ee_command(kyber, simulator.get_context())
         assert command.joint_command.joint_velocities is not None
         np.testing.assert_array_equal(command.joint_command.joint_velocities.velocities, np.zeros(LITE6_ARM_DOF))
 

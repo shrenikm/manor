@@ -175,10 +175,10 @@ Kyber is the low-level servo loop: action → command.
 
 - **Inputs:** `INPUT_ACTION` (from Metis over LCM),
   `INPUT_PROPRIOCEPTION` (from Talos, direct in-process).
-- **Output:** `OUTPUT_COMMAND` — motor-level setpoint. A `Command`
-  always carries a `joint_command` (the arm setpoint) and optionally
-  carries an `ee_command` (the gripper setpoint). Wired directly to
-  Talos in the same process; never serialized over LCM.
+- **Output:** `OUTPUT_JOINT_EE_COMMAND` — motor-level setpoint. A
+  `JointEECommand` always carries a `joint_command` (the arm setpoint)
+  and optionally carries an `ee_command` (the gripper setpoint). Wired
+  directly to Talos in the same process; never serialized over LCM.
 - **Internals:** every `1 / publish_frequency_hz` it calls
   `controller.step(action, proprioception)` and zero-order-holds the
   result on its output port.
@@ -195,7 +195,7 @@ constructor. Kyber itself owns no plant.
 Talos is the hardware/sim shim: command → actuation, joint state →
 proprioception.
 
-- **Input:** `INPUT_COMMAND` (from Kyber, direct).
+- **Input:** `INPUT_JOINT_EE_COMMAND` (from Kyber, direct).
 - **Output:** `OUTPUT_PROPRIOCEPTION` — wired both directly back to
   Kyber (tight feedback) and to an LCM publisher (so Metis sees it
   from the metis process).
@@ -205,8 +205,9 @@ proprioception.
   a `CartesianState` (tip pose + twist) via FK, and assembles a
   `Proprioception` message (joint state required, cartesian / ee state
   optional).
-- **Backend:** the `ManipulatorBackend` Protocol (`send_command`,
-  `read_joint_state`, `read_ee_state`, `start`, `stop`). In sim the
+- **Backend:** the `ManipulatorBackend` Protocol
+  (`send_joint_ee_command`, `read_joint_state`, `read_ee_state`,
+  `start`, `stop`). In sim the
   backend closes over `Gaia`; on hardware it wraps an
   `IManipulatorDriver` (currently `Lite6Driver` over the xarm SDK).
 - **Default rate:** 200 Hz.
@@ -296,7 +297,7 @@ Currently shipped:
 
 ```python
 class KyberController(Protocol):
-    def step(self, action: Action, proprioception: Proprioception) -> Command: ...
+    def step(self, action: Action, proprioception: Proprioception) -> JointEECommand: ...
 ```
 
 Same factory shape under `kyber/controllers/`. Each provides a
@@ -334,7 +335,7 @@ enum, not raw strings:
 | `PROPRIOCEPTION`      | `AEGIS_PROPRIOCEPTION` | kylos / gylos (talos) | metis  |
 | `RGB_IMAGE`           | `AEGIS_RGB_IMAGE`      | helios / gylos (helios) | metis |
 | `DEPTH_IMAGE`         | `AEGIS_DEPTH_IMAGE`    | helios / gylos (helios) | metis |
-| `COMMAND`             | `AEGIS_COMMAND`        | (reserved; unused — Kyber→Talos is direct) | — |
+| `JOINT_EE_COMMAND`    | `AEGIS_JOINT_EE_COMMAND` | (reserved; unused — Kyber→Talos is direct) | — |
 | `OBSERVATION`         | `AEGIS_OBSERVATION`    | (reserved for future use) | — |
 
 ### Adapters: attrs ↔ LCM
@@ -351,7 +352,7 @@ adapter `Diagram`s bridge them:
   `.to_lcm_message()` + `LcmPublisherSystem`. Imports a single
   `DEFINITION_INPUT` port and publishes at a configured rate.
 
-Every aegis definition (`Proprioception`, `Action`, `Command`,
+Every aegis definition (`Proprioception`, `Action`, `JointEECommand`,
 `RGBImageData`, `DepthImageData`) implements `to_lcm_message()` /
 `from_lcm_message()` over a generated LCM type, so the adapters work
 generically — no per-message wiring code.
@@ -586,8 +587,9 @@ runner imports, CLI commands). The CLI tests sandbox PID files into a
 - **Gripper isn't independently commanded in sim.** Gaia's
   `_DesiredStateSource` only routes the arm DOFs of a position /
   velocity command into the IDC's desired state; gripper joints are
-  always held at their measured pose. Even when a `Command` carries an
-  `ee_command`, `SimManipulatorBackend.send_command` drops it silently
+  always held at their measured pose. Even when a `JointEECommand`
+  carries an `ee_command`, `SimManipulatorBackend.send_joint_ee_command`
+  drops it silently
   until a gripper-tracking path lands. Cartesian-shaped actions also
   fall through Kyber's passthrough as zero-velocity arm commands until
   an IK / trajectory-tracking controller is implemented.

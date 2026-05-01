@@ -34,7 +34,7 @@ from typing import ClassVar, Protocol, Self, runtime_checkable
 import attr
 
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.exceptions import AegisConfigError
 from manor.manipulators.manipulator_model import IManipulatorModel
@@ -59,14 +59,14 @@ class KyberControllerType(StrEnum):
 @runtime_checkable
 class KyberController(Protocol):
     """
-    Protocol for an (action, proprioception) -> command controller.
+    Protocol for an (action, proprioception) -> joint+ee command controller.
 
     Concrete implementations may be purely functional (passthrough,
     zero-velocity stub) or stateful (PID with integrator state, MPC
     with internal solvers); the ``step`` interface accommodates both.
     """
 
-    def step(self, action: Action, proprioception: Proprioception) -> Command: ...
+    def step(self, action: Action, proprioception: Proprioception) -> JointEECommand: ...
 
 
 @attr.frozen

@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import is_2d_array, is_non_decreasing_1d
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
 from manor.common.definitions.lcmtypes.lcmt_joint_state_trajectory import (
     lcmt_joint_state_trajectory,
@@ -22,6 +23,7 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+from manor.common.exceptions import InvalidDefinitionError
 
 
 class _CapnpField(StrEnum):
@@ -41,11 +43,42 @@ class JointStateTrajectory(DefinitionBase):
     """
 
     header: TimestampHeader
-    times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    joint_positions_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    joint_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    times: TimesVector = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_non_decreasing_1d(),
+    )
+    joint_positions_array: NpMatrixNMf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(),
+    )
+    joint_velocities_array: NpMatrixNMf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
+
+    def __attrs_post_init__(self) -> None:
+        n = self.times.shape[0]
+        if n == 0:
+            raise InvalidDefinitionError(
+                "JointStateTrajectory must contain at least one step (use None for an absent trajectory)"
+            )
+        if self.joint_positions_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"JointStateTrajectory.times length ({n}) "
+                f"must match joint_positions_array rows ({self.joint_positions_array.shape[0]})"
+            )
+        if self.joint_velocities_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"JointStateTrajectory.times length ({n}) "
+                f"must match joint_velocities_array rows ({self.joint_velocities_array.shape[0]})"
+            )
+        if self.joint_positions_array.shape[1] != self.joint_velocities_array.shape[1]:
+            raise InvalidDefinitionError(
+                f"JointStateTrajectory.joint_positions_array cols ({self.joint_positions_array.shape[1]}) "
+                f"must match joint_velocities_array cols ({self.joint_velocities_array.shape[1]})"
+            )
 
     @classmethod
     @override
@@ -101,7 +134,7 @@ class JointStateTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def construct_default(cls, num_steps: int = 0, num_joints: int = 0) -> Self:
+    def construct_default(cls, num_steps: int = 1, num_joints: int = 0) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
             times=np.zeros(num_steps, dtype=np.float64),

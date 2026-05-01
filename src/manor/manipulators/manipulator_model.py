@@ -66,9 +66,13 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_cartesian_tip_frame_name(self) -> str:
+    def get_fk_ik_frame_name(self) -> str:
         """
-        Name of the end-effector tip frame (used for FK / IK targeting).
+        Name of the frame used as the reference point for forward and
+        inverse kinematics (typically the end-effector tip). FK reads
+        out this frame's pose / spatial velocity; IK / diff-IK / IDC
+        targeting solves for joint positions that place this frame at a
+        desired pose.
         """
         ...
 
@@ -97,19 +101,15 @@ class IManipulatorModel(abc.ABC):
         """
         ...
 
+    @abc.abstractmethod
     def get_default_sim_pid_gains(self) -> PIDGains:
         """
         Per-joint PID gains for the in-sim ``InverseDynamicsController``
         that drives this manipulator's actuation port. Sized to
-        ``get_num_positions()``. Default is generic / mild; concrete
-        manipulator models should override with values tuned against
-        their inertia / damping / joint scales.
+        ``get_num_positions()``. Concrete manipulator models tune
+        these against their own inertia / damping / joint scales --
+        no generic default lives here.
 
         Sim-only -- on hardware the real controller lives on the robot.
         """
-        return PIDGains.from_scalar_gains(
-            size=self.get_num_positions(),
-            kp_scalar=100.0,
-            ki_scalar=0.0,
-            kd_scalar=20.0,
-        )
+        ...

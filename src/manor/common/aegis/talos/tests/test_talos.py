@@ -17,9 +17,9 @@ from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
 from manor.common.definitions.cartesian_state import CartesianState
-from manor.common.definitions.command import Command
 from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.joint_command import JointCommand
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
@@ -32,12 +32,12 @@ from manor.manipulators.lite6.variant import Lite6Variant
 
 class _RecordingBackend:
     def __init__(self) -> None:
-        self.commands: list[Command] = []
+        self.commands: list[JointEECommand] = []
         self.started = False
         self.stopped = False
 
-    def send_command(self, command: Command) -> None:
-        self.commands.append(command)
+    def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
+        self.commands.append(joint_ee_command)
 
     def read_joint_state(self) -> JointState:
         return JointState.construct_default(num_joints=3)
@@ -52,8 +52,8 @@ class _RecordingBackend:
         self.stopped = True
 
 
-def _make_command(positions: np.ndarray) -> Command:
-    return Command(
+def _make_joint_ee_command(positions: np.ndarray) -> JointEECommand:
+    return JointEECommand(
         header=TimestampHeader(monotonic_ns=1, system_ns=2),
         joint_command=JointCommand(
             header=TimestampHeader(monotonic_ns=3, system_ns=4),
@@ -88,7 +88,7 @@ class TestTalosConstruction:
         talos = _make_talos(publish_frequency=200.0)
         assert talos.num_input_ports() == 1
         assert talos.num_output_ports() == 1
-        assert talos.GetInputPort(TalosPorts.INPUT_COMMAND) is not None
+        assert talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND) is not None
         assert talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION) is not None
 
     def test_owns_a_finalized_plant(self) -> None:
@@ -102,7 +102,9 @@ class TestTalosPeriodic:
         talos = _make_talos(backend=backend)
         context = talos.CreateDefaultContext()
         positions = np.array([0.1, 0.2, 0.3], dtype=np.float64)
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(_make_command(positions)))
+        talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND).FixValue(
+            context, AbstractValue.Make(_make_joint_ee_command(positions))
+        )
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)
@@ -113,7 +115,9 @@ class TestTalosPeriodic:
     def test_publishes_assembled_proprioception(self) -> None:
         talos = _make_talos()
         context = talos.CreateDefaultContext()
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND).FixValue(context, AbstractValue.Make(Command.construct_default()))
+        talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND).FixValue(
+            context, AbstractValue.Make(JointEECommand.construct_default())
+        )
 
         simulator = Simulator(talos, context)
         simulator.AdvanceTo(0.05)
@@ -140,18 +144,18 @@ class TestManipulatorBackendProtocolCompliance:
 
 
 class TestSimManipulatorBackend:
-    def test_send_command_routes_joint_positions_to_gaia(self) -> None:
+    def test_send_joint_ee_command_routes_joint_positions_to_gaia(self) -> None:
         gaia = mock.MagicMock(spec=Gaia)
         backend = SimManipulatorBackend(gaia=gaia)
         positions = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-        command = Command(
+        joint_ee_command = JointEECommand(
             header=TimestampHeader.from_system_time(),
             joint_command=JointCommand(
                 header=TimestampHeader.from_system_time(),
                 joint_positions=JointPositions(header=TimestampHeader.from_system_time(), positions=positions),
             ),
         )
-        backend.send_command(command)
+        backend.send_joint_ee_command(joint_ee_command)
         gaia.apply_joint_position_command.assert_called_once()
 
 

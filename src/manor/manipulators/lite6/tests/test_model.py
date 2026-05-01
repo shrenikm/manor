@@ -78,7 +78,7 @@ class TestLite6ModelDescription:
     def test_frame_names_are_lite6_canonical(self, variant: Lite6Variant) -> None:
         m = _model(variant)
         assert m.get_base_frame_name() == "link_base"
-        assert m.get_cartesian_tip_frame_name() == "link_eef_tip"
+        assert m.get_fk_ik_frame_name() == "link_eef_tip"
 
 
 if __name__ == "__main__":

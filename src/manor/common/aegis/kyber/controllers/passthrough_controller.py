@@ -1,8 +1,8 @@
 """
 PassthroughController: forwards an Action's group-1 joint command and
-group-2 ee command straight through as the matching Command. The
-gripper side passes through verbatim; the arm side passes only when the
-Action carries an instantaneous JointCommand.
+group-2 ee command straight through as the matching JointEECommand.
+The gripper side passes through verbatim; the arm side passes only
+when the Action carries an instantaneous JointCommand.
 
 Cartesian or trajectory arm shapes need IK or trajectory tracking, which
 a passthrough cannot provide, so the controller falls back to a
@@ -22,8 +22,8 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
 )
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
 from manor.common.definitions.joint_command import JointCommand
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -50,14 +50,14 @@ class PassthroughControllerConfig(KyberControllerConfigBase):
 class PassthroughController:
     """
     Forward an Action's joint and ee command sides straight through as
-    the matching Command. Falls back to a zero-velocity joint command
-    sized to num_dof when the Action's arm side is Cartesian or
+    the matching JointEECommand. Falls back to a zero-velocity joint
+    command sized to num_dof when the Action's arm side is Cartesian or
     trajectory-shaped.
     """
 
     num_dof: int = 0
 
-    def step(self, action: Action, proprioception: Proprioception) -> Command:
+    def step(self, action: Action, proprioception: Proprioception) -> JointEECommand:
         del proprioception
         header = TimestampHeader.from_system_time()
         if action.joint_command is not None:
@@ -70,4 +70,4 @@ class PassthroughController:
                     velocities=np.zeros(self.num_dof, dtype=np.float64),
                 ),
             )
-        return Command(header=header, joint_command=joint_command, ee_command=action.ee_command)
+        return JointEECommand(header=header, joint_command=joint_command, ee_command=action.ee_command)

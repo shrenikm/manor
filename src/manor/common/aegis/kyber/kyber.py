@@ -1,9 +1,9 @@
 """
 Kyber: the low-level controller LeafSystem.
 
-Consumes Action and Proprioception and produces Command at a fixed rate
-set by ``publish_frequency``. The actual control law lives in a
-``KyberController`` implementation (mirroring how Metis takes a
+Consumes Action and Proprioception and produces JointEECommand at a
+fixed rate set by ``publish_frequency``. The actual control law lives
+in a ``KyberController`` implementation (mirroring how Metis takes a
 ``MetisPolicy``); Kyber is just the periodic harness that pushes inputs
 through it.
 
@@ -29,7 +29,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
 )
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.proprioception import Proprioception
 
 
@@ -40,7 +40,7 @@ class KyberPorts(StrEnum):
 
     INPUT_ACTION = "action"
     INPUT_PROPRIOCEPTION = "proprioception"
-    OUTPUT_COMMAND = "command"
+    OUTPUT_JOINT_EE_COMMAND = "joint_ee_command"
 
 
 @attr.frozen
@@ -71,7 +71,7 @@ class KyberConfig:
 class Kyber(LeafSystem):
     """
     Low-level controller LeafSystem that runs a ``KyberController`` on
-    (action, proprioception) inputs and publishes a Command output.
+    (action, proprioception) inputs and publishes a JointEECommand output.
     """
 
     def __init__(self, controller: KyberController, publish_frequency: float) -> None:
@@ -91,13 +91,15 @@ class Kyber(LeafSystem):
             AbstractValue.Make(Proprioception.construct_default()),
         )
 
-        self._command_state_index = self.DeclareAbstractState(AbstractValue.Make(Command.construct_default()))
+        self._joint_ee_command_state_index = self.DeclareAbstractState(
+            AbstractValue.Make(JointEECommand.construct_default())
+        )
 
         self.DeclareAbstractOutputPort(
-            KyberPorts.OUTPUT_COMMAND,
-            alloc=lambda: AbstractValue.Make(Command.construct_default()),
-            calc=self._calc_command_output,
-            prerequisites_of_calc={self.abstract_state_ticket(self._command_state_index)},
+            KyberPorts.OUTPUT_JOINT_EE_COMMAND,
+            alloc=lambda: AbstractValue.Make(JointEECommand.construct_default()),
+            calc=self._calc_joint_ee_command_output,
+            prerequisites_of_calc={self.abstract_state_ticket(self._joint_ee_command_state_index)},
         )
 
         self.DeclarePeriodicUnrestrictedUpdateEvent(
@@ -106,12 +108,12 @@ class Kyber(LeafSystem):
             update=self._periodic_update,
         )
 
-    def _calc_command_output(self, context: Context, output: AbstractValue) -> None:
-        output.set_value(context.get_abstract_state(self._command_state_index).get_value())
+    def _calc_joint_ee_command_output(self, context: Context, output: AbstractValue) -> None:
+        output.set_value(context.get_abstract_state(self._joint_ee_command_state_index).get_value())
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
         action: Action = self._action_input.Eval(context)
         proprioception: Proprioception = self._proprioception_input.Eval(context)
-        command = self.controller.step(action, proprioception)
-        state.get_mutable_abstract_state(self._command_state_index).set_value(command)
+        joint_ee_command = self.controller.step(action, proprioception)
+        state.get_mutable_abstract_state(self._joint_ee_command_state_index).set_value(joint_ee_command)
         return EventStatus.Succeeded()

@@ -176,8 +176,8 @@ class TestGylosRunner:
             kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION),
         )
         builder.Connect(
-            kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
-            talos.GetInputPort(TalosPorts.INPUT_COMMAND),
+            kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND),
+            talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND),
         )
         rgb_publisher = builder.AddSystem(
             AegisLCMPublisherAdapter.from_lcm_type(

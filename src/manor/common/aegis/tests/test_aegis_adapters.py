@@ -27,7 +27,7 @@ from manor.common.aegis.aegis_adapters import (
 )
 from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.definitions.action import Action
-from manor.common.definitions.command import Command
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_positions import JointPositions
@@ -45,12 +45,12 @@ def _definition_cases() -> list[tuple[AegisChannel, type[DefinitionBase]]]:
     """
     Returns (channel, definition_cls) pairs covering the message shapes
     the adapters are expected to handle: scalar/array variant messages
-    (Action, Command), nested optional fields (Proprioception), and image
+    (Action, JointEECommand), nested optional fields (Proprioception), and image
     messages (RGB / Depth) that have strict enum fields.
     """
     return [
         (AegisChannel.ACTION, Action),
-        (AegisChannel.COMMAND, Command),
+        (AegisChannel.JOINT_EE_COMMAND, JointEECommand),
         (AegisChannel.PROPRIOCEPTION, Proprioception),
         (AegisChannel.RGB_IMAGE, RGBImageData),
         (AegisChannel.DEPTH_IMAGE, DepthImageData),
@@ -154,7 +154,7 @@ class TestAdapterRoundTrip:
         # default if no real publish reached it.
         default_msg = (
             definition_cls.construct_default(num_joints=_NUM_JOINTS)
-            if definition_cls in (Action, Command, Proprioception)
+            if definition_cls in (Action, JointEECommand, Proprioception)
             else definition_cls.construct_default()
         )
         source_msg = attr.evolve(default_msg, header=TimestampHeader.from_system_time())

@@ -4,8 +4,8 @@ Concrete ``IManipulatorModel`` for the Ufactory Lite6.
 Per-variant data (description filename, MultibodyPlant position count)
 lives in module-level dicts keyed by ``Lite6Variant``. The arm DOF count
 and frame names are constant across all variants: the Lite6 arm always
-has 6 joints, and every supported variant uses ``link_base`` /
-``link_eef_tip`` for its base / end-effector tip frames.
+has 6 joints, and every supported variant uses ``link_base`` as the
+base frame and ``link_eef_tip`` as the FK / IK reference frame.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
 
 _LITE6_BASE_FRAME_NAME = "link_base"
-_LITE6_CARTESIAN_TIP_FRAME_NAME = "link_eef_tip"
+_LITE6_FK_IK_FRAME_NAME = "link_eef_tip"
 
 _VARIANT_TO_DESCRIPTION_FILENAME: dict[Lite6Variant, str] = {
     Lite6Variant.VACUUM_GRIPPER: "lite6_robot_with_vacuum_gripper.urdf",
@@ -97,8 +97,8 @@ class Lite6Model(IManipulatorModel):
         return _LITE6_BASE_FRAME_NAME
 
     @override
-    def get_cartesian_tip_frame_name(self) -> str:
-        return _LITE6_CARTESIAN_TIP_FRAME_NAME
+    def get_fk_ik_frame_name(self) -> str:
+        return _LITE6_FK_IK_FRAME_NAME
 
     @override
     def get_num_positions(self) -> int:

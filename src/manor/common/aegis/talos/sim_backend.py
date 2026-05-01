@@ -1,10 +1,10 @@
 """
 Simulation ManipulatorBackend.
 
-Closes over a ``Gaia`` instance: forwards Talos's outgoing Command
-into the simulation, and reads the simulation's joint + EE state
-back. Gaia is *not* advanced from here -- that's the
-``GaiaAdvancer`` LeafSystem's job.
+Closes over a ``Gaia`` instance: forwards Talos's outgoing
+JointEECommand into the simulation, and reads the simulation's
+joint + EE state back. Gaia is *not* advanced from here -- that's
+the ``GaiaAdvancer`` LeafSystem's job.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import numpy as np
 
 from manor.common.aegis.gaia.gaia import Gaia
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
-from manor.common.definitions.command import Command
 from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.ee_velocities import EEVelocities
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
 
@@ -52,16 +52,16 @@ class SimManipulatorBackend:
     def stop(self) -> None:
         return
 
-    def send_command(self, command: Command) -> None:
-        joint_command = command.joint_command
+    def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
+        joint_command = joint_ee_command.joint_command
         if joint_command.joint_positions is not None:
             self.gaia.apply_joint_position_command(joint_command.joint_positions)
         elif joint_command.joint_velocities is not None:
             self.gaia.apply_joint_velocity_command(joint_command.joint_velocities)
         # EE-side commands aren't wired into Gaia yet; gripper joints
         # are held at their measured pose by Gaia's _DesiredStateSource,
-        # so command.ee_command falls through silently until a gripper
-        # tracking path lands.
+        # so joint_ee_command.ee_command falls through silently until a
+        # gripper tracking path lands.
 
     def read_joint_state(self) -> JointState:
         return self.gaia.read_joint_state()

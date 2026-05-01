@@ -1,9 +1,9 @@
 """
-Talos LeafSystem: sends commands to the robot and publishes its full
-proprioception state.
+Talos LeafSystem: sends joint+ee commands to the robot and publishes its
+full proprioception state.
 
 On each periodic tick Talos:
-  1. forwards the latest Command on its input port to the backend,
+  1. forwards the latest JointEECommand on its input port to the backend,
   2. polls the backend for the current joint + EE state,
   3. runs forward kinematics on the joint state to compute Cartesian pose + twist,
   4. assembles a Proprioception message and writes it into abstract state.
@@ -36,8 +36,8 @@ from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.cartesian_pose import CartesianPose
 from manor.common.definitions.cartesian_state import CartesianState
 from manor.common.definitions.cartesian_twist import CartesianTwist
-from manor.common.definitions.command import Command
 from manor.common.definitions.ee_state import EEState
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -50,7 +50,7 @@ class TalosPorts(StrEnum):
     Named input / output ports exposed by Talos.
     """
 
-    INPUT_COMMAND = "command"
+    INPUT_JOINT_EE_COMMAND = "joint_ee_command"
     OUTPUT_PROPRIOCEPTION = "proprioception"
 
 
@@ -86,12 +86,12 @@ class ManipulatorBackend(Protocol):
     Protocol for a manipulator actuation-and-state interface.
 
     Exactly one backend owns the robot's actual state at a time. Talos
-    drives the backend on every tick by calling ``send_command`` and
-    reads state back via ``read_joint_state`` / ``read_ee_state``.
+    drives the backend on every tick by calling ``send_joint_ee_command``
+    and reads state back via ``read_joint_state`` / ``read_ee_state``.
     Forward kinematics is Talos's responsibility, not the backend's.
     """
 
-    def send_command(self, command: Command) -> None: ...
+    def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None: ...
 
     def read_joint_state(self) -> JointState: ...
 
@@ -105,7 +105,7 @@ class ManipulatorBackend(Protocol):
 class Talos(LeafSystem):
     """
     Bridge between the Aegis graph and the manipulator. Consumes
-    Command, publishes Proprioception.
+    JointEECommand, publishes Proprioception.
     """
 
     def __init__(
@@ -123,9 +123,9 @@ class Talos(LeafSystem):
         self.publish_frequency = publish_frequency
         self.plant = self._build_plant(manipulator_model)
 
-        self._command_input = self.DeclareAbstractInputPort(
-            TalosPorts.INPUT_COMMAND,
-            AbstractValue.Make(Command.construct_default()),
+        self._joint_ee_command_input = self.DeclareAbstractInputPort(
+            TalosPorts.INPUT_JOINT_EE_COMMAND,
+            AbstractValue.Make(JointEECommand.construct_default()),
         )
 
         self._proprioception_state_index = self.DeclareAbstractState(
@@ -163,8 +163,8 @@ class Talos(LeafSystem):
         output.set_value(context.get_abstract_state(self._proprioception_state_index).get_value())
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
-        command: Command = self._command_input.Eval(context)
-        self.backend.send_command(command)
+        joint_ee_command: JointEECommand = self._joint_ee_command_input.Eval(context)
+        self.backend.send_joint_ee_command(joint_ee_command)
 
         joint_state = self.backend.read_joint_state()
         ee_state = self.backend.read_ee_state()

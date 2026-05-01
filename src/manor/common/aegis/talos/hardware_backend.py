@@ -3,9 +3,9 @@ Hardware ManipulatorBackend.
 
 Wraps the robot's control SDK via an ``IManipulatorDriver``. The driver
 is the source of truth for joint DOF / EE DOF counts; this backend just routes
-``ManipulatorBackend`` calls (``send_command`` / ``read_joint_state`` /
-``read_ee_state`` / ``start`` / ``stop``) to the corresponding driver
-methods.
+``ManipulatorBackend`` calls (``send_joint_ee_command`` /
+``read_joint_state`` / ``read_ee_state`` / ``start`` / ``stop``) to
+the corresponding driver methods.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import attr
 import numpy as np
 
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
-from manor.common.definitions.command import Command
 from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.ee_velocities import EEVelocities
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.manipulators.manipulator_driver import IManipulatorDriver
@@ -52,13 +52,13 @@ class HardwareManipulatorBackend:
     def stop(self) -> None:
         self.driver.unprime()
 
-    def send_command(self, command: Command) -> None:
-        joint_command = command.joint_command
+    def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
+        joint_command = joint_ee_command.joint_command
         if joint_command.joint_positions is not None:
             self.driver.write_joint_positions(joint_command.joint_positions)
         elif joint_command.joint_velocities is not None:
             self.driver.write_joint_velocities(joint_command.joint_velocities)
-        ee_command = command.ee_command
+        ee_command = joint_ee_command.ee_command
         if ee_command is not None:
             if ee_command.ee_positions is not None:
                 self.driver.write_ee_positions(ee_command.ee_positions)

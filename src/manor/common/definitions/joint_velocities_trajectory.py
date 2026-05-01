@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import is_2d_array, is_non_decreasing_1d
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
 from manor.common.definitions.lcmtypes.lcmt_joint_velocities_trajectory import (
     lcmt_joint_velocities_trajectory,
@@ -22,6 +23,7 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+from manor.common.exceptions import InvalidDefinitionError
 
 
 class _CapnpField(StrEnum):
@@ -40,10 +42,27 @@ class JointVelocitiesTrajectory(DefinitionBase):
     """
 
     header: TimestampHeader
-    times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    joint_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    times: TimesVector = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_non_decreasing_1d(),
+    )
+    joint_velocities_array: NpMatrixNMf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
+
+    def __attrs_post_init__(self) -> None:
+        if self.times.shape[0] == 0:
+            raise InvalidDefinitionError(
+                "JointVelocitiesTrajectory must contain at least one step (use None for an absent trajectory)"
+            )
+        if self.times.shape[0] != self.joint_velocities_array.shape[0]:
+            raise InvalidDefinitionError(
+                f"JointVelocitiesTrajectory.times length ({self.times.shape[0]}) "
+                f"must match joint_velocities_array rows ({self.joint_velocities_array.shape[0]})"
+            )
 
     @classmethod
     @override
@@ -92,7 +111,7 @@ class JointVelocitiesTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def construct_default(cls, num_steps: int = 0, num_joints: int = 0) -> Self:
+    def construct_default(cls, num_steps: int = 1, num_joints: int = 0) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
             times=np.zeros(num_steps, dtype=np.float64),

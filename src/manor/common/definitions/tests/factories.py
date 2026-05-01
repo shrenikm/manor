@@ -15,8 +15,9 @@ from manor.common.definitions.cartesian_command import CartesianCommand
 from manor.common.definitions.cartesian_pose import CartesianPose
 from manor.common.definitions.cartesian_pose_trajectory import CartesianPoseTrajectory
 from manor.common.definitions.cartesian_state import CartesianState
+from manor.common.definitions.cartesian_state_trajectory import CartesianStateTrajectory
 from manor.common.definitions.cartesian_trajectory_command import CartesianTrajectoryCommand
-from manor.common.definitions.command import Command
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.ee_command import EECommand
 from manor.common.definitions.ee_trajectory_command import EETrajectoryCommand
@@ -206,6 +207,20 @@ def random_cartesian_pose_trajectory(rng: np.random.Generator) -> CartesianPoseT
     )
 
 
+def random_cartesian_state_trajectory(rng: np.random.Generator) -> CartesianStateTrajectory:
+    num_steps = _random_int(rng, 1, 20)
+    orientations = rng.normal(size=(num_steps, 4))
+    orientations = orientations / np.linalg.norm(orientations, axis=1, keepdims=True)
+    return CartesianStateTrajectory(
+        header=random_timestamp_header(rng),
+        times=np.sort(rng.uniform(0.0, 10.0, size=num_steps)),
+        translations_array=rng.uniform(-1.0, 1.0, size=(num_steps, 3)),
+        orientations_array=orientations,
+        linear_array=rng.uniform(-1.0, 1.0, size=(num_steps, 3)),
+        angular_array=rng.uniform(-1.0, 1.0, size=(num_steps, 3)),
+    )
+
+
 def random_cartesian_twist_trajectory(rng: np.random.Generator) -> CartesianTwistTrajectory:
     num_steps = _random_int(rng, 1, 20)
     return CartesianTwistTrajectory(
@@ -373,14 +388,14 @@ def random_ee_trajectory_command(rng: np.random.Generator, variant_field: str) -
     )
 
 
-def random_command(
+def random_joint_ee_command(
     rng: np.random.Generator,
     joint_variant_field: str,
     ee_variant_field: str | None = None,
-) -> Command:
+) -> JointEECommand:
     joint_command = random_joint_command(rng, joint_variant_field)
     ee_command = random_ee_command(rng, ee_variant_field) if ee_variant_field is not None else None
-    return Command(
+    return JointEECommand(
         header=random_timestamp_header(rng),
         joint_command=joint_command,
         ee_command=ee_command,

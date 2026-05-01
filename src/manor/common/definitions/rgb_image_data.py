@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self, override
 
 import attr
 
+from manor.common.attrs_utils import is_non_negative_int
 from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
@@ -36,8 +37,8 @@ class RGBImageData(DefinitionBase):
     """
 
     header: TimestampHeader
-    height: int
-    width: int
+    height: int = attr.field(validator=is_non_negative_int())
+    width: int = attr.field(validator=is_non_negative_int())
     encoding: ImageEncoding
     data: bytes
 

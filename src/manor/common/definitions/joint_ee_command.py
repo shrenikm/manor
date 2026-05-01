@@ -1,12 +1,13 @@
 """
-Robot command.
+Joint+EE command bundle.
 
-The controller (Kyber) emits a Command to the hardware interface (Talos).
-Every Command carries a JointCommand (the joint-level setpoint Talos
-actuates) and may optionally carry an EECommand (a gripper-side
-setpoint). The joint side is required because the arm always needs a
-target on every tick; the gripper side is optional because gripper
-control is not always needed and many policies leave it untouched.
+The controller (Kyber) emits a JointEECommand to the hardware interface
+(Talos). Every JointEECommand carries a JointCommand (the joint-level
+setpoint Talos actuates) and may optionally carry an EECommand (a
+gripper-side setpoint). The joint side is required because the arm
+always needs a target on every tick; the gripper side is optional
+because gripper control is not always needed and many policies leave
+it untouched.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ import attr
 
 from manor.common.definitions.ee_command import EECommand
 from manor.common.definitions.joint_command import JointCommand
-from manor.common.definitions.lcmtypes.lcmt_command import lcmt_command
 from manor.common.definitions.lcmtypes.lcmt_ee_command import lcmt_ee_command
+from manor.common.definitions.lcmtypes.lcmt_joint_ee_command import lcmt_joint_ee_command
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
@@ -32,7 +33,7 @@ class _CapnpField(StrEnum):
 
 
 @attr.frozen
-class Command(DefinitionBase):
+class JointEECommand(DefinitionBase):
     """
     A hardware-facing command. Carries a required JointCommand for the
     arm and an optional EECommand for the gripper.
@@ -47,12 +48,12 @@ class Command(DefinitionBase):
     @classmethod
     @override
     def get_capnp_schema(cls) -> CapnpStructSchema:
-        return load_versioned_schema("command.capnp").VersionedCommand
+        return load_versioned_schema("joint_ee_command.capnp").VersionedJointEECommand
 
     @classmethod
     @override
     def get_lcm_class(cls) -> type:
-        return lcmt_command
+        return lcmt_joint_ee_command
 
     @override
     def to_capnp_current(self, builder: Any) -> None:
@@ -75,8 +76,8 @@ class Command(DefinitionBase):
         )
 
     @override
-    def to_lcm_message(self) -> lcmt_command:
-        msg = lcmt_command()
+    def to_lcm_message(self) -> lcmt_joint_ee_command:
+        msg = lcmt_joint_ee_command()
         msg.header = self.header.to_lcm_message()
         msg.joint_command = self.joint_command.to_lcm_message()
         msg.has_ee_command = self.ee_command is not None

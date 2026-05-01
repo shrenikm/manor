@@ -110,8 +110,8 @@ def run_kylos(
     )
 
     builder.Connect(
-        kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND),
+        kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND),
+        talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND),
     )
 
     diagram = builder.Build()

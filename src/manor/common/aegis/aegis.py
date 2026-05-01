@@ -313,8 +313,8 @@ def build_aegis(config: AegisConfig) -> tuple[Diagram, AegisSystems]:
 
     # Direct: Kyber.command -> Talos.command (no LCM hop, as planned).
     builder.Connect(
-        kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND),
+        kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND),
+        talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND),
     )
 
     gaia_advancer: GaiaAdvancer | None = None

@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import is_1d_array
 from manor.common.custom_types import NpVectorNf64
 from manor.common.definitions.lcmtypes.lcmt_ee_positions import lcmt_ee_positions
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -37,7 +38,10 @@ class EEPositions(DefinitionBase):
     """
 
     header: TimestampHeader
-    positions: NpVectorNf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    positions: NpVectorNf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_1d_array(),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 

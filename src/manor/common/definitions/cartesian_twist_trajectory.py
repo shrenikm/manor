@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import is_2d_array, is_non_decreasing_1d
 from manor.common.custom_types import NpMatrixN3f64, TimesVector
 from manor.common.definitions.lcmtypes.lcmt_cartesian_twist_trajectory import (
     lcmt_cartesian_twist_trajectory,
@@ -22,6 +23,7 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+from manor.common.exceptions import InvalidDefinitionError
 
 
 class _CapnpField(StrEnum):
@@ -40,11 +42,37 @@ class CartesianTwistTrajectory(DefinitionBase):
     """
 
     header: TimestampHeader
-    times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    linear_array: NpMatrixN3f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    angular_array: NpMatrixN3f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    times: TimesVector = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_non_decreasing_1d(),
+    )
+    linear_array: NpMatrixN3f64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(expected_cols=3),
+    )
+    angular_array: NpMatrixN3f64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(expected_cols=3),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
+
+    def __attrs_post_init__(self) -> None:
+        n = self.times.shape[0]
+        if n == 0:
+            raise InvalidDefinitionError(
+                "CartesianTwistTrajectory must contain at least one step (use None for an absent trajectory)"
+            )
+        if self.linear_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"CartesianTwistTrajectory.times length ({n}) "
+                f"must match linear_array rows ({self.linear_array.shape[0]})"
+            )
+        if self.angular_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"CartesianTwistTrajectory.times length ({n}) "
+                f"must match angular_array rows ({self.angular_array.shape[0]})"
+            )
 
     @classmethod
     @override
@@ -95,7 +123,7 @@ class CartesianTwistTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def construct_default(cls, num_steps: int = 0) -> Self:
+    def construct_default(cls, num_steps: int = 1) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
             times=np.zeros(num_steps, dtype=np.float64),

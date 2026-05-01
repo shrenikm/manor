@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import has_shape, is_unit_quaternion
 from manor.common.custom_types import NpVector3f64, NpVector4f64
 from manor.common.definitions.lcmtypes.lcmt_cartesian_pose import lcmt_cartesian_pose
 from manor.common.definitions.timestamp_header import TimestampHeader
@@ -38,8 +39,14 @@ class CartesianPose(DefinitionBase):
     """
 
     header: TimestampHeader
-    translation: NpVector3f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    orientation: NpVector4f64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    translation: NpVector3f64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=has_shape((3,)),
+    )
+    orientation: NpVector4f64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_unit_quaternion(),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 

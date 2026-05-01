@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self, override
 
 import attr
 
+from manor.common.attrs_utils import is_non_negative_int
 from manor.common.definitions.lcmtypes.lcmt_timestamp_header import lcmt_timestamp_header
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
@@ -20,8 +21,8 @@ class TimestampHeader(DefinitionBase):
     Monotonic and system-wall-clock timestamps, both in nanoseconds.
     """
 
-    monotonic_ns: int
-    system_ns: int
+    monotonic_ns: int = attr.field(validator=is_non_negative_int())
+    system_ns: int = attr.field(validator=is_non_negative_int())
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 

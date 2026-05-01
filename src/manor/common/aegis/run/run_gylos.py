@@ -156,8 +156,8 @@ def run_gylos(
 
     # Kyber.command -> Talos.command, also direct.
     builder.Connect(
-        kyber.GetOutputPort(KyberPorts.OUTPUT_COMMAND),
-        talos.GetInputPort(TalosPorts.INPUT_COMMAND),
+        kyber.GetOutputPort(KyberPorts.OUTPUT_JOINT_EE_COMMAND),
+        talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND),
     )
 
     # Helios image streams are conditional on per-stream frequency > 0.

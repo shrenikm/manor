@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Self, override
 import attr
 import numpy as np
 
+from manor.common.attrs_utils import is_2d_array, is_non_decreasing_1d
 from manor.common.custom_types import NpMatrixNMf64, TimesVector
 from manor.common.definitions.lcmtypes.lcmt_ee_state_trajectory import (
     lcmt_ee_state_trajectory,
@@ -22,6 +23,7 @@ from manor.common.definitions.utils.capnp_utils import (
     ndarray_to_float64_array,
 )
 from manor.common.definitions.utils.interfaces import DefinitionBase
+from manor.common.exceptions import InvalidDefinitionError
 
 
 class _CapnpField(StrEnum):
@@ -39,11 +41,42 @@ class EEStateTrajectory(DefinitionBase):
     """
 
     header: TimestampHeader
-    times: TimesVector = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    ee_positions_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
-    ee_velocities_array: NpMatrixNMf64 = attr.field(eq=attr.cmp_using(eq=np.array_equal))
+    times: TimesVector = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_non_decreasing_1d(),
+    )
+    ee_positions_array: NpMatrixNMf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(),
+    )
+    ee_velocities_array: NpMatrixNMf64 = attr.field(
+        eq=attr.cmp_using(eq=np.array_equal),
+        validator=is_2d_array(),
+    )
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
+
+    def __attrs_post_init__(self) -> None:
+        n = self.times.shape[0]
+        if n == 0:
+            raise InvalidDefinitionError(
+                "EEStateTrajectory must contain at least one step (use None for an absent trajectory)"
+            )
+        if self.ee_positions_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"EEStateTrajectory.times length ({n}) "
+                f"must match ee_positions_array rows ({self.ee_positions_array.shape[0]})"
+            )
+        if self.ee_velocities_array.shape[0] != n:
+            raise InvalidDefinitionError(
+                f"EEStateTrajectory.times length ({n}) "
+                f"must match ee_velocities_array rows ({self.ee_velocities_array.shape[0]})"
+            )
+        if self.ee_positions_array.shape[1] != self.ee_velocities_array.shape[1]:
+            raise InvalidDefinitionError(
+                f"EEStateTrajectory.ee_positions_array cols ({self.ee_positions_array.shape[1]}) "
+                f"must match ee_velocities_array cols ({self.ee_velocities_array.shape[1]})"
+            )
 
     @classmethod
     @override
@@ -99,7 +132,7 @@ class EEStateTrajectory(DefinitionBase):
 
     @classmethod
     @override
-    def construct_default(cls, num_steps: int = 0, num_ee_dofs: int = 0) -> Self:
+    def construct_default(cls, num_steps: int = 1, num_ee_dofs: int = 0) -> Self:
         return cls(
             header=TimestampHeader.construct_default(),
             times=np.zeros(num_steps, dtype=np.float64),
