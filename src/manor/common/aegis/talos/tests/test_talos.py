@@ -17,6 +17,8 @@ from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend, SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import ManipulatorBackend, Talos, TalosPorts
 from manor.common.definitions.cartesian_state import CartesianState
+from manor.common.definitions.ee_command import EECommand
+from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_ee_command import JointEECommand
@@ -157,6 +159,37 @@ class TestSimManipulatorBackend:
         )
         backend.send_joint_ee_command(joint_ee_command)
         gaia.apply_joint_position_command.assert_called_once()
+
+    def test_send_joint_ee_command_routes_ee_positions_to_gaia(self) -> None:
+        gaia = mock.MagicMock(spec=Gaia)
+        backend = SimManipulatorBackend(gaia=gaia)
+        joint_ee_command = JointEECommand(
+            header=TimestampHeader.from_system_time(),
+            joint_command=JointCommand(
+                header=TimestampHeader.from_system_time(),
+                joint_positions=JointPositions(
+                    header=TimestampHeader.from_system_time(),
+                    positions=np.zeros(6, dtype=np.float64),
+                ),
+            ),
+            ee_command=EECommand(
+                header=TimestampHeader.from_system_time(),
+                ee_positions=EEPositions(
+                    header=TimestampHeader.from_system_time(),
+                    positions=np.array([0.04], dtype=np.float64),
+                ),
+            ),
+        )
+        backend.send_joint_ee_command(joint_ee_command)
+        gaia.apply_ee_position_command.assert_called_once()
+
+    def test_read_ee_state_returns_width_from_gripper_joints(self) -> None:
+        gaia = Gaia(manipulator_model=_make_lite6_model())
+        gaia.finalize()
+        backend = SimManipulatorBackend(gaia=gaia)
+        ee_state = backend.read_ee_state()
+        # The model's EE DOF count is 1 (parallel gripper opening width).
+        assert ee_state.ee_positions.positions.shape == (1,)
 
 
 if __name__ == "__main__":

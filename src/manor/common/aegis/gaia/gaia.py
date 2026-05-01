@@ -40,6 +40,7 @@ from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.custom_types import JointPositionsVector
 from manor.common.definitions.depth_image_data import DepthImageData
+from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -137,39 +138,39 @@ class _DesiredStateSource(LeafSystem):
     ``InverseDynamicsController`` from the latest stashed command on
     the Gaia instance plus the plant's current measured state.
 
-    The mapping mirrors the deprecated ``Lite6PliantMultiplexer`` so
-    sim behavior matches the real robot's:
+    The mapping mirrors the deprecated Lite6PliantMultiplexer so sim
+    behavior matches the real robot's:
 
-    * Velocity command:
-      ``desired_q = measured_q`` (position error always zero) and
-      ``desired_v[arm] = command_v``. A zero-velocity command therefore
+    * Velocity command (arm):
+      desired_q = measured_q (position error always zero) and
+      desired_v[arm] = command_v. A zero-velocity command therefore
       drives the controller to fight only motion, holding the arm in
       place. Matches "real robot stays still given zero velocities".
-    * Position command:
-      ``desired_q[arm] = command_q`` and ``desired_v = 0``. The PID
-      term in the controller pulls the arm toward the target.
-    * No command yet:
-      ``desired_q = measured_q`` and ``desired_v = 0``. Holds the URDF
-      default pose at startup until the first command arrives.
+    * Position command (arm):
+      desired_q[arm] = command_q and desired_v[arm] = 0. The PID term
+      in the controller pulls the arm toward the target.
+    * No arm command yet:
+      desired_q[arm] = measured_q[arm] and desired_v[arm] = 0. Holds
+      the URDF default pose at startup until the first command arrives.
 
-    Gripper joints (anything past the arm DOFs) always stay at
-    ``desired_q[gripper] = measured_q[gripper]`` and
-    ``desired_v[gripper] = 0`` -- gripper is commanded via the EE
-    channel, not joint commands, and that path isn't routed through
-    Gaia yet. So the gripper is held at whatever position the URDF
-    initialised it to.
+    Gripper joints (anything past the arm DOFs) follow the latest
+    stashed EE-position command translated through
+    IManipulatorModel.compute_gripper_joint_positions. Until an EE
+    position command is received they stay at measured_q[gripper] with
+    zero desired velocity, holding the URDF default opening.
 
-    Reads ``gaia.latest_position_command`` / ``latest_velocity_command``
-    directly. Drake calls ``_compute`` from the inner simulator's
-    advance, which is single-threaded against the outer aegis loop
-    where ``apply_*_command`` is invoked, so the Python-level reads
-    are safe.
+    Reads gaia.latest_position_command / latest_velocity_command /
+    latest_ee_position_command directly. Drake calls _compute from the
+    inner simulator's advance, which is single-threaded against the
+    outer aegis loop where apply_*_command is invoked, so the
+    Python-level reads are safe.
     """
 
-    def __init__(self, gaia: Gaia, num_positions: int) -> None:
+    def __init__(self, gaia: Gaia, num_positions: int, num_arm_dof: int) -> None:
         super().__init__()
         self._gaia = gaia
         self._num_positions = num_positions
+        self._num_arm_dof = num_arm_dof
         self._estimated_state_input = self.DeclareVectorInputPort(
             _DesiredStateSourcePorts.INPUT_ESTIMATED_STATE,
             2 * num_positions,
@@ -185,19 +186,37 @@ class _DesiredStateSource(LeafSystem):
         measured_q = np.asarray(estimated[: self._num_positions], dtype=np.float64)
 
         # Default: hold measured pose with zero desired velocity. This
-        # is what runs at startup and any time both stashed commands
-        # are None.
+        # is what runs at startup and any time stashed commands are None.
         desired_q = measured_q.copy()
         desired_v = np.zeros(self._num_positions, dtype=np.float64)
 
         velocity_cmd = self._gaia.latest_velocity_command
         position_cmd = self._gaia.latest_position_command
         if velocity_cmd is not None:
-            arm_dof = velocity_cmd.velocities.shape[0]
-            desired_v[:arm_dof] = velocity_cmd.velocities
+            # Cap at num_arm_dof so a (rare) over-sized command can't
+            # write into the gripper-side block; use the cmd's own
+            # length on the lower side so default-empty commands at
+            # startup are a safe no-op.
+            n = min(velocity_cmd.velocities.shape[0], self._num_arm_dof)
+            desired_v[:n] = velocity_cmd.velocities[:n]
         elif position_cmd is not None:
-            arm_dof = position_cmd.positions.shape[0]
-            desired_q[:arm_dof] = position_cmd.positions
+            n = min(position_cmd.positions.shape[0], self._num_arm_dof)
+            desired_q[:n] = position_cmd.positions[:n]
+
+        ee_position_cmd = self._gaia.latest_ee_position_command
+        num_gripper_dof = self._num_positions - self._num_arm_dof
+        # Skip if there is no gripper-side block in the plant or the
+        # command isn't sized to the EE interface yet (e.g. the
+        # default-constructed zero-length command flowing through at
+        # startup before any policy populates an EE setpoint).
+        if (
+            ee_position_cmd is not None
+            and num_gripper_dof > 0
+            and ee_position_cmd.positions.shape[0] == self._gaia.manipulator_model.get_num_ee_dofs()
+        ):
+            gripper_q = self._gaia.manipulator_model.compute_gripper_joint_positions(ee_position_cmd.positions)
+            if gripper_q.shape[0] == num_gripper_dof:
+                desired_q[self._num_arm_dof :] = gripper_q
 
         output.SetFromVector(np.concatenate([desired_q, desired_v]))
 
@@ -222,6 +241,7 @@ class Gaia:
     meshcat: Meshcat | None = attr.field(default=None, init=False)
     latest_position_command: JointPositions | None = attr.field(default=None, init=False)
     latest_velocity_command: JointVelocities | None = attr.field(default=None, init=False)
+    latest_ee_position_command: EEPositions | None = attr.field(default=None, init=False)
     _plant_context: Any = attr.field(default=None, init=False)
     _rgb_template: RGBImageData | None = attr.field(default=None, init=False)
     _depth_template: DepthImageData | None = attr.field(default=None, init=False)
@@ -318,7 +338,13 @@ class Gaia:
         # default, falls through to position-control if a position
         # command is stashed, holds measured pose otherwise".
         num_positions = controller_plant.num_positions()
-        desired_source = builder.AddSystem(_DesiredStateSource(gaia=self, num_positions=num_positions))
+        desired_source = builder.AddSystem(
+            _DesiredStateSource(
+                gaia=self,
+                num_positions=num_positions,
+                num_arm_dof=self.manipulator_model.get_num_dof(),
+            )
+        )
         manipulator_state_port = plant.get_state_output_port(manipulator_model_index)
         builder.Connect(
             manipulator_state_port,
@@ -411,6 +437,16 @@ class Gaia:
         """
         self._require_finalized()
         self.latest_velocity_command = joint_velocities
+
+    def apply_ee_position_command(self, ee_positions: EEPositions) -> None:
+        """
+        Stash the latest EE-position command. _DesiredStateSource picks
+        this up on every tick and translates it through
+        IManipulatorModel.compute_gripper_joint_positions to drive the
+        gripper-side block of the desired joint vector.
+        """
+        self._require_finalized()
+        self.latest_ee_position_command = ee_positions
 
     def read_joint_state(self) -> JointState:
         """

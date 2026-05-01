@@ -24,7 +24,14 @@ from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 
 LITE6_ARM_DOF = 6
-LITE6_PARALLEL_GRIPPER_DOF = 2
+# Number of gripper joints in the Drake plant (URDF). The parallel
+# gripper has two prismatic finger joints; the EE interface exposes a
+# single opening width that is split equally between the two fingers.
+LITE6_PARALLEL_GRIPPER_PLANT_DOF = 2
+# Number of EE-level DOFs surfaced through IManipulatorModel for the
+# parallel gripper variants. The EE vector is the opening width (one
+# scalar) -- one EE DOF, not two.
+LITE6_PARALLEL_GRIPPER_EE_DOF = 1
 
 _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
@@ -40,21 +47,23 @@ _VARIANT_TO_DESCRIPTION_FILENAME: dict[Lite6Variant, str] = {
 
 # MultibodyPlant position counts. The vacuum gripper has no actuated
 # DOFs of its own, so its plant has just the 6 arm joints. The actuated
-# parallel grippers add two prismatic joints.
+# parallel grippers add two prismatic finger joints.
 _VARIANT_TO_NUM_POSITIONS: dict[Lite6Variant, int] = {
     Lite6Variant.VACUUM_GRIPPER: LITE6_ARM_DOF,
-    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
-    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_PLANT_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_PLANT_DOF,
 }
 
 # EE generalized-DOF counts surfaced through the IManipulatorModel
 # interface (i.e. the size of EEPositions / EEVelocities vectors for
 # this variant). The vacuum gripper exposes a single binary on/off
-# state; both parallel-gripper variants expose two prismatic joints.
+# state; both parallel-gripper variants expose a single opening width
+# that the model splits internally across the two prismatic finger
+# joints in the URDF.
 _VARIANT_TO_NUM_EE_DOFS: dict[Lite6Variant, int] = {
     Lite6Variant.VACUUM_GRIPPER: 1,
-    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_PARALLEL_GRIPPER_DOF,
-    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_PARALLEL_GRIPPER_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_PARALLEL_GRIPPER_EE_DOF,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_PARALLEL_GRIPPER_EE_DOF,
 }
 
 
@@ -115,6 +124,40 @@ class Lite6Model(IManipulatorModel):
         return self.get_num_positions() + self.get_num_velocities()
 
     @override
+    def compute_gripper_joint_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+        # Vacuum has no actuated gripper DOFs in the plant; the EE
+        # binary on/off is a sim-only proprioception channel and never
+        # touches q.
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.zeros(0, dtype=np.float64)
+        # Parallel gripper: the EE vector is the single opening width;
+        # the URDF has two prismatic finger joints that each travel
+        # half the width.
+        if ee_positions.shape != (LITE6_PARALLEL_GRIPPER_EE_DOF,):
+            raise ValueError(
+                f"Lite6 parallel gripper expects ee_positions of shape ({LITE6_PARALLEL_GRIPPER_EE_DOF},); "
+                f"got {ee_positions.shape}"
+            )
+        half_width = float(ee_positions[0]) / 2.0
+        return np.array([half_width, half_width], dtype=np.float64)
+
+    @override
+    def compute_ee_positions_from_gripper_joints(self, gripper_joint_positions: np.ndarray) -> np.ndarray:
+        # Vacuum gripper: EE state is binary on/off and is not modelled
+        # in the URDF. Without a separate latch path the best the sim
+        # can report is "off" (zero).
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.zeros(1, dtype=np.float64)
+        if gripper_joint_positions.shape != (LITE6_PARALLEL_GRIPPER_PLANT_DOF,):
+            raise ValueError(
+                f"Lite6 parallel gripper expects gripper_joint_positions of shape "
+                f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {gripper_joint_positions.shape}"
+            )
+        # Opening width = sum of the two prismatic finger positions
+        # (each finger travels half the width away from centre).
+        return np.array([float(np.sum(gripper_joint_positions))], dtype=np.float64)
+
+    @override
     def get_default_sim_pid_gains(self) -> PIDGains:
         # Tuned in the previous (deprecated) Lite6 sim against the
         # choreographer analysis plots. Arm joints carry mid-range
@@ -130,9 +173,9 @@ class Lite6Model(IManipulatorModel):
                 ki=np.array(arm_ki, dtype=np.float64),
                 kd=np.array(arm_kd, dtype=np.float64),
             )
-        gripper_kp = [500.0] * LITE6_PARALLEL_GRIPPER_DOF
-        gripper_ki = [50.0] * LITE6_PARALLEL_GRIPPER_DOF
-        gripper_kd = [500.0] * LITE6_PARALLEL_GRIPPER_DOF
+        gripper_kp = [500.0] * LITE6_PARALLEL_GRIPPER_PLANT_DOF
+        gripper_ki = [50.0] * LITE6_PARALLEL_GRIPPER_PLANT_DOF
+        gripper_kd = [500.0] * LITE6_PARALLEL_GRIPPER_PLANT_DOF
         return PIDGains(
             kp=np.array(arm_kp + gripper_kp, dtype=np.float64),
             ki=np.array(arm_ki + gripper_ki, dtype=np.float64),

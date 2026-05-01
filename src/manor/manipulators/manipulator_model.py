@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import abc
 
+import numpy as np
+
 from manor.common.control.pid import PIDGains
 from manor.common.custom_types import FilePath
 from manor.manipulators.manipulator_type import ManipulatorType
@@ -98,6 +100,36 @@ class IManipulatorModel(abc.ABC):
         """
         Total number of MultibodyPlant state entries
         (``num_positions + num_velocities``).
+        """
+        ...
+
+    @abc.abstractmethod
+    def compute_gripper_joint_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+        """
+        Translate an EE-level position vector (size get_num_ee_dofs()) into
+        the corresponding gripper-side block of the plant's q vector
+        (size get_num_positions() - get_num_dof()).
+
+        The EE-level vector is what the gripper interface exposes (e.g. a
+        single number for parallel-gripper opening width or vacuum on/off).
+        The plant-side block is whatever generalised-position layout Drake
+        needs for the URDF (e.g. two prismatic finger joints for the Lite6
+        parallel gripper). Implementations encode the URDF-specific mapping.
+        Variants without actuated gripper joints in the plant return a
+        length-0 array.
+        """
+        ...
+
+    @abc.abstractmethod
+    def compute_ee_positions_from_gripper_joints(self, gripper_joint_positions: np.ndarray) -> np.ndarray:
+        """
+        Inverse of compute_gripper_joint_positions: project the gripper-side
+        block of the plant's q vector back onto the EE-level position
+        vector (size get_num_ee_dofs()).
+
+        For variants whose EE state is not represented in the plant (e.g.
+        a binary vacuum gripper), implementations may return the last
+        commanded value or a sensible default; the input is ignored.
         """
         ...
 

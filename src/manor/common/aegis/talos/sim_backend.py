@@ -58,27 +58,33 @@ class SimManipulatorBackend:
             self.gaia.apply_joint_position_command(joint_command.joint_positions)
         elif joint_command.joint_velocities is not None:
             self.gaia.apply_joint_velocity_command(joint_command.joint_velocities)
-        # EE-side commands aren't wired into Gaia yet; gripper joints
-        # are held at their measured pose by Gaia's _DesiredStateSource,
-        # so joint_ee_command.ee_command falls through silently until a
-        # gripper tracking path lands.
+        # EE-side commands: only EE positions are routed through Gaia
+        # today (the only thing _DesiredStateSource consumes).
+        # EE-velocity commands are accepted at the talos boundary but
+        # have no plant-side effect until a gripper velocity path lands.
+        ee_command = joint_ee_command.ee_command
+        if ee_command is not None and ee_command.ee_positions is not None:
+            self.gaia.apply_ee_position_command(ee_command.ee_positions)
 
     def read_joint_state(self) -> JointState:
         return self.gaia.read_joint_state()
 
     def read_ee_state(self) -> EEState:
-        # Gaia doesn't yet model gripper state separately; emit a zero
-        # EEState sized to the manipulator model's EE DOF count.
-        num_ee_dofs = self.gaia.manipulator_model.get_num_ee_dofs()
+        manipulator_model = self.gaia.manipulator_model
+        num_arm_dof = manipulator_model.get_num_dof()
+        num_ee_dofs = manipulator_model.get_num_ee_dofs()
         header = TimestampHeader.from_system_time()
+
+        joint_state = self.gaia.read_joint_state()
+        gripper_q = joint_state.joint_positions.positions[num_arm_dof:]
+        ee_position_values = manipulator_model.compute_ee_positions_from_gripper_joints(gripper_q)
+
         return EEState(
             header=header,
-            ee_positions=EEPositions(
-                header=header,
-                positions=np.zeros(num_ee_dofs, dtype=np.float64),
-            ),
+            ee_positions=EEPositions(header=header, positions=ee_position_values),
             ee_velocities=EEVelocities(
                 header=header,
+                # EE velocity is not modelled separately yet.
                 velocities=np.zeros(num_ee_dofs, dtype=np.float64),
             ),
         )

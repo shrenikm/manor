@@ -46,6 +46,9 @@ class MetisPolicyType(StrEnum):
     IDENTITY = "identity"
     CONSTANT_JOINT_POSITIONS = "constant_joint_positions"
     CONSTANT_JOINT_VELOCITIES = "constant_joint_velocities"
+    CONSTANT_CARTESIAN_POSE = "constant_cartesian_pose"
+    CIRCLE_EE_VELOCITY = "circle_ee_velocity"
+    GRIPPER_OPEN_CLOSE = "gripper_open_close"
 
 
 @runtime_checkable
@@ -104,11 +107,23 @@ class MetisPolicyManager:
         config's runtime type (which is itself anchored to
         ``POLICY_TYPE``).
         """
+        from manor.common.aegis.metis.policies.circle_ee_velocity_policy import (
+            CircleEEVelocityPolicy,
+            CircleEEVelocityPolicyConfig,
+        )
+        from manor.common.aegis.metis.policies.constant_cartesian_pose_policy import (
+            ConstantCartesianPosePolicy,
+            ConstantCartesianPosePolicyConfig,
+        )
         from manor.common.aegis.metis.policies.constant_policies import (
             ConstantJointPositionsPolicy,
             ConstantJointPositionsPolicyConfig,
             ConstantJointVelocitiesPolicy,
             ConstantJointVelocitiesPolicyConfig,
+        )
+        from manor.common.aegis.metis.policies.gripper_open_close_policy import (
+            GripperOpenClosePolicy,
+            GripperOpenClosePolicyConfig,
         )
         from manor.common.aegis.metis.policies.identity_policy import IdentityPolicy, IdentityPolicyConfig
 
@@ -118,6 +133,12 @@ class MetisPolicyManager:
             return ConstantJointPositionsPolicy(positions=config.positions)
         if isinstance(config, ConstantJointVelocitiesPolicyConfig):
             return ConstantJointVelocitiesPolicy(velocities=config.velocities)
+        if isinstance(config, ConstantCartesianPosePolicyConfig):
+            return ConstantCartesianPosePolicy.from_config(config)
+        if isinstance(config, CircleEEVelocityPolicyConfig):
+            return CircleEEVelocityPolicy.from_config(config)
+        if isinstance(config, GripperOpenClosePolicyConfig):
+            return GripperOpenClosePolicy.from_config(config)
         raise AegisConfigError(f"Unknown policy config type: {type(config).__name__}")
 
     @classmethod
@@ -129,10 +150,15 @@ class MetisPolicyManager:
         values; the rest of the block is forwarded to that subclass's
         ``from_yaml_dict``.
         """
+        from manor.common.aegis.metis.policies.circle_ee_velocity_policy import CircleEEVelocityPolicyConfig
+        from manor.common.aegis.metis.policies.constant_cartesian_pose_policy import (
+            ConstantCartesianPosePolicyConfig,
+        )
         from manor.common.aegis.metis.policies.constant_policies import (
             ConstantJointPositionsPolicyConfig,
             ConstantJointVelocitiesPolicyConfig,
         )
+        from manor.common.aegis.metis.policies.gripper_open_close_policy import GripperOpenClosePolicyConfig
         from manor.common.aegis.metis.policies.identity_policy import IdentityPolicyConfig
 
         if not isinstance(raw, dict):
@@ -155,4 +181,10 @@ class MetisPolicyManager:
             return ConstantJointPositionsPolicyConfig.from_yaml_dict(body)
         if policy_type is MetisPolicyType.CONSTANT_JOINT_VELOCITIES:
             return ConstantJointVelocitiesPolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.CONSTANT_CARTESIAN_POSE:
+            return ConstantCartesianPosePolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.CIRCLE_EE_VELOCITY:
+            return CircleEEVelocityPolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.GRIPPER_OPEN_CLOSE:
+            return GripperOpenClosePolicyConfig.from_yaml_dict(body)
         raise AegisConfigError(f"No config parser registered for policy type {policy_type!r}")

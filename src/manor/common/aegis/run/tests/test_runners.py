@@ -35,9 +35,9 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.testing_utils import run_manor_tests
 
 
-def _bundled_config() -> AegisConfig:
+def _bundled_config(filename: str = "default_ac.yaml") -> AegisConfig:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
-    path = os.path.join(repo_root, "configs", "aegis", "default_ac.yaml")
+    path = os.path.join(repo_root, "configs", "aegis", filename)
     with open(path, "r") as fp:
         config = AegisConfig.from_yaml_dict(yaml.safe_load(fp))
     # Disable meshcat for tests so the pinned port-7000 server doesn't
@@ -221,6 +221,24 @@ class TestGylosRunner:
 )
 def test_runner_module_imports_cleanly(module: str) -> None:
     __import__(module)
+
+
+@pytest.mark.parametrize(
+    "config_filename",
+    [
+        "gripper_open_close_ac.yaml",
+        "constant_cartesian_pose_ac.yaml",
+        "circle_ee_velocity_ac.yaml",
+    ],
+)
+def test_new_aegis_yaml_configs_parse(config_filename: str) -> None:
+    # Sanity check that each bundled aegis YAML parses end-to-end into
+    # an AegisConfig. The diagram-build smoke test for the default
+    # config exercises the wiring; this test catches schema breakage in
+    # the per-policy / per-controller YAML blocks.
+    config = _bundled_config(filename=config_filename)
+    assert config.metis_config.policy_config is not None
+    assert config.kyber_config.controller_config is not None
 
 
 if __name__ == "__main__":

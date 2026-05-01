@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import pytest
 
 from manor.common.testing_utils import run_manor_tests
 from manor.manipulators.lite6.model import (
     LITE6_ARM_DOF,
-    LITE6_PARALLEL_GRIPPER_DOF,
+    LITE6_PARALLEL_GRIPPER_EE_DOF,
+    LITE6_PARALLEL_GRIPPER_PLANT_DOF,
     Lite6Model,
 )
 from manor.manipulators.lite6.variant import Lite6Variant
@@ -51,7 +53,7 @@ class TestLite6ModelShape:
     @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
     def test_parallel_gripper_variants_add_two_dofs(self, variant: Lite6Variant) -> None:
         m = _model(variant)
-        expected_q = LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_DOF
+        expected_q = LITE6_ARM_DOF + LITE6_PARALLEL_GRIPPER_PLANT_DOF
         assert m.get_num_positions() == expected_q
         assert m.get_num_velocities() == expected_q
         assert m.get_num_states() == 2 * expected_q
@@ -64,8 +66,10 @@ class TestLite6ModelEEDof:
         assert _model(Lite6Variant.VACUUM_GRIPPER).get_num_ee_dofs() == 1
 
     @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_gripper_ee_dof_matches_prismatic_count(self, variant: Lite6Variant) -> None:
-        assert _model(variant).get_num_ee_dofs() == LITE6_PARALLEL_GRIPPER_DOF
+    def test_parallel_gripper_ee_dof_is_one(self, variant: Lite6Variant) -> None:
+        # The EE interface exposes a single opening width; the URDF's
+        # two prismatic finger joints are an internal detail of the plant.
+        assert _model(variant).get_num_ee_dofs() == LITE6_PARALLEL_GRIPPER_EE_DOF
 
 
 class TestLite6ModelDescription:
@@ -79,6 +83,53 @@ class TestLite6ModelDescription:
         m = _model(variant)
         assert m.get_base_frame_name() == "link_base"
         assert m.get_fk_ik_frame_name() == "link_eef_tip"
+
+
+class TestLite6ModelGripperJointPositions:
+    def test_vacuum_returns_empty_array(self) -> None:
+        m = _model(Lite6Variant.VACUUM_GRIPPER)
+        result = m.compute_gripper_joint_positions(np.array([0.0]))
+        assert result.shape == (0,)
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_splits_width_in_half(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        result = m.compute_gripper_joint_positions(np.array([0.04]))
+        assert result.shape == (LITE6_PARALLEL_GRIPPER_PLANT_DOF,)
+        np.testing.assert_allclose(result, [0.02, 0.02])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_rejects_wrong_shape(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        with pytest.raises(ValueError):
+            m.compute_gripper_joint_positions(np.array([0.04, 0.04]))
+
+
+class TestLite6ModelEEPositionsFromGripperJoints:
+    def test_vacuum_returns_zero_one_vector(self) -> None:
+        m = _model(Lite6Variant.VACUUM_GRIPPER)
+        result = m.compute_ee_positions_from_gripper_joints(np.zeros(0))
+        assert result.shape == (1,)
+        np.testing.assert_allclose(result, [0.0])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_sums_finger_positions(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        result = m.compute_ee_positions_from_gripper_joints(np.array([0.02, 0.02]))
+        np.testing.assert_allclose(result, [0.04])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_rejects_wrong_shape(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        with pytest.raises(ValueError):
+            m.compute_ee_positions_from_gripper_joints(np.array([0.02]))
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_round_trip(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        ee = np.array([0.06])
+        gripper = m.compute_gripper_joint_positions(ee)
+        np.testing.assert_allclose(m.compute_ee_positions_from_gripper_joints(gripper), ee)
 
 
 if __name__ == "__main__":

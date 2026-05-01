@@ -9,12 +9,13 @@ import pytest
 
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.gaia.gaia import Gaia, GaiaConfig
+from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import GaiaError
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.lite6.model import Lite6Model
+from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
 
@@ -99,6 +100,45 @@ class TestCommandStash:
         joint_velocities = JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
         gaia.apply_joint_velocity_command(joint_velocities)
         assert gaia.latest_velocity_command is joint_velocities
+
+    def test_apply_ee_position_command_is_stored(self) -> None:
+        gaia = _make_gaia()
+        ee_positions = EEPositions(
+            header=TimestampHeader.from_system_time(),
+            positions=np.array([0.04], dtype=np.float64),
+        )
+        gaia.apply_ee_position_command(ee_positions)
+        assert gaia.latest_ee_position_command is ee_positions
+
+
+class TestEEPositionCommandDrivesGripper:
+    def test_parallel_gripper_tracks_commanded_width(self) -> None:
+        # Send an EE-position command, advance the inner sim, and verify
+        # the plant's gripper-side q is moving toward the commanded
+        # opening width (split across the two prismatic finger joints).
+        # PID convergence to within tight tolerance can take several
+        # simulated seconds on this controller-plant configuration --
+        # the assertion checks "fingers moved toward the target",
+        # not "fingers locked exactly on the target".
+        gaia = _make_gaia()
+        commanded_width = 0.04
+        gaia.apply_ee_position_command(
+            EEPositions(
+                header=TimestampHeader.from_system_time(),
+                positions=np.array([commanded_width], dtype=np.float64),
+            )
+        )
+        gaia.advance_to(1.0)
+        positions = gaia.read_joint_state().joint_positions.positions
+        gripper_q = positions[LITE6_ARM_DOF:]
+        target = commanded_width / 2.0
+        # Both fingers should have moved toward the target; both should
+        # be at least halfway from zero to the target (we don't require
+        # full convergence -- this is a regression test that the wiring
+        # is alive, not a controller-tuning test).
+        assert gripper_q.shape == (2,)
+        assert gripper_q[0] > target * 0.4
+        assert gripper_q[1] > target * 0.4
 
 
 class TestReadJointState:

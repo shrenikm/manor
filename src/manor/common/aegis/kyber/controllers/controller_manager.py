@@ -54,6 +54,7 @@ class KyberControllerType(StrEnum):
 
     ZERO_VELOCITY = "zero_velocity"
     PASSTHROUGH = "passthrough"
+    IK_PASSTHROUGH = "ik_passthrough"
 
 
 @runtime_checkable
@@ -117,6 +118,10 @@ class KyberControllerManager:
         the config's runtime type. ``manipulator_model`` is forwarded
         to controllers that ask for it (current stubs ignore it).
         """
+        from manor.common.aegis.kyber.controllers.ik_passthrough_controller import (
+            IKPassthroughController,
+            IKPassthroughControllerConfig,
+        )
         from manor.common.aegis.kyber.controllers.passthrough_controller import (
             PassthroughController,
             PassthroughControllerConfig,
@@ -126,12 +131,12 @@ class KyberControllerManager:
             ZeroVelocityControllerConfig,
         )
 
-        del manipulator_model  # Not needed by current controllers; reserved for plant-building ones.
-
         if isinstance(config, ZeroVelocityControllerConfig):
             return ZeroVelocityController(num_dof=config.num_dof)
         if isinstance(config, PassthroughControllerConfig):
             return PassthroughController(num_dof=config.num_dof)
+        if isinstance(config, IKPassthroughControllerConfig):
+            return IKPassthroughController.build(config=config, manipulator_model=manipulator_model)
         raise AegisConfigError(f"Unknown controller config type: {type(config).__name__}")
 
     @classmethod
@@ -140,6 +145,7 @@ class KyberControllerManager:
         Parse the ``controller_config`` block of an aegis YAML into a
         concrete ``KyberControllerConfigBase`` subclass.
         """
+        from manor.common.aegis.kyber.controllers.ik_passthrough_controller import IKPassthroughControllerConfig
         from manor.common.aegis.kyber.controllers.passthrough_controller import PassthroughControllerConfig
         from manor.common.aegis.kyber.controllers.zero_velocity_controller import ZeroVelocityControllerConfig
 
@@ -163,4 +169,6 @@ class KyberControllerManager:
             return ZeroVelocityControllerConfig.from_yaml_dict(body)
         if controller_type is KyberControllerType.PASSTHROUGH:
             return PassthroughControllerConfig.from_yaml_dict(body)
+        if controller_type is KyberControllerType.IK_PASSTHROUGH:
+            return IKPassthroughControllerConfig.from_yaml_dict(body)
         raise AegisConfigError(f"No config parser registered for controller type {controller_type!r}")

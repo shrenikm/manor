@@ -15,6 +15,10 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberControllerManager,
     KyberControllerType,
 )
+from manor.common.aegis.kyber.controllers.ik_passthrough_controller import (
+    IKPassthroughController,
+    IKPassthroughControllerConfig,
+)
 from manor.common.aegis.kyber.controllers.passthrough_controller import (
     PassthroughController,
     PassthroughControllerConfig,
@@ -221,6 +225,18 @@ class TestKyberControllerManager:
             manipulator_model=_make_lite6(),
         )
         assert isinstance(controller, PassthroughController)
+
+    def test_from_config_ik_passthrough(self) -> None:
+        controller = KyberControllerManager.from_config(
+            IKPassthroughControllerConfig(),
+            manipulator_model=_make_lite6(),
+        )
+        assert isinstance(controller, IKPassthroughController)
+
+    def test_config_from_yaml_dict_ik_passthrough(self) -> None:
+        config = KyberControllerManager.config_from_yaml_dict({"type": "ik_passthrough", "diff_ik_time_step_s": 0.01})
+        assert isinstance(config, IKPassthroughControllerConfig)
+        assert config.diff_ik_time_step_s == 0.01
 
     def test_config_from_yaml_dict_zero_velocity(self) -> None:
         config = KyberControllerManager.config_from_yaml_dict({"type": "zero_velocity", "num_dof": 6})

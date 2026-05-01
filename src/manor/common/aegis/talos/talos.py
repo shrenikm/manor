@@ -25,9 +25,11 @@ from enum import StrEnum
 from typing import ClassVar, Protocol, Self, runtime_checkable
 
 import attr
+import numpy as np
 from pydrake.common.value import AbstractValue
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
+from pydrake.multibody.tree import JacobianWrtVariable
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
@@ -122,6 +124,9 @@ class Talos(LeafSystem):
         self.manipulator_model = manipulator_model
         self.publish_frequency = publish_frequency
         self.plant = self._build_plant(manipulator_model)
+        self._plant_context = self.plant.CreateDefaultContext()
+        self._tip_frame = self.plant.GetFrameByName(manipulator_model.get_fk_ik_frame_name())
+        self._world_frame = self.plant.world_frame()
 
         self._joint_ee_command_input = self.DeclareAbstractInputPort(
             TalosPorts.INPUT_JOINT_EE_COMMAND,
@@ -169,10 +174,11 @@ class Talos(LeafSystem):
         joint_state = self.backend.read_joint_state()
         ee_state = self.backend.read_ee_state()
         header = TimestampHeader.from_system_time()
+        self._sync_plant_context(joint_state)
         cartesian_state = CartesianState(
             header=header,
-            cartesian_pose=self._compute_cartesian_pose(joint_state),
-            cartesian_twist=self._compute_cartesian_twist(joint_state),
+            cartesian_pose=self._compute_cartesian_pose(header),
+            cartesian_twist=self._compute_cartesian_twist(header),
         )
 
         proprioception = Proprioception(
@@ -184,13 +190,42 @@ class Talos(LeafSystem):
         state.get_mutable_abstract_state(self._proprioception_state_index).set_value(proprioception)
         return EventStatus.Succeeded()
 
-    def _compute_cartesian_pose(self, joint_state: JointState) -> CartesianPose:
-        # TODO: use ``self.plant`` to run FK on ``joint_state`` and
-        # extract the end-effector tip frame's pose in the world frame.
-        del joint_state
-        return CartesianPose.construct_default()
+    def _sync_plant_context(self, joint_state: JointState) -> None:
+        # The backend may emit a default-empty joint_state during early
+        # bring-up before any real read; in that case skip writing into
+        # the plant context (the plant keeps its previous / default q).
+        positions = joint_state.joint_positions.positions
+        velocities = joint_state.joint_velocities.velocities
+        if positions.shape[0] == self.plant.num_positions():
+            self.plant.SetPositions(self._plant_context, positions)
+        if velocities.shape[0] == self.plant.num_velocities():
+            self.plant.SetVelocities(self._plant_context, velocities)
 
-    def _compute_cartesian_twist(self, joint_state: JointState) -> CartesianTwist:
-        # TODO: spatial-Jacobian-based twist via ``self.plant``.
-        del joint_state
-        return CartesianTwist.construct_default()
+    def _compute_cartesian_pose(self, header: TimestampHeader) -> CartesianPose:
+        pose = self.plant.CalcRelativeTransform(
+            self._plant_context,
+            self._world_frame,
+            self._tip_frame,
+        )
+        translation = np.asarray(pose.translation(), dtype=np.float64).copy()
+        # Drake's RotationMatrix.ToQuaternion returns wxyz order, which
+        # matches CartesianPose's quaternion convention.
+        q = pose.rotation().ToQuaternion()
+        orientation = np.array([q.w(), q.x(), q.y(), q.z()], dtype=np.float64)
+        return CartesianPose(header=header, translation=translation, orientation=orientation)
+
+    def _compute_cartesian_twist(self, header: TimestampHeader) -> CartesianTwist:
+        # Spatial Jacobian J in world * v -> 6-vector [angular; linear].
+        jacobian = self.plant.CalcJacobianSpatialVelocity(
+            self._plant_context,
+            JacobianWrtVariable.kV,
+            self._tip_frame,
+            np.zeros(3),
+            self._world_frame,
+            self._world_frame,
+        )
+        velocities = self.plant.GetVelocities(self._plant_context)
+        spatial = jacobian @ velocities
+        angular = np.asarray(spatial[:3], dtype=np.float64).copy()
+        linear = np.asarray(spatial[3:], dtype=np.float64).copy()
+        return CartesianTwist(header=header, linear=linear, angular=angular)
