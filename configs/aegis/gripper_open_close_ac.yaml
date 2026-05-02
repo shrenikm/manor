@@ -36,9 +36,9 @@ metis_config:
   policy_config:
     type: gripper_open_close
     num_arm_dof: 6
-    # Physical jaw widths: NP variant range is ~5 mm (closed) to ~21 mm (open).
-    open_width: 0.021
-    close_width: 0.005
+    # Open / closed setpoints come from the manipulator model
+    # (URDF-derived joint limits), not from this YAML, so the same
+    # config drops onto any robot / end-effector.
     open_hold_seconds: 1.5
     close_hold_seconds: 1.5
     num_cycles: 5

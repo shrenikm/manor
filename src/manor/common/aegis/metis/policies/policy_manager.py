@@ -29,6 +29,7 @@ import attr
 from manor.common.definitions.action import Action
 from manor.common.definitions.observation import Observation
 from manor.common.exceptions import AegisConfigError
+from manor.manipulators.manipulator_model import IManipulatorModel
 
 # Tagged-union discriminator key used in the YAML body of a
 # ``policy_config`` block. Not an attrs field on any per-policy
@@ -98,10 +99,21 @@ class MetisPolicyManager:
       2. add an enum value to ``MetisPolicyType``,
       3. add the dispatch branch in ``from_config`` and
          ``config_from_yaml_dict``.
+
+    ``manipulator_model`` is plumbed through alongside the config
+    because some policies need URDF-derived limits / poses (e.g. an
+    open/close policy that wants the EE's full-open and full-closed
+    setpoints from the model). Policies that don't need it ignore the
+    argument; callers that don't have a model handy can pass ``None``
+    only if the policy doesn't require it.
     """
 
     @classmethod
-    def from_config(cls, config: MetisPolicyConfigBase) -> MetisPolicy:
+    def from_config(
+        cls,
+        config: MetisPolicyConfigBase,
+        manipulator_model: IManipulatorModel | None = None,
+    ) -> MetisPolicy:
         """
         Build a ``MetisPolicy`` from its config. Dispatches off the
         config's runtime type (which is itself anchored to
@@ -138,7 +150,12 @@ class MetisPolicyManager:
         if isinstance(config, CircleEEVelocityPolicyConfig):
             return CircleEEVelocityPolicy.from_config(config)
         if isinstance(config, GripperOpenClosePolicyConfig):
-            return GripperOpenClosePolicy.from_config(config)
+            if manipulator_model is None:
+                raise AegisConfigError(
+                    "GripperOpenClosePolicy requires manipulator_model to source the EE's "
+                    "fully-open / fully-closed setpoints; pass it to MetisPolicyManager.from_config"
+                )
+            return GripperOpenClosePolicy.from_config(config=config, manipulator_model=manipulator_model)
         raise AegisConfigError(f"Unknown policy config type: {type(config).__name__}")
 
     @classmethod

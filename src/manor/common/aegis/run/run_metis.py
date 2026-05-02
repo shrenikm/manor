@@ -44,9 +44,14 @@ from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.manipulators.manipulator_model import IManipulatorModel
 
 
-def run_metis(metis_config: MetisConfig, lcm: DrakeLcm | None = None) -> None:
+def run_metis(
+    metis_config: MetisConfig,
+    manipulator_model: IManipulatorModel,
+    lcm: DrakeLcm | None = None,
+) -> None:
     """
     Build the metis-process diagram, ``Initialize`` its Simulator,
     and advance forever (until SIGTERM / SIGINT).
@@ -55,7 +60,7 @@ def run_metis(metis_config: MetisConfig, lcm: DrakeLcm | None = None) -> None:
     builder = DiagramBuilder()
     builder.AddSystem(LcmInterfaceSystem(lcm))
 
-    policy = MetisPolicyManager.from_config(metis_config.policy_config)
+    policy = MetisPolicyManager.from_config(metis_config.policy_config, manipulator_model=manipulator_model)
     metis = builder.AddSystem(Metis(policy=policy, publish_frequency=metis_config.publish_frequency_hz))
     metis.set_name(MetisConfig.SYSTEM_NAME)
 
@@ -115,7 +120,7 @@ def _main() -> None:
 
     raw = json.loads(sys.stdin.read())
     config = AegisConfig.from_yaml_dict(raw)
-    run_metis(metis_config=config.metis_config)
+    run_metis(metis_config=config.metis_config, manipulator_model=config.manipulator_model)
 
 
 if __name__ == "__main__":

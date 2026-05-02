@@ -212,7 +212,10 @@ def build_aegis(config: AegisConfig) -> tuple[Diagram, AegisSystems]:
     """
 
     lcm = config.lcm if config.lcm is not None else DrakeLcm()
-    policy = MetisPolicyManager.from_config(config.metis_config.policy_config)
+    policy = MetisPolicyManager.from_config(
+        config.metis_config.policy_config,
+        manipulator_model=config.manipulator_model,
+    )
     controller = KyberControllerManager.from_config(
         config.kyber_config.controller_config,
         manipulator_model=config.manipulator_model,

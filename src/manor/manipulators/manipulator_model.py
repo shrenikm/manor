@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import abc
 
-import numpy as np
-
 from manor.common.control.pid import PIDGains
-from manor.common.custom_types import FilePath
+from manor.common.custom_types import (
+    EEPositionsVector,
+    EEVelocitiesVector,
+    FilePath,
+    PlantEEPositionsVector,
+    PlantEEVelocitiesVector,
+)
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import IManipulatorVariant
 
@@ -104,7 +108,28 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def ee_positions_to_plant_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+    def get_ee_fully_open_positions(self) -> EEPositionsVector:
+        """
+        EE-level positions that represent the "fully open" pose for
+        this end-effector, sized to get_num_ee_dofs(). The semantics
+        are per-EE: maximum opening width for a parallel gripper,
+        "off" for a vacuum gripper, palm-flat finger angles for a
+        dexterous hand. Implementations source this from the URDF's
+        joint limits (or model-specific calibration) so the value
+        always tracks the actual hardware capability.
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_ee_fully_closed_positions(self) -> EEPositionsVector:
+        """
+        EE-level positions that represent the "fully closed" pose for
+        this end-effector. Inverse pole of get_ee_fully_open_positions.
+        """
+        ...
+
+    @abc.abstractmethod
+    def ee_positions_to_plant_positions(self, ee_positions: EEPositionsVector) -> PlantEEPositionsVector:
         """
         Translate an EE-level positions vector (size get_num_ee_dofs())
         into the EE block of the plant's generalised-position vector q
@@ -125,7 +150,7 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def plant_positions_to_ee_positions(self, plant_ee_positions: np.ndarray) -> np.ndarray:
+    def plant_positions_to_ee_positions(self, plant_ee_positions: PlantEEPositionsVector) -> EEPositionsVector:
         """
         Inverse of ee_positions_to_plant_positions: take the EE block of
         the plant's q vector and project it back onto the EE-level
@@ -139,7 +164,7 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def ee_velocities_to_plant_velocities(self, ee_velocities: np.ndarray) -> np.ndarray:
+    def ee_velocities_to_plant_velocities(self, ee_velocities: EEVelocitiesVector) -> PlantEEVelocitiesVector:
         """
         Velocity-side analogue of ee_positions_to_plant_positions:
         translate an EE-level velocities vector (size get_num_ee_dofs())
@@ -155,7 +180,7 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: np.ndarray) -> np.ndarray:
+    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: PlantEEVelocitiesVector) -> EEVelocitiesVector:
         """
         Inverse of ee_velocities_to_plant_velocities: take the EE block
         of the plant's v vector and project it back onto the EE-level

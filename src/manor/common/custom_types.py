@@ -44,3 +44,21 @@ type JointStateVector = NpVectorNf64
 
 type GripperPositionsVector = NpVectorNf64
 type GripperVelocitiesVector = NpVectorNf64
+
+# End-effector generalised positions / velocities at the policy /
+# controller boundary (size = IManipulatorModel.get_num_ee_dofs()).
+# What this vector means is per-EE: opening width for a parallel
+# gripper, on/off scalar for a vacuum gripper, finger-joint angles
+# for a dexterous hand. Encoded as a generic vector so the same type
+# alias works across every end-effector.
+type EEPositionsVector = NpVectorNf64
+type EEVelocitiesVector = NpVectorNf64
+
+# Plant-side EE block: the slice of MultibodyPlant q (or v) that
+# corresponds to the end-effector's actuated joints (size =
+# IManipulatorModel.get_num_positions() - get_num_dof()). Distinct
+# alias from EEPositionsVector / EEVelocitiesVector so the two ends
+# of the IManipulatorModel.ee_*_to_plant_* mappings can be told
+# apart at a glance in signatures.
+type PlantEEPositionsVector = NpVectorNf64
+type PlantEEVelocitiesVector = NpVectorNf64

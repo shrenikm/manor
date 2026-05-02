@@ -45,15 +45,16 @@ def _bundled_config(filename: str = "default_ac.yaml") -> AegisConfig:
     return attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
 
 
-def _build_metis_diagram(metis_config: MetisConfig, lcm: DrakeLcm):
+def _build_metis_diagram(config: AegisConfig, lcm: DrakeLcm):
     """
     Mirror ``run_metis`` up to (but not including) ``advance_until_signal``.
     Tests use this to assert the diagram builds cleanly without
     spinning a wall-clock-paced loop.
     """
+    metis_config = config.metis_config
     builder = DiagramBuilder()
     builder.AddSystem(LcmInterfaceSystem(lcm))
-    policy = MetisPolicyManager.from_config(metis_config.policy_config)
+    policy = MetisPolicyManager.from_config(metis_config.policy_config, manipulator_model=config.manipulator_model)
     metis = builder.AddSystem(Metis(policy=policy, publish_frequency=metis_config.publish_frequency_hz))
     metis.set_name(MetisConfig.SYSTEM_NAME)
 
@@ -100,7 +101,7 @@ def _build_metis_diagram(metis_config: MetisConfig, lcm: DrakeLcm):
 class TestMetisRunner:
     def test_diagram_builds_and_advances(self) -> None:
         config = _bundled_config()
-        diagram = _build_metis_diagram(config.metis_config, DrakeLcm())
+        diagram = _build_metis_diagram(config, DrakeLcm())
         simulator = Simulator(diagram)
         simulator.Initialize()
         # Tiny advance is enough to confirm there are no algebraic-loop

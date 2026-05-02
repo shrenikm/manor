@@ -17,7 +17,13 @@ import attr
 import numpy as np
 
 from manor.common.control.pid import PIDGains
-from manor.common.custom_types import FilePath
+from manor.common.custom_types import (
+    EEPositionsVector,
+    EEVelocitiesVector,
+    FilePath,
+    PlantEEPositionsVector,
+    PlantEEVelocitiesVector,
+)
 from manor.common.model_utils import ROBOT_MODELS_DRAKE_URDF_DIRNAME, get_robot_models_directory_path
 from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.manipulator_model import IManipulatorModel
@@ -80,6 +86,13 @@ _VARIANT_TO_OPEN_WIDTH_M: dict[Lite6Variant, float] = {
     Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
 }
+
+# Vacuum gripper EE-level conventions. The vacuum is binary: "open"
+# = released = vacuum off = 0; "closed" = engaged = vacuum on = 1.
+# Surfaced through the same get_ee_fully_*_positions interface so a
+# generic open/close policy works uniformly across EE types.
+_LITE6_VACUUM_OFF: float = 0.0
+_LITE6_VACUUM_ON: float = 1.0
 
 _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
@@ -172,7 +185,19 @@ class Lite6Model(IManipulatorModel):
         return self.get_num_positions() + self.get_num_velocities()
 
     @override
-    def ee_positions_to_plant_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+    def get_ee_fully_open_positions(self) -> EEPositionsVector:
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.array([_LITE6_VACUUM_OFF], dtype=np.float64)
+        return np.array([_VARIANT_TO_OPEN_WIDTH_M[self.variant]], dtype=np.float64)
+
+    @override
+    def get_ee_fully_closed_positions(self) -> EEPositionsVector:
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.array([_LITE6_VACUUM_ON], dtype=np.float64)
+        return np.array([_VARIANT_TO_CLOSED_WIDTH_M[self.variant]], dtype=np.float64)
+
+    @override
+    def ee_positions_to_plant_positions(self, ee_positions: EEPositionsVector) -> PlantEEPositionsVector:
         # Vacuum: the URDF has no actuated EE joints, so the EE binary
         # on/off lives entirely in the proprioception channel and never
         # touches the plant's q vector.
@@ -195,7 +220,7 @@ class Lite6Model(IManipulatorModel):
         return np.array([+half_q, -half_q], dtype=np.float64)
 
     @override
-    def plant_positions_to_ee_positions(self, plant_ee_positions: np.ndarray) -> np.ndarray:
+    def plant_positions_to_ee_positions(self, plant_ee_positions: PlantEEPositionsVector) -> EEPositionsVector:
         # Vacuum gripper has no actuated EE joints in the plant, so the
         # plant block is empty and there's no q to project from. With
         # no separate latch path here, the best the sim can report is
@@ -216,7 +241,7 @@ class Lite6Model(IManipulatorModel):
         return np.array([width], dtype=np.float64)
 
     @override
-    def ee_velocities_to_plant_velocities(self, ee_velocities: np.ndarray) -> np.ndarray:
+    def ee_velocities_to_plant_velocities(self, ee_velocities: EEVelocitiesVector) -> PlantEEVelocitiesVector:
         # Vacuum: no actuated EE joints in the plant.
         if self.variant is Lite6Variant.VACUUM_GRIPPER:
             return np.zeros(0, dtype=np.float64)
@@ -232,7 +257,7 @@ class Lite6Model(IManipulatorModel):
         return np.array([+half_v, -half_v], dtype=np.float64)
 
     @override
-    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: np.ndarray) -> np.ndarray:
+    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: PlantEEVelocitiesVector) -> EEVelocitiesVector:
         if self.variant is Lite6Variant.VACUUM_GRIPPER:
             return np.zeros(1, dtype=np.float64)
         if plant_ee_velocities.shape != (LITE6_PARALLEL_GRIPPER_PLANT_DOF,):
