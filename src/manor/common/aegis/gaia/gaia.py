@@ -153,11 +153,11 @@ class _DesiredStateSource(LeafSystem):
       desired_q[arm] = measured_q[arm] and desired_v[arm] = 0. Holds
       the URDF default pose at startup until the first command arrives.
 
-    Gripper joints (anything past the arm DOFs) follow the latest
-    stashed EE-position command translated through
-    IManipulatorModel.compute_gripper_joint_positions. Until an EE
-    position command is received they stay at measured_q[gripper] with
-    zero desired velocity, holding the URDF default opening.
+    EE joints (anything past the arm DOFs in the plant's q vector)
+    follow the latest stashed EE-position command translated through
+    IManipulatorModel.ee_positions_to_plant_positions. Until an EE
+    position command is received they stay at measured_q[ee] with zero
+    desired velocity, holding the URDF default pose.
 
     Reads gaia.latest_position_command / latest_velocity_command /
     latest_ee_position_command directly. Drake calls _compute from the
@@ -204,19 +204,19 @@ class _DesiredStateSource(LeafSystem):
             desired_q[:n] = position_cmd.positions[:n]
 
         ee_position_cmd = self._gaia.latest_ee_position_command
-        num_gripper_dof = self._num_positions - self._num_arm_dof
-        # Skip if there is no gripper-side block in the plant or the
-        # command isn't sized to the EE interface yet (e.g. the
-        # default-constructed zero-length command flowing through at
-        # startup before any policy populates an EE setpoint).
+        num_ee_plant_dof = self._num_positions - self._num_arm_dof
+        # Skip if the plant has no EE block, or the command isn't sized
+        # to the EE interface yet (e.g. the default-constructed
+        # zero-length command flowing through at startup before any
+        # policy populates an EE setpoint).
         if (
             ee_position_cmd is not None
-            and num_gripper_dof > 0
+            and num_ee_plant_dof > 0
             and ee_position_cmd.positions.shape[0] == self._gaia.manipulator_model.get_num_ee_dofs()
         ):
-            gripper_q = self._gaia.manipulator_model.compute_gripper_joint_positions(ee_position_cmd.positions)
-            if gripper_q.shape[0] == num_gripper_dof:
-                desired_q[self._num_arm_dof :] = gripper_q
+            ee_plant_q = self._gaia.manipulator_model.ee_positions_to_plant_positions(ee_position_cmd.positions)
+            if ee_plant_q.shape[0] == num_ee_plant_dof:
+                desired_q[self._num_arm_dof :] = ee_plant_q
 
         output.SetFromVector(np.concatenate([desired_q, desired_v]))
 

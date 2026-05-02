@@ -24,14 +24,25 @@ from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 
 LITE6_ARM_DOF = 6
-# Number of gripper joints in the Drake plant (URDF). The parallel
-# gripper has two prismatic finger joints; the EE interface exposes a
-# single opening width that is split equally between the two fingers.
+# Number of EE joints in the Drake plant (URDF) for the parallel
+# gripper variants: two prismatic finger joints with opposite signed
+# travel (left in [0, +0.008], right in [-0.008, 0]; total opening =
+# left - right).
 LITE6_PARALLEL_GRIPPER_PLANT_DOF = 2
 # Number of EE-level DOFs surfaced through IManipulatorModel for the
 # parallel gripper variants. The EE vector is the opening width (one
 # scalar) -- one EE DOF, not two.
 LITE6_PARALLEL_GRIPPER_EE_DOF = 1
+
+# Lite6 parallel-gripper finger joint travel from the URDF, confirmed
+# against the deprecated codebase's hardware measurements
+# (deprecated_lite6/utils/lite6_model_utils.py:LITE6_*_GRIPPER_*_POSITIONS).
+# Each finger has 8 mm of travel along the gripper centre line; total
+# opening width when fully open is 16 mm, with closed = 0. The signs
+# are opposite by URDF axis convention.
+_LITE6_PARALLEL_FINGER_HALF_TRAVEL_M: float = 0.008
+LITE6_PARALLEL_GRIPPER_OPEN_WIDTH_M: float = 2.0 * _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M
+LITE6_PARALLEL_GRIPPER_CLOSED_WIDTH_M: float = 0.0
 
 _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
@@ -124,38 +135,45 @@ class Lite6Model(IManipulatorModel):
         return self.get_num_positions() + self.get_num_velocities()
 
     @override
-    def compute_gripper_joint_positions(self, ee_positions: np.ndarray) -> np.ndarray:
-        # Vacuum has no actuated gripper DOFs in the plant; the EE
-        # binary on/off is a sim-only proprioception channel and never
-        # touches q.
+    def ee_positions_to_plant_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+        # Vacuum: the URDF has no actuated EE joints, so the EE binary
+        # on/off lives entirely in the proprioception channel and never
+        # touches the plant's q vector.
         if self.variant is Lite6Variant.VACUUM_GRIPPER:
             return np.zeros(0, dtype=np.float64)
-        # Parallel gripper: the EE vector is the single opening width;
-        # the URDF has two prismatic finger joints that each travel
-        # half the width.
+        # Parallel gripper: the EE vector is the single opening width.
+        # The URDF's two prismatic finger joints travel symmetrically
+        # in opposite signs about the gripper centre line, so width w
+        # maps to (left = +w/2, right = -w/2). See the URDF axis limits
+        # ([0, +0.008] / [-0.008, 0]) and the calibration constants at
+        # the top of this module for provenance.
         if ee_positions.shape != (LITE6_PARALLEL_GRIPPER_EE_DOF,):
             raise ValueError(
                 f"Lite6 parallel gripper expects ee_positions of shape ({LITE6_PARALLEL_GRIPPER_EE_DOF},); "
                 f"got {ee_positions.shape}"
             )
         half_width = float(ee_positions[0]) / 2.0
-        return np.array([half_width, half_width], dtype=np.float64)
+        return np.array([+half_width, -half_width], dtype=np.float64)
 
     @override
-    def compute_ee_positions_from_gripper_joints(self, gripper_joint_positions: np.ndarray) -> np.ndarray:
-        # Vacuum gripper: EE state is binary on/off and is not modelled
-        # in the URDF. Without a separate latch path the best the sim
-        # can report is "off" (zero).
+    def plant_positions_to_ee_positions(self, plant_ee_positions: np.ndarray) -> np.ndarray:
+        # Vacuum gripper has no actuated EE joints in the plant, so the
+        # plant block is empty and there's no q to project from. With
+        # no separate latch path here, the best the sim can report is
+        # "off" (zero); the binary state is supplied by the EE-command
+        # channel, not derived from physics.
         if self.variant is Lite6Variant.VACUUM_GRIPPER:
             return np.zeros(1, dtype=np.float64)
-        if gripper_joint_positions.shape != (LITE6_PARALLEL_GRIPPER_PLANT_DOF,):
+        if plant_ee_positions.shape != (LITE6_PARALLEL_GRIPPER_PLANT_DOF,):
             raise ValueError(
-                f"Lite6 parallel gripper expects gripper_joint_positions of shape "
-                f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {gripper_joint_positions.shape}"
+                f"Lite6 parallel gripper expects plant_ee_positions of shape "
+                f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {plant_ee_positions.shape}"
             )
-        # Opening width = sum of the two prismatic finger positions
-        # (each finger travels half the width away from centre).
-        return np.array([float(np.sum(gripper_joint_positions))], dtype=np.float64)
+        # Opening width = left - right (since the right finger travels
+        # in the negative direction); equivalently, the difference of
+        # the two signed positions.
+        width = float(plant_ee_positions[0] - plant_ee_positions[1])
+        return np.array([width], dtype=np.float64)
 
     @override
     def get_default_sim_pid_gains(self) -> PIDGains:

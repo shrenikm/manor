@@ -7,12 +7,14 @@ Behaviour by Action shape:
 * JointCommand: forwarded as-is on the joint side of the JointEECommand.
 * CartesianCommand:
     - cartesian_pose: Drake InverseKinematics solves for an arm-side q
-      that places the FK / IK frame at the requested pose. The
-      gripper-side joints are pinned to the proprioception's measured
-      values via lock constraints so IK only varies the arm DOFs.
-      Solution is wrapped as a JointPositions command sized to num_arm_dof.
+      that places the FK / IK frame at the requested pose. The plant's
+      EE block (whatever non-arm joints the URDF encodes for the
+      end-effector -- parallel-gripper fingers, dexterous-hand finger
+      joints, etc.) is pinned to the proprioception's measured values
+      via lock constraints so IK only varies the arm DOFs. Solution is
+      wrapped as a JointPositions command sized to num_arm_dof.
     - cartesian_twist: Drake DoDifferentialInverseKinematics maps the
-      requested spatial velocity to a v vector. Gripper joint velocity
+      requested spatial velocity to a v vector. EE-block velocity
       limits are pinned to (0, 0) so diff IK only allocates motion to
       the arm DOFs. Solution is wrapped as a JointVelocities command
       sized to num_arm_dof.
@@ -23,7 +25,10 @@ Behaviour by Action shape:
 
 The controller owns its own Drake MultibodyPlant built from the
 manipulator description; this is an IK-only plant, independent of the
-sim plant in Gaia and the FK plant in Talos.
+sim plant in Gaia and the FK plant in Talos. The arm / EE split is
+determined by IManipulatorModel.get_num_dof() so the controller works
+uniformly across robots and end-effector types -- no gripper-specific
+assumptions live here.
 """
 
 from __future__ import annotations
@@ -68,13 +73,14 @@ from manor.manipulators.manipulator_model import IManipulatorModel
 # overridable via YAML.
 _DEFAULT_DIFF_IK_TIME_STEP_S: float = 5e-3
 
-# Joint position and velocity slack used when locking the gripper-side
-# block in IK. For the position solve we constrain gripper q to
-# [measured - tol, measured + tol] (cm-scale slack is fine for the 4 mm
-# total finger travel of the Lite6 parallel gripper). For the diff IK
-# solve we constrain v[gripper] to [0, 0] so motion is allocated to the
-# arm.
-_GRIPPER_POSITION_LOCK_TOL: float = 1e-4
+# Joint position slack used when locking the EE block during the
+# pose IK solve. For each non-arm DOF we constrain q to
+# [measured - tol, measured + tol]; the slack only needs to absorb
+# numerical noise, since IK is not allowed to move the EE here. Diff
+# IK takes a stricter line and pins v[ee_block] to (0, 0) (see
+# _build_diff_ik_params) so spatial-velocity tracking is allocated
+# entirely to the arm DOFs.
+_EE_BLOCK_POSITION_LOCK_TOL: float = 1e-4
 _DEFAULT_ORIENTATION_THETA_BOUND_RAD: float = 1e-3
 
 
@@ -138,8 +144,8 @@ class IKPassthroughController:
     def _build_diff_ik_params(self) -> DifferentialInverseKinematicsParameters:
         # Initialise with plant-derived position / velocity counts;
         # joint position / velocity limits come from the URDF via the
-        # plant. Pin the gripper-side velocity limits to (0, 0) so diff
-        # IK never allocates spatial-velocity tracking to gripper joints.
+        # plant. Pin the EE-block velocity limits to (0, 0) so diff IK
+        # never allocates spatial-velocity tracking to non-arm joints.
         params = DifferentialInverseKinematicsParameters(
             num_positions=self.plant.num_positions(),
             num_velocities=self.plant.num_velocities(),
@@ -150,7 +156,7 @@ class IKPassthroughController:
         v_upper = np.asarray(self.plant.GetVelocityUpperLimits(), dtype=np.float64).copy()
         # Drake reports +/- inf on unlimited joints. Diff IK requires
         # finite limits to stay well-posed; clip to a wide-but-finite
-        # band on the arm DOFs and zero on gripper DOFs.
+        # band on the arm DOFs and zero on the EE block.
         num_arm_dof = self.manipulator_model.get_num_dof()
         wide_arm_limit = 10.0  # rad/s -- much higher than realistic, just to keep the QP bounded.
         for i in range(self.plant.num_velocities()):
@@ -283,14 +289,16 @@ class IKPassthroughController:
             theta_bound=self.config.orientation_theta_bound_rad,
         )
 
-        # Pin gripper-side q to its measured value via tight box bounds
-        # so IK only varies the arm DOFs.
+        # Pin the EE block of q to its measured value via tight box
+        # bounds so IK only varies the arm DOFs. Works generically: any
+        # plant DOF past num_arm_dof is treated as part of the EE,
+        # whatever the URDF encodes there.
         if self.plant.num_positions() > num_arm_dof:
             q_var = ik.q()
             for i in range(num_arm_dof, self.plant.num_positions()):
                 ik.get_mutable_prog().AddBoundingBoxConstraint(
-                    q_init[i] - _GRIPPER_POSITION_LOCK_TOL,
-                    q_init[i] + _GRIPPER_POSITION_LOCK_TOL,
+                    q_init[i] - _EE_BLOCK_POSITION_LOCK_TOL,
+                    q_init[i] + _EE_BLOCK_POSITION_LOCK_TOL,
                     q_var[i],
                 )
 

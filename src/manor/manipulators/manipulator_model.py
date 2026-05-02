@@ -104,32 +104,37 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def compute_gripper_joint_positions(self, ee_positions: np.ndarray) -> np.ndarray:
+    def ee_positions_to_plant_positions(self, ee_positions: np.ndarray) -> np.ndarray:
         """
-        Translate an EE-level position vector (size get_num_ee_dofs()) into
-        the corresponding gripper-side block of the plant's q vector
+        Translate an EE-level positions vector (size get_num_ee_dofs())
+        into the EE block of the plant's generalised-position vector q
         (size get_num_positions() - get_num_dof()).
 
-        The EE-level vector is what the gripper interface exposes (e.g. a
-        single number for parallel-gripper opening width or vacuum on/off).
-        The plant-side block is whatever generalised-position layout Drake
-        needs for the URDF (e.g. two prismatic finger joints for the Lite6
-        parallel gripper). Implementations encode the URDF-specific mapping.
-        Variants without actuated gripper joints in the plant return a
+        The EE-level representation is what the policy / controller
+        layer talks about: e.g. an opening width for a parallel gripper,
+        a binary on/off scalar for a vacuum gripper, finger-joint
+        angles for a dexterous hand. The plant-side block is the
+        URDF-defined layout Drake actually integrates: e.g. the two
+        signed prismatic finger joints of a parallel gripper, or zero
+        actuated joints for a vacuum gripper. Implementations own the
+        URDF-specific encoding (joint signs, gear ratios, mimic links).
+
+        Variants whose EE has no actuated joints in the plant return a
         length-0 array.
         """
         ...
 
     @abc.abstractmethod
-    def compute_ee_positions_from_gripper_joints(self, gripper_joint_positions: np.ndarray) -> np.ndarray:
+    def plant_positions_to_ee_positions(self, plant_ee_positions: np.ndarray) -> np.ndarray:
         """
-        Inverse of compute_gripper_joint_positions: project the gripper-side
-        block of the plant's q vector back onto the EE-level position
-        vector (size get_num_ee_dofs()).
+        Inverse of ee_positions_to_plant_positions: take the EE block of
+        the plant's q vector and project it back onto the EE-level
+        positions vector (size get_num_ee_dofs()).
 
-        For variants whose EE state is not represented in the plant (e.g.
-        a binary vacuum gripper), implementations may return the last
-        commanded value or a sensible default; the input is ignored.
+        For EE variants whose state is not represented in the plant
+        (e.g. a binary vacuum gripper, where the URDF has no actuated
+        EE joints), implementations may return a sensible default; the
+        input is ignored in that case.
         """
         ...
 

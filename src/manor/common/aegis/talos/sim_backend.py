@@ -76,8 +76,8 @@ class SimManipulatorBackend:
         header = TimestampHeader.from_system_time()
 
         joint_state = self.gaia.read_joint_state()
-        gripper_q = joint_state.joint_positions.positions[num_arm_dof:]
-        ee_position_values = manipulator_model.compute_ee_positions_from_gripper_joints(gripper_q)
+        plant_ee_q = joint_state.joint_positions.positions[num_arm_dof:]
+        ee_position_values = manipulator_model.plant_positions_to_ee_positions(plant_ee_q)
 
         return EEState(
             header=header,

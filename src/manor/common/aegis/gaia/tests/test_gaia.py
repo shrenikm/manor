@@ -114,14 +114,15 @@ class TestCommandStash:
 class TestEEPositionCommandDrivesGripper:
     def test_parallel_gripper_tracks_commanded_width(self) -> None:
         # Send an EE-position command, advance the inner sim, and verify
-        # the plant's gripper-side q is moving toward the commanded
-        # opening width (split across the two prismatic finger joints).
-        # PID convergence to within tight tolerance can take several
-        # simulated seconds on this controller-plant configuration --
-        # the assertion checks "fingers moved toward the target",
-        # not "fingers locked exactly on the target".
+        # the plant's EE block is moving toward the commanded opening
+        # width. Per the URDF axis convention the two finger joints
+        # travel in opposite signs (left in [0, +0.008], right in
+        # [-0.008, 0]); width w maps to (+w/2, -w/2). PID convergence
+        # to tight tolerance can take several simulated seconds, so
+        # this is a "fingers moved toward the target" regression test,
+        # not a controller-tuning test.
         gaia = _make_gaia()
-        commanded_width = 0.04
+        commanded_width = 0.012
         gaia.apply_ee_position_command(
             EEPositions(
                 header=TimestampHeader.from_system_time(),
@@ -130,15 +131,12 @@ class TestEEPositionCommandDrivesGripper:
         )
         gaia.advance_to(1.0)
         positions = gaia.read_joint_state().joint_positions.positions
-        gripper_q = positions[LITE6_ARM_DOF:]
-        target = commanded_width / 2.0
-        # Both fingers should have moved toward the target; both should
-        # be at least halfway from zero to the target (we don't require
-        # full convergence -- this is a regression test that the wiring
-        # is alive, not a controller-tuning test).
-        assert gripper_q.shape == (2,)
-        assert gripper_q[0] > target * 0.4
-        assert gripper_q[1] > target * 0.4
+        plant_ee_q = positions[LITE6_ARM_DOF:]
+        target_left = +commanded_width / 2.0
+        target_right = -commanded_width / 2.0
+        assert plant_ee_q.shape == (2,)
+        assert plant_ee_q[0] > target_left * 0.4
+        assert plant_ee_q[1] < target_right * 0.4
 
 
 class TestReadJointState:
