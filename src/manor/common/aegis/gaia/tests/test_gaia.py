@@ -10,12 +10,13 @@ import pytest
 from manor.common.aegis.gaia.env_config import EnvironmentConfig
 from manor.common.aegis.gaia.gaia import Gaia, GaiaConfig
 from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import GaiaError
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
+from manor.manipulators.lite6.model import LITE6_ARM_DOF, LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
 
@@ -113,30 +114,56 @@ class TestCommandStash:
 
 class TestEEPositionCommandDrivesGripper:
     def test_parallel_gripper_tracks_commanded_width(self) -> None:
-        # Send an EE-position command, advance the inner sim, and verify
-        # the plant's EE block is moving toward the commanded opening
-        # width. Per the URDF axis convention the two finger joints
-        # travel in opposite signs (left in [0, +0.008], right in
-        # [-0.008, 0]); width w maps to (+w/2, -w/2). PID convergence
-        # to tight tolerance can take several simulated seconds, so
-        # this is a "fingers moved toward the target" regression test,
-        # not a controller-tuning test.
+        # Send the published NP open-width command, advance the inner
+        # sim, and verify the plant's EE block is moving toward the
+        # corresponding URDF q. The fingers travel in opposite signs
+        # by URDF axis convention. PID convergence to tight tolerance
+        # can take several simulated seconds, so this is a "fingers
+        # moved toward the target" regression test, not a
+        # controller-tuning test.
         gaia = _make_gaia()
-        commanded_width = 0.012
         gaia.apply_ee_position_command(
             EEPositions(
                 header=TimestampHeader.from_system_time(),
-                positions=np.array([commanded_width], dtype=np.float64),
+                positions=np.array([LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M], dtype=np.float64),
             )
         )
         gaia.advance_to(1.0)
         positions = gaia.read_joint_state().joint_positions.positions
         plant_ee_q = positions[LITE6_ARM_DOF:]
-        target_left = +commanded_width / 2.0
-        target_right = -commanded_width / 2.0
+        # Open-width target lands at the URDF joint limits (+0.008, -0.008).
         assert plant_ee_q.shape == (2,)
-        assert plant_ee_q[0] > target_left * 0.4
-        assert plant_ee_q[1] < target_right * 0.4
+        assert plant_ee_q[0] > 0.008 * 0.4
+        assert plant_ee_q[1] < -0.008 * 0.4
+
+    def test_apply_ee_velocity_command_is_stored(self) -> None:
+        gaia = _make_gaia()
+        ee_velocities = EEVelocities(
+            header=TimestampHeader.from_system_time(),
+            velocities=np.array([0.05], dtype=np.float64),
+        )
+        gaia.apply_ee_velocity_command(ee_velocities)
+        assert gaia.latest_ee_velocity_command is ee_velocities
+
+    def test_parallel_gripper_tracks_commanded_velocity(self) -> None:
+        # Send an EE-velocity command and verify the fingers are
+        # actually moving in opposite signed directions after the inner
+        # sim advances. Velocity-control mode means the desired q stays
+        # at measured (the controller integrates the velocity error),
+        # so a non-zero velocity command should produce non-zero finger
+        # motion away from their initial position.
+        gaia = _make_gaia()
+        gaia.apply_ee_velocity_command(
+            EEVelocities(
+                header=TimestampHeader.from_system_time(),
+                velocities=np.array([0.05], dtype=np.float64),
+            )
+        )
+        gaia.advance_to(0.3)
+        positions = gaia.read_joint_state().joint_positions.positions
+        plant_ee_q = positions[LITE6_ARM_DOF:]
+        assert plant_ee_q[0] > 0.0
+        assert plant_ee_q[1] < 0.0
 
 
 class TestReadJointState:

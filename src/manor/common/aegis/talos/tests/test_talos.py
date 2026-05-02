@@ -20,6 +20,7 @@ from manor.common.definitions.cartesian_state import CartesianState
 from manor.common.definitions.ee_command import EECommand
 from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_state import EEState
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_positions import JointPositions
@@ -176,12 +177,37 @@ class TestSimManipulatorBackend:
                 header=TimestampHeader.from_system_time(),
                 ee_positions=EEPositions(
                     header=TimestampHeader.from_system_time(),
-                    positions=np.array([0.04], dtype=np.float64),
+                    positions=np.array([0.012], dtype=np.float64),
                 ),
             ),
         )
         backend.send_joint_ee_command(joint_ee_command)
         gaia.apply_ee_position_command.assert_called_once()
+        gaia.apply_ee_velocity_command.assert_not_called()
+
+    def test_send_joint_ee_command_routes_ee_velocities_to_gaia(self) -> None:
+        gaia = mock.MagicMock(spec=Gaia)
+        backend = SimManipulatorBackend(gaia=gaia)
+        joint_ee_command = JointEECommand(
+            header=TimestampHeader.from_system_time(),
+            joint_command=JointCommand(
+                header=TimestampHeader.from_system_time(),
+                joint_positions=JointPositions(
+                    header=TimestampHeader.from_system_time(),
+                    positions=np.zeros(6, dtype=np.float64),
+                ),
+            ),
+            ee_command=EECommand(
+                header=TimestampHeader.from_system_time(),
+                ee_velocities=EEVelocities(
+                    header=TimestampHeader.from_system_time(),
+                    velocities=np.array([0.04], dtype=np.float64),
+                ),
+            ),
+        )
+        backend.send_joint_ee_command(joint_ee_command)
+        gaia.apply_ee_velocity_command.assert_called_once()
+        gaia.apply_ee_position_command.assert_not_called()
 
     def test_read_ee_state_returns_width_from_gripper_joints(self) -> None:
         gaia = Gaia(manipulator_model=_make_lite6_model())

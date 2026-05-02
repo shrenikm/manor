@@ -58,13 +58,12 @@ class SimManipulatorBackend:
             self.gaia.apply_joint_position_command(joint_command.joint_positions)
         elif joint_command.joint_velocities is not None:
             self.gaia.apply_joint_velocity_command(joint_command.joint_velocities)
-        # EE-side commands: only EE positions are routed through Gaia
-        # today (the only thing _DesiredStateSource consumes).
-        # EE-velocity commands are accepted at the talos boundary but
-        # have no plant-side effect until a gripper velocity path lands.
         ee_command = joint_ee_command.ee_command
-        if ee_command is not None and ee_command.ee_positions is not None:
-            self.gaia.apply_ee_position_command(ee_command.ee_positions)
+        if ee_command is not None:
+            if ee_command.ee_positions is not None:
+                self.gaia.apply_ee_position_command(ee_command.ee_positions)
+            elif ee_command.ee_velocities is not None:
+                self.gaia.apply_ee_velocity_command(ee_command.ee_velocities)
 
     def read_joint_state(self) -> JointState:
         return self.gaia.read_joint_state()

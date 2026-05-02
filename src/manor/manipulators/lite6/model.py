@@ -26,23 +26,60 @@ from manor.manipulators.manipulator_type import ManipulatorType
 LITE6_ARM_DOF = 6
 # Number of EE joints in the Drake plant (URDF) for the parallel
 # gripper variants: two prismatic finger joints with opposite signed
-# travel (left in [0, +0.008], right in [-0.008, 0]; total opening =
-# left - right).
+# travel (left in [0, +0.008], right in [-0.008, 0]).
 LITE6_PARALLEL_GRIPPER_PLANT_DOF = 2
 # Number of EE-level DOFs surfaced through IManipulatorModel for the
 # parallel gripper variants. The EE vector is the opening width (one
 # scalar) -- one EE DOF, not two.
 LITE6_PARALLEL_GRIPPER_EE_DOF = 1
 
-# Lite6 parallel-gripper finger joint travel from the URDF, confirmed
-# against the deprecated codebase's hardware measurements
-# (deprecated_lite6/utils/lite6_model_utils.py:LITE6_*_GRIPPER_*_POSITIONS).
-# Each finger has 8 mm of travel along the gripper centre line; total
-# opening width when fully open is 16 mm, with closed = 0. The signs
-# are opposite by URDF axis convention.
+# Joint travel per finger (URDF axis range), shared across the normal
+# and reverse parallel-gripper variants. 8 mm per finger; both fingers
+# combined cover 16 mm of joint-space travel.
 _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M: float = 0.008
-LITE6_PARALLEL_GRIPPER_OPEN_WIDTH_M: float = 2.0 * _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M
-LITE6_PARALLEL_GRIPPER_CLOSED_WIDTH_M: float = 0.0
+
+# URDF link-origin offset of each finger from the gripper centre line
+# at q = 0. The two parallel-gripper variants differ ONLY in this
+# constant: in normal mounting the finger heads point toward each
+# other (small offset, jaws nearly touch at q=0); in reverse mounting
+# the finger heads are unscrewed and flipped, mounting outward (larger
+# offset, jaws have a built-in 27 mm gap at q=0). The joint travel is
+# identical, so reverse mode reaches a wider physical opening.
+#
+# The EE-level "opening width" we surface to policies / controllers is
+# the PHYSICAL jaw gap, which equals (left - right) + 2 * origin_offset.
+# That makes width semantics consistent across the two mountings: the
+# user always commands a real-world distance, and the per-variant
+# offset table absorbs the URDF geometry difference.
+_LITE6_NP_FINGER_LINK_ORIGIN_OFFSET_M: float = 0.0025
+_LITE6_RP_FINGER_LINK_ORIGIN_OFFSET_M: float = 0.0135
+
+_VARIANT_TO_FINGER_LINK_ORIGIN_OFFSET_M: dict[Lite6Variant, float] = {
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: _LITE6_NP_FINGER_LINK_ORIGIN_OFFSET_M,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: _LITE6_RP_FINGER_LINK_ORIGIN_OFFSET_M,
+}
+
+# Physical jaw-gap width range per variant. Closed = q at (0, 0)
+# (smallest physical gap reachable in this mounting); open = q at
+# (+travel, -travel) (largest gap). The numeric values track the URDF
+# link-origin offsets above.
+LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M: float = 2.0 * _LITE6_NP_FINGER_LINK_ORIGIN_OFFSET_M
+LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M: float = (
+    LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M + 2.0 * _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M
+)
+LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M: float = 2.0 * _LITE6_RP_FINGER_LINK_ORIGIN_OFFSET_M
+LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M: float = (
+    LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M + 2.0 * _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M
+)
+
+_VARIANT_TO_CLOSED_WIDTH_M: dict[Lite6Variant, float] = {
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+}
+_VARIANT_TO_OPEN_WIDTH_M: dict[Lite6Variant, float] = {
+    Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
+    Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
+}
 
 _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
@@ -141,19 +178,21 @@ class Lite6Model(IManipulatorModel):
         # touches the plant's q vector.
         if self.variant is Lite6Variant.VACUUM_GRIPPER:
             return np.zeros(0, dtype=np.float64)
-        # Parallel gripper: the EE vector is the single opening width.
-        # The URDF's two prismatic finger joints travel symmetrically
-        # in opposite signs about the gripper centre line, so width w
-        # maps to (left = +w/2, right = -w/2). See the URDF axis limits
-        # ([0, +0.008] / [-0.008, 0]) and the calibration constants at
-        # the top of this module for provenance.
+        # Parallel gripper: the EE vector is the single physical jaw
+        # opening width in metres. Translate to URDF q space by
+        # subtracting the variant-specific built-in gap (the URDF link
+        # origin offset doubled across the two fingers), then split the
+        # remaining travel symmetrically across the two prismatic
+        # joints. See the module-level constants for the per-variant
+        # offset and the URDF link-origin provenance.
         if ee_positions.shape != (LITE6_PARALLEL_GRIPPER_EE_DOF,):
             raise ValueError(
                 f"Lite6 parallel gripper expects ee_positions of shape ({LITE6_PARALLEL_GRIPPER_EE_DOF},); "
                 f"got {ee_positions.shape}"
             )
-        half_width = float(ee_positions[0]) / 2.0
-        return np.array([+half_width, -half_width], dtype=np.float64)
+        offset = _VARIANT_TO_FINGER_LINK_ORIGIN_OFFSET_M[self.variant]
+        half_q = (float(ee_positions[0]) - 2.0 * offset) / 2.0
+        return np.array([+half_q, -half_q], dtype=np.float64)
 
     @override
     def plant_positions_to_ee_positions(self, plant_ee_positions: np.ndarray) -> np.ndarray:
@@ -169,11 +208,39 @@ class Lite6Model(IManipulatorModel):
                 f"Lite6 parallel gripper expects plant_ee_positions of shape "
                 f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {plant_ee_positions.shape}"
             )
-        # Opening width = left - right (since the right finger travels
-        # in the negative direction); equivalently, the difference of
-        # the two signed positions.
-        width = float(plant_ee_positions[0] - plant_ee_positions[1])
+        # Physical width = (left - right) + 2 * origin_offset. The
+        # second term is the constant gap baked into the URDF geometry
+        # (and the only thing that distinguishes normal from reverse).
+        offset = _VARIANT_TO_FINGER_LINK_ORIGIN_OFFSET_M[self.variant]
+        width = float(plant_ee_positions[0] - plant_ee_positions[1]) + 2.0 * offset
         return np.array([width], dtype=np.float64)
+
+    @override
+    def ee_velocities_to_plant_velocities(self, ee_velocities: np.ndarray) -> np.ndarray:
+        # Vacuum: no actuated EE joints in the plant.
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.zeros(0, dtype=np.float64)
+        # Parallel gripper: the URDF-origin offset is constant, so it
+        # drops out of the time derivative -- this is pure
+        # half-and-mirror, identical for normal and reverse mountings.
+        if ee_velocities.shape != (LITE6_PARALLEL_GRIPPER_EE_DOF,):
+            raise ValueError(
+                f"Lite6 parallel gripper expects ee_velocities of shape ({LITE6_PARALLEL_GRIPPER_EE_DOF},); "
+                f"got {ee_velocities.shape}"
+            )
+        half_v = float(ee_velocities[0]) / 2.0
+        return np.array([+half_v, -half_v], dtype=np.float64)
+
+    @override
+    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: np.ndarray) -> np.ndarray:
+        if self.variant is Lite6Variant.VACUUM_GRIPPER:
+            return np.zeros(1, dtype=np.float64)
+        if plant_ee_velocities.shape != (LITE6_PARALLEL_GRIPPER_PLANT_DOF,):
+            raise ValueError(
+                f"Lite6 parallel gripper expects plant_ee_velocities of shape "
+                f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {plant_ee_velocities.shape}"
+            )
+        return np.array([float(plant_ee_velocities[0] - plant_ee_velocities[1])], dtype=np.float64)
 
     @override
     def get_default_sim_pid_gains(self) -> PIDGains:

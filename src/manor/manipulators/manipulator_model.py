@@ -139,6 +139,33 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def ee_velocities_to_plant_velocities(self, ee_velocities: np.ndarray) -> np.ndarray:
+        """
+        Velocity-side analogue of ee_positions_to_plant_positions:
+        translate an EE-level velocities vector (size get_num_ee_dofs())
+        into the EE block of the plant's generalised-velocity vector v.
+
+        Implementations encode the time-derivative of the URDF
+        position-side mapping. Constant offsets that show up in the
+        position mapping (e.g. URDF link origins) drop out of the
+        derivative, so the velocity mapping may be simpler than the
+        position one. Variants whose EE has no actuated joints in the
+        plant return a length-0 array.
+        """
+        ...
+
+    @abc.abstractmethod
+    def plant_velocities_to_ee_velocities(self, plant_ee_velocities: np.ndarray) -> np.ndarray:
+        """
+        Inverse of ee_velocities_to_plant_velocities: take the EE block
+        of the plant's v vector and project it back onto the EE-level
+        velocities vector. Same fallback rules as
+        plant_positions_to_ee_positions for EE variants without
+        actuated plant joints.
+        """
+        ...
+
+    @abc.abstractmethod
     def get_default_sim_pid_gains(self) -> PIDGains:
         """
         Per-joint PID gains for the in-sim ``InverseDynamicsController``

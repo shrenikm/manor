@@ -12,10 +12,12 @@ import pytest
 from manor.common.testing_utils import run_manor_tests
 from manor.manipulators.lite6.model import (
     LITE6_ARM_DOF,
-    LITE6_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+    LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+    LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
     LITE6_PARALLEL_GRIPPER_EE_DOF,
-    LITE6_PARALLEL_GRIPPER_OPEN_WIDTH_M,
     LITE6_PARALLEL_GRIPPER_PLANT_DOF,
+    LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+    LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
     Lite6Model,
 )
 from manor.manipulators.lite6.variant import Lite6Variant
@@ -93,29 +95,45 @@ class TestLite6ModelEEPositionsToPlantPositions:
         result = m.ee_positions_to_plant_positions(np.array([0.0]))
         assert result.shape == (0,)
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_splits_width_with_signed_mirror(self, variant: Lite6Variant) -> None:
-        # Width w maps to (+w/2, -w/2) per the URDF axis convention
-        # (left finger axis +y, right finger axis +y but with the
-        # opposite signed travel range).
-        m = _model(variant)
-        result = m.ee_positions_to_plant_positions(np.array([0.012]))
+    def test_normal_closed_width_is_urdf_origin(self) -> None:
+        # The published NP closed width corresponds to URDF q=(0, 0)
+        # (jaws as close as the normal-mounting geometry allows).
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+        result = m.ee_positions_to_plant_positions(np.array([LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M]))
         assert result.shape == (LITE6_PARALLEL_GRIPPER_PLANT_DOF,)
-        np.testing.assert_allclose(result, [+0.006, -0.006])
+        np.testing.assert_allclose(result, [0.0, 0.0], atol=1e-12)
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_open_width_matches_urdf_limits(self, variant: Lite6Variant) -> None:
-        # Mapping the published OPEN width should land exactly at the
-        # URDF joint limits (+0.008, -0.008).
-        m = _model(variant)
-        result = m.ee_positions_to_plant_positions(np.array([LITE6_PARALLEL_GRIPPER_OPEN_WIDTH_M]))
+    def test_normal_open_width_matches_urdf_limits(self) -> None:
+        # The published NP open width should land exactly at the URDF
+        # joint limits (+0.008, -0.008) -- maximum physical opening.
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+        result = m.ee_positions_to_plant_positions(np.array([LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M]))
         np.testing.assert_allclose(result, [+0.008, -0.008])
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_closed_width_is_origin(self, variant: Lite6Variant) -> None:
-        m = _model(variant)
-        result = m.ee_positions_to_plant_positions(np.array([LITE6_PARALLEL_GRIPPER_CLOSED_WIDTH_M]))
-        np.testing.assert_allclose(result, [0.0, 0.0])
+    def test_reverse_closed_width_is_urdf_origin(self) -> None:
+        # The published RP closed width also corresponds to URDF
+        # q=(0, 0), but the URDF link origin embeds a 27 mm gap so the
+        # closed width is non-zero at the EE level.
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_REVERSE)
+        result = m.ee_positions_to_plant_positions(np.array([LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M]))
+        np.testing.assert_allclose(result, [0.0, 0.0], atol=1e-12)
+
+    def test_reverse_open_width_matches_urdf_limits(self) -> None:
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_REVERSE)
+        result = m.ee_positions_to_plant_positions(np.array([LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M]))
+        np.testing.assert_allclose(result, [+0.008, -0.008])
+
+    def test_normal_and_reverse_published_widths_differ(self) -> None:
+        # The two parallel-gripper variants have different physical
+        # ranges because the URDF link origins differ. RP has a built-
+        # in 27 mm gap that NP doesn't.
+        assert LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M != LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M
+        assert LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M != LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M
+        # Both ranges have the same span (joint travel is shared).
+        np.testing.assert_allclose(
+            LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M - LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+            LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M - LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
+        )
 
     @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
     def test_parallel_rejects_wrong_shape(self, variant: Lite6Variant) -> None:
@@ -131,11 +149,15 @@ class TestLite6ModelPlantPositionsToEEPositions:
         assert result.shape == (1,)
         np.testing.assert_allclose(result, [0.0])
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_parallel_difference_is_opening_width(self, variant: Lite6Variant) -> None:
-        m = _model(variant)
-        result = m.plant_positions_to_ee_positions(np.array([+0.006, -0.006]))
-        np.testing.assert_allclose(result, [0.012])
+    def test_normal_at_urdf_origin_is_closed_width(self) -> None:
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+        result = m.plant_positions_to_ee_positions(np.array([0.0, 0.0]))
+        np.testing.assert_allclose(result, [LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M])
+
+    def test_reverse_at_urdf_origin_is_closed_width(self) -> None:
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_REVERSE)
+        result = m.plant_positions_to_ee_positions(np.array([0.0, 0.0]))
+        np.testing.assert_allclose(result, [LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M])
 
     @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
     def test_parallel_rejects_wrong_shape(self, variant: Lite6Variant) -> None:
@@ -143,15 +165,66 @@ class TestLite6ModelPlantPositionsToEEPositions:
         with pytest.raises(ValueError):
             m.plant_positions_to_ee_positions(np.array([0.02]))
 
-    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
-    def test_round_trip(self, variant: Lite6Variant) -> None:
+    @pytest.mark.parametrize(
+        "variant, widths",
+        [
+            (
+                Lite6Variant.PARALLEL_GRIPPER_NORMAL,
+                [LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M, LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M, 0.012],
+            ),
+            (
+                Lite6Variant.PARALLEL_GRIPPER_REVERSE,
+                [LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M, LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M, 0.035],
+            ),
+        ],
+    )
+    def test_round_trip(self, variant: Lite6Variant, widths: list[float]) -> None:
         m = _model(variant)
-        for ee in (
-            np.array([LITE6_PARALLEL_GRIPPER_OPEN_WIDTH_M]),
-            np.array([LITE6_PARALLEL_GRIPPER_CLOSED_WIDTH_M]),
-            np.array([0.012]),
-        ):
+        for w in widths:
+            ee = np.array([w])
             np.testing.assert_allclose(m.plant_positions_to_ee_positions(m.ee_positions_to_plant_positions(ee)), ee)
+
+
+class TestLite6ModelEEVelocitiesToPlantVelocities:
+    def test_vacuum_returns_empty_array(self) -> None:
+        m = _model(Lite6Variant.VACUUM_GRIPPER)
+        result = m.ee_velocities_to_plant_velocities(np.array([0.0]))
+        assert result.shape == (0,)
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_signed_mirror(self, variant: Lite6Variant) -> None:
+        # The URDF origin offset is constant in time, so the velocity
+        # mapping is the same for both mountings: width rate w_dot maps
+        # to (+w_dot/2, -w_dot/2).
+        m = _model(variant)
+        result = m.ee_velocities_to_plant_velocities(np.array([0.04]))
+        np.testing.assert_allclose(result, [+0.02, -0.02])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_rejects_wrong_shape(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        with pytest.raises(ValueError):
+            m.ee_velocities_to_plant_velocities(np.array([0.02, 0.02]))
+
+
+class TestLite6ModelPlantVelocitiesToEEVelocities:
+    def test_vacuum_returns_zero_one_vector(self) -> None:
+        m = _model(Lite6Variant.VACUUM_GRIPPER)
+        result = m.plant_velocities_to_ee_velocities(np.zeros(0))
+        assert result.shape == (1,)
+        np.testing.assert_allclose(result, [0.0])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_parallel_difference_is_width_rate(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        result = m.plant_velocities_to_ee_velocities(np.array([+0.02, -0.02]))
+        np.testing.assert_allclose(result, [0.04])
+
+    @pytest.mark.parametrize("variant", [Lite6Variant.PARALLEL_GRIPPER_NORMAL, Lite6Variant.PARALLEL_GRIPPER_REVERSE])
+    def test_velocity_round_trip(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        ee_v = np.array([0.03])
+        np.testing.assert_allclose(m.plant_velocities_to_ee_velocities(m.ee_velocities_to_plant_velocities(ee_v)), ee_v)
 
 
 if __name__ == "__main__":

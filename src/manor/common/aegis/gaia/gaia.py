@@ -41,6 +41,7 @@ from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.custom_types import JointPositionsVector
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.ee_positions import EEPositions
+from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -154,10 +155,13 @@ class _DesiredStateSource(LeafSystem):
       the URDF default pose at startup until the first command arrives.
 
     EE joints (anything past the arm DOFs in the plant's q vector)
-    follow the latest stashed EE-position command translated through
-    IManipulatorModel.ee_positions_to_plant_positions. Until an EE
-    position command is received they stay at measured_q[ee] with zero
-    desired velocity, holding the URDF default pose.
+    follow the latest stashed EE command translated through
+    IManipulatorModel.ee_positions_to_plant_positions or
+    ee_velocities_to_plant_velocities. Velocity wins if both are
+    stashed (mirrors the arm-side velocity-vs-position priority).
+    Until an EE command of either kind is received the EE block
+    stays at measured_q with zero desired velocity, holding the URDF
+    default pose.
 
     Reads gaia.latest_position_command / latest_velocity_command /
     latest_ee_position_command directly. Drake calls _compute from the
@@ -194,29 +198,33 @@ class _DesiredStateSource(LeafSystem):
         position_cmd = self._gaia.latest_position_command
         if velocity_cmd is not None:
             # Cap at num_arm_dof so a (rare) over-sized command can't
-            # write into the gripper-side block; use the cmd's own
-            # length on the lower side so default-empty commands at
-            # startup are a safe no-op.
+            # write into the EE block; use the cmd's own length on the
+            # lower side so default-empty commands at startup are a
+            # safe no-op.
             n = min(velocity_cmd.velocities.shape[0], self._num_arm_dof)
             desired_v[:n] = velocity_cmd.velocities[:n]
         elif position_cmd is not None:
             n = min(position_cmd.positions.shape[0], self._num_arm_dof)
             desired_q[:n] = position_cmd.positions[:n]
 
+        ee_velocity_cmd = self._gaia.latest_ee_velocity_command
         ee_position_cmd = self._gaia.latest_ee_position_command
         num_ee_plant_dof = self._num_positions - self._num_arm_dof
-        # Skip if the plant has no EE block, or the command isn't sized
-        # to the EE interface yet (e.g. the default-constructed
-        # zero-length command flowing through at startup before any
-        # policy populates an EE setpoint).
-        if (
-            ee_position_cmd is not None
-            and num_ee_plant_dof > 0
-            and ee_position_cmd.positions.shape[0] == self._gaia.manipulator_model.get_num_ee_dofs()
-        ):
-            ee_plant_q = self._gaia.manipulator_model.ee_positions_to_plant_positions(ee_position_cmd.positions)
-            if ee_plant_q.shape[0] == num_ee_plant_dof:
-                desired_q[self._num_arm_dof :] = ee_plant_q
+        num_ee_dofs = self._gaia.manipulator_model.get_num_ee_dofs()
+        # Skip the EE block entirely if the plant doesn't have one or
+        # neither stashed command is correctly sized to the EE
+        # interface (e.g. the default-constructed zero-length command
+        # flowing through at startup before any policy populates an EE
+        # setpoint).
+        if num_ee_plant_dof > 0:
+            if ee_velocity_cmd is not None and ee_velocity_cmd.velocities.shape[0] == num_ee_dofs:
+                ee_plant_v = self._gaia.manipulator_model.ee_velocities_to_plant_velocities(ee_velocity_cmd.velocities)
+                if ee_plant_v.shape[0] == num_ee_plant_dof:
+                    desired_v[self._num_arm_dof :] = ee_plant_v
+            elif ee_position_cmd is not None and ee_position_cmd.positions.shape[0] == num_ee_dofs:
+                ee_plant_q = self._gaia.manipulator_model.ee_positions_to_plant_positions(ee_position_cmd.positions)
+                if ee_plant_q.shape[0] == num_ee_plant_dof:
+                    desired_q[self._num_arm_dof :] = ee_plant_q
 
         output.SetFromVector(np.concatenate([desired_q, desired_v]))
 
@@ -242,6 +250,7 @@ class Gaia:
     latest_position_command: JointPositions | None = attr.field(default=None, init=False)
     latest_velocity_command: JointVelocities | None = attr.field(default=None, init=False)
     latest_ee_position_command: EEPositions | None = attr.field(default=None, init=False)
+    latest_ee_velocity_command: EEVelocities | None = attr.field(default=None, init=False)
     _plant_context: Any = attr.field(default=None, init=False)
     _rgb_template: RGBImageData | None = attr.field(default=None, init=False)
     _depth_template: DepthImageData | None = attr.field(default=None, init=False)
@@ -442,11 +451,23 @@ class Gaia:
         """
         Stash the latest EE-position command. _DesiredStateSource picks
         this up on every tick and translates it through
-        IManipulatorModel.compute_gripper_joint_positions to drive the
-        gripper-side block of the desired joint vector.
+        IManipulatorModel.ee_positions_to_plant_positions to drive the
+        EE block of the desired joint vector.
         """
         self._require_finalized()
         self.latest_ee_position_command = ee_positions
+
+    def apply_ee_velocity_command(self, ee_velocities: EEVelocities) -> None:
+        """
+        Stash the latest EE-velocity command. _DesiredStateSource
+        translates it through
+        IManipulatorModel.ee_velocities_to_plant_velocities to drive
+        the EE block of the desired velocity vector. Wins over a
+        stashed EE-position command (mirrors the arm-side
+        velocity-vs-position priority).
+        """
+        self._require_finalized()
+        self.latest_ee_velocity_command = ee_velocities
 
     def read_joint_state(self) -> JointState:
         """
