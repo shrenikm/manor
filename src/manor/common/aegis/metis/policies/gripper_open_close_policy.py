@@ -1,23 +1,28 @@
 """
 GripperOpenClosePolicy: cycles the end-effector between its
-fully-open and fully-closed setpoints, holding each for a configured
-duration. Repeats for num_cycles cycles, then settles at the closed
-setpoint.
+EE-position lower and upper kinematic limits, holding each for a
+configured duration. Repeats for num_cycles cycles, then settles at
+the lower-limit setpoint.
 
-The open / closed setpoints are sourced from the manipulator model
-(IManipulatorModel.get_ee_fully_open_positions / _closed_positions),
-so the policy is generic across robots and end-effector types: a
-parallel gripper sees opening widths, a vacuum gripper sees on/off,
-a dexterous hand could see palm-flat vs full-fist finger angles. No
-EE-specific numeric values live in the policy config or its YAML.
+The setpoints come from IManipulatorModel.get_ee_position_limits, so
+the policy is generic over robots: a parallel gripper sees opening
+widths, a vacuum sees its [0, 1] binary range, etc.
+
+Open / closed convention is purely policy-side here. This policy
+treats "open" as the upper-limit end of the EE range and "closed"
+as the lower. That fits the canonical parallel-gripper case (open =
+max width = upper bound). It is reversed of natural meaning for a
+vacuum (where lower=0=off=released and upper=1=on=engaged), and may
+not produce a meaningful pose at all for a multi-DOF EE like a hand.
+By design: the model interface stays clean; gripper-style framing is
+this policy's problem alone.
 
 The arm side of the emitted Action is a zero-velocity JointCommand
 sized to num_arm_dof, so the policy is safe to drop into a diagram
 without a separate arm-driving policy.
 
-The policy is stateful: it latches the start time on the first step
-and times each open / close phase from there. Re-instantiate to start
-the cycle over.
+Stateful: latches the start time on the first step and times each
+phase from there. Re-instantiate to restart the cycle.
 """
 
 from __future__ import annotations
@@ -51,11 +56,10 @@ class GripperOpenClosePolicyConfig(MetisPolicyConfigBase):
     settling at the closed setpoint permanently. num_arm_dof is the
     width of the fall-through zero-velocity arm command.
 
-    Note that the actual EE positions emitted (the "fully open" /
-    "fully closed" setpoints) come from the manipulator model at
-    policy-construction time -- they are not configurable here. That
-    keeps the policy generic across robots / end-effectors and avoids
-    encoding URDF-specific numbers in the YAML.
+    The actual EE positions emitted come from the manipulator model's
+    EE-position limits at policy-construction time -- they are not
+    configurable here. That keeps the policy generic across robots
+    and avoids encoding URDF-specific numbers in the YAML.
     """
 
     POLICY_TYPE: ClassVar[MetisPolicyType] = MetisPolicyType.GRIPPER_OPEN_CLOSE
@@ -73,10 +77,11 @@ class GripperOpenClosePolicyConfig(MetisPolicyConfigBase):
 @attr.define
 class GripperOpenClosePolicy:
     """
-    Cycle the end-effector between its fully-open and fully-closed
-    setpoints, holding each for the configured duration, for
-    num_cycles cycles. The setpoints come from the manipulator model
-    so the policy is generic across robots and EE types.
+    Cycle the end-effector between the upper and lower bounds of the
+    model's EE-position limits, holding each for the configured
+    duration, for num_cycles cycles. Convention: open = upper bound,
+    closed = lower bound. See module docstring on why this convention
+    is gripper-biased.
     """
 
     open_positions: EEPositionsVector
@@ -93,9 +98,11 @@ class GripperOpenClosePolicy:
         config: GripperOpenClosePolicyConfig,
         manipulator_model: IManipulatorModel,
     ) -> Self:
+        lower, upper = manipulator_model.get_ee_position_limits()
         return cls(
-            open_positions=manipulator_model.get_ee_fully_open_positions(),
-            closed_positions=manipulator_model.get_ee_fully_closed_positions(),
+            # Policy convention: open = upper limit, closed = lower limit.
+            open_positions=upper,
+            closed_positions=lower,
             open_hold_seconds=config.open_hold_seconds,
             close_hold_seconds=config.close_hold_seconds,
             num_cycles=config.num_cycles,

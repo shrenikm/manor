@@ -227,5 +227,32 @@ class TestLite6ModelPlantVelocitiesToEEVelocities:
         np.testing.assert_allclose(m.plant_velocities_to_ee_velocities(m.ee_velocities_to_plant_velocities(ee_v)), ee_v)
 
 
+class TestLite6ModelEEPositionLimits:
+    def test_vacuum_returns_zero_one_range(self) -> None:
+        m = _model(Lite6Variant.VACUUM_GRIPPER)
+        lower, upper = m.get_ee_position_limits()
+        np.testing.assert_array_equal(lower, [0.0])
+        np.testing.assert_array_equal(upper, [1.0])
+
+    def test_normal_parallel_returns_physical_widths(self) -> None:
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_NORMAL)
+        lower, upper = m.get_ee_position_limits()
+        np.testing.assert_allclose(lower, [LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M])
+        np.testing.assert_allclose(upper, [LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M])
+
+    def test_reverse_parallel_returns_physical_widths(self) -> None:
+        m = _model(Lite6Variant.PARALLEL_GRIPPER_REVERSE)
+        lower, upper = m.get_ee_position_limits()
+        np.testing.assert_allclose(lower, [LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M])
+        np.testing.assert_allclose(upper, [LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M])
+
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_lower_below_upper(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        lower, upper = m.get_ee_position_limits()
+        assert lower.shape == upper.shape
+        assert np.all(lower <= upper)
+
+
 if __name__ == "__main__":
     run_manor_tests()

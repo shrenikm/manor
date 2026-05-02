@@ -78,21 +78,22 @@ LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M: float = (
     LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M + 2.0 * _LITE6_PARALLEL_FINGER_HALF_TRAVEL_M
 )
 
-_VARIANT_TO_CLOSED_WIDTH_M: dict[Lite6Variant, float] = {
+# Per-variant EE-position limits surfaced through
+# IManipulatorModel.get_ee_position_limits. Lower is the smaller
+# physical-width bound for the parallel-gripper variants and the
+# "off" end of the binary range for vacuum; upper is the larger.
+# Open / closed semantics are NOT encoded here -- those are
+# policy-side conventions.
+_VARIANT_TO_LOWER_EE_LIMIT: dict[Lite6Variant, float] = {
+    Lite6Variant.VACUUM_GRIPPER: 0.0,
     Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_RP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
 }
-_VARIANT_TO_OPEN_WIDTH_M: dict[Lite6Variant, float] = {
+_VARIANT_TO_UPPER_EE_LIMIT: dict[Lite6Variant, float] = {
+    Lite6Variant.VACUUM_GRIPPER: 1.0,
     Lite6Variant.PARALLEL_GRIPPER_NORMAL: LITE6_NP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
     Lite6Variant.PARALLEL_GRIPPER_REVERSE: LITE6_RP_PARALLEL_GRIPPER_OPEN_WIDTH_M,
 }
-
-# Vacuum gripper EE-level conventions. The vacuum is binary: "open"
-# = released = vacuum off = 0; "closed" = engaged = vacuum on = 1.
-# Surfaced through the same get_ee_fully_*_positions interface so a
-# generic open/close policy works uniformly across EE types.
-_LITE6_VACUUM_OFF: float = 0.0
-_LITE6_VACUUM_ON: float = 1.0
 
 _LITE6_DESCRIPTION_DIRNAME = "lite6_description"
 _LITE6_ROBOT_WITH_GRIPPER_SUBDIR = "robot_with_gripper"
@@ -185,16 +186,10 @@ class Lite6Model(IManipulatorModel):
         return self.get_num_positions() + self.get_num_velocities()
 
     @override
-    def get_ee_fully_open_positions(self) -> EEPositionsVector:
-        if self.variant is Lite6Variant.VACUUM_GRIPPER:
-            return np.array([_LITE6_VACUUM_OFF], dtype=np.float64)
-        return np.array([_VARIANT_TO_OPEN_WIDTH_M[self.variant]], dtype=np.float64)
-
-    @override
-    def get_ee_fully_closed_positions(self) -> EEPositionsVector:
-        if self.variant is Lite6Variant.VACUUM_GRIPPER:
-            return np.array([_LITE6_VACUUM_ON], dtype=np.float64)
-        return np.array([_VARIANT_TO_CLOSED_WIDTH_M[self.variant]], dtype=np.float64)
+    def get_ee_position_limits(self) -> tuple[EEPositionsVector, EEPositionsVector]:
+        lower = np.array([_VARIANT_TO_LOWER_EE_LIMIT[self.variant]], dtype=np.float64)
+        upper = np.array([_VARIANT_TO_UPPER_EE_LIMIT[self.variant]], dtype=np.float64)
+        return lower, upper
 
     @override
     def ee_positions_to_plant_positions(self, ee_positions: EEPositionsVector) -> PlantEEPositionsVector:

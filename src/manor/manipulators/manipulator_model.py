@@ -108,23 +108,20 @@ class IManipulatorModel(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_ee_fully_open_positions(self) -> EEPositionsVector:
+    def get_ee_position_limits(self) -> tuple[EEPositionsVector, EEPositionsVector]:
         """
-        EE-level positions that represent the "fully open" pose for
-        this end-effector, sized to get_num_ee_dofs(). The semantics
-        are per-EE: maximum opening width for a parallel gripper,
-        "off" for a vacuum gripper, palm-flat finger angles for a
-        dexterous hand. Implementations source this from the URDF's
-        joint limits (or model-specific calibration) so the value
-        always tracks the actual hardware capability.
-        """
-        ...
+        Per-DOF kinematic limits on the EE positions vector,
+        as ``(lower, upper)`` (each sized to get_num_ee_dofs()).
 
-    @abc.abstractmethod
-    def get_ee_fully_closed_positions(self) -> EEPositionsVector:
-        """
-        EE-level positions that represent the "fully closed" pose for
-        this end-effector. Inverse pole of get_ee_fully_open_positions.
+        Sourced from the URDF's joint limits where the EE has
+        actuated joints; for EEs whose state is not modelled in the
+        plant (e.g. a binary vacuum), implementations return the
+        convention range that defines the EE-level interface.
+
+        Higher-level concepts like "open" or "closed" are NOT
+        represented here -- they are policy-side conventions on top
+        of these bounds. This interface stays generic across every
+        end-effector type.
         """
         ...
 
