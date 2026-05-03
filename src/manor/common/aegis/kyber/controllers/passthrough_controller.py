@@ -63,11 +63,5 @@ class PassthroughController:
         if action.joint_command is not None:
             joint_command = action.joint_command
         else:
-            joint_command = JointCommand(
-                header=header,
-                joint_velocities=JointVelocities(
-                    header=header,
-                    velocities=np.zeros(self.num_dof, dtype=np.float64),
-                ),
-            )
+            raise NotImplementedError("PassthroughController only supports jonit commands.")
         return JointEECommand(header=header, joint_command=joint_command, ee_command=action.ee_command)

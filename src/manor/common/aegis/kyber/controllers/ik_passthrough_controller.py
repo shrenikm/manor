@@ -196,16 +196,7 @@ class IKPassthroughController:
                 header=header,
             )
         else:
-            # JointTrajectoryCommand / CartesianTrajectoryCommand fall
-            # through to a zero-velocity arm command. Trajectory tracking
-            # belongs to a dedicated controller.
-            joint_command = JointCommand(
-                header=header,
-                joint_velocities=JointVelocities(
-                    header=header,
-                    velocities=np.zeros(num_arm_dof, dtype=np.float64),
-                ),
-            )
+            raise NotImplementedError("IKPassthroughController does not support trajectory commands.")
 
         return JointEECommand(header=header, joint_command=joint_command, ee_command=action.ee_command)
 
