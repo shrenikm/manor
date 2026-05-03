@@ -81,21 +81,34 @@ class TestLatching:
 
 
 class TestTangentDirection:
-    def test_initial_tangent_points_in_plus_x(self) -> None:
-        # At the bottom of the circle, anticlockwise from +z view, the
-        # tangent should be in +x.
+    def test_initial_tangent_points_in_minus_y(self) -> None:
+        # The start is the back rim of the circle (-x rim of the
+        # circle, smallest x value), anticlockwise from +z view, so
+        # the initial tangent is in -y. This anchors the geometry
+        # contract that keeps the EE x >= start.x, avoiding the
+        # Lite6 self-collision the user reported.
         policy = CircleEEVelocityPolicy.from_config(
             CircleEEVelocityPolicyConfig(radius=0.05, velocity_magnitude=0.05, duration_seconds=10.0)
         )
         translation = np.array([0.2, 0.0, 0.3], dtype=np.float64)
         action = policy.step(_make_observation(translation))
         twist = action.cartesian_command.cartesian_twist
-        # First tick has elapsed ~0, so tangent ≈ (+vx, 0, 0).
-        assert twist.linear[0] > 0.04
-        assert abs(twist.linear[1]) < 1e-3
+        # First tick has elapsed ~0, so tangent ≈ (0, -vy, 0).
+        assert abs(twist.linear[0]) < 1e-3
+        assert twist.linear[1] < -0.04
         assert abs(twist.linear[2]) < 1e-12
         # Magnitude matches velocity_magnitude.
         np.testing.assert_allclose(np.linalg.norm(twist.linear), 0.05, atol=1e-3)
+
+    def test_circle_centre_is_offset_in_plus_x(self) -> None:
+        # Direct check on the latched centre: must sit at start + (radius, 0, 0)
+        # so the entire circle lives at x >= start.x.
+        policy = CircleEEVelocityPolicy.from_config(
+            CircleEEVelocityPolicyConfig(radius=0.07, velocity_magnitude=0.05, duration_seconds=10.0)
+        )
+        translation = np.array([0.2, 0.0, 0.3], dtype=np.float64)
+        policy.step(_make_observation(translation))
+        np.testing.assert_allclose(policy._centre, translation + np.array([0.07, 0.0, 0.0]))
 
     def test_velocity_hold_after_duration(self) -> None:
         policy = CircleEEVelocityPolicy.from_config(

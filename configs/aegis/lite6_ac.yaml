@@ -33,7 +33,7 @@ talos_config:
 
 metis_config:
   publish_frequency_hz: 10.0
-  policy_type: constant_cartesian_pose
+  policy_type: circle_ee_velocity
 
 kyber_config:
   publish_frequency_hz: 500.0

@@ -1,17 +1,22 @@
 """
 CircleEEVelocityPolicy: emits a Cartesian-twist command that traces a
-circle in the world xy-plane (z up) at constant linear speed.
+circle in the manipulator-base xy-plane (z up) at constant linear
+speed.
 
 Geometry:
 
 * The first step latches the current EE position from
   observation.proprioception.cartesian_state.cartesian_pose.translation
-  and treats that point as the bottom of the circle.
-* The circle centre is offset from the start point by +radius in y
-  (so the circle lives in the xy-plane and the start is on the
-  -y rim).
-* Direction of travel is anticlockwise viewed from +z (i.e. the
-  angular position around the circle increases over time).
+  and treats that point as the back rim of the circle (smallest x of
+  the trace).
+* The circle centre is offset from the start point by +radius in x
+  (so the start is on the -x rim and the entire circle lives at
+  x >= start.x). This guards against the EE sweeping further toward
+  the manipulator base than where it began -- the Lite6 self-collides
+  if the EE crosses behind its starting x.
+* Direction of travel is anticlockwise viewed from +z (the angular
+  position around the circle increases over time). Combined with the
+  start being on the -x rim, the initial tangent is in -y.
 * The arm motion is purely translational; angular velocity is zero.
 
 After duration_seconds elapse the policy emits a zero CartesianTwist --
@@ -95,10 +100,12 @@ class CircleEEVelocityPolicy:
                 # Until then emit a zero CartesianTwist so the diagram
                 # keeps ticking.
                 return self._make_action(header, np.zeros(3, dtype=np.float64))
-            # Bottom of the circle = latched start point. Centre sits
-            # +radius in y so the start is on the -y rim and the
-            # trajectory wraps anticlockwise around +z.
-            self._centre = translation + np.array([0.0, self.radius, 0.0], dtype=np.float64)
+            # Latch the start as the back rim (smallest x) of the
+            # circle so the trace stays at x >= start.x. Centre sits
+            # +radius in x; combined with the anticlockwise-from-+z
+            # direction, the initial tangent is in -y. See module
+            # docstring for the self-collision rationale.
+            self._centre = translation + np.array([self.radius, 0.0, 0.0], dtype=np.float64)
             self._start_time_s = now_s
 
         elapsed = now_s - (self._start_time_s if self._start_time_s is not None else now_s)
@@ -124,11 +131,12 @@ class CircleEEVelocityPolicy:
         if self.radius <= 0.0:
             return np.zeros(3, dtype=np.float64)
         omega = self.velocity_magnitude / self.radius
-        # Start phase: bottom of the circle (start = centre - radius * y_hat)
-        # corresponds to phase = -pi/2 in standard convention. The
-        # tangent at that phase, anticlockwise, points in +x. Tracking
-        # phi(t) = -pi/2 + omega * t gives tangent = (-sin(phi), cos(phi)).
-        phi = -np.pi / 2.0 + omega * elapsed_s
+        # Start position = centre + (-radius, 0) corresponds to
+        # phase = pi in the standard CCW-from-+z convention. The
+        # tangent at phase phi is (-sin(phi), cos(phi)); at phi = pi
+        # that's (0, -1) -- the -y initial direction the geometry
+        # requires. Tracking phi(t) = pi + omega * t.
+        phi = np.pi + omega * elapsed_s
         tangent = np.array([-np.sin(phi), np.cos(phi), 0.0], dtype=np.float64)
         return tangent * self.velocity_magnitude
 
