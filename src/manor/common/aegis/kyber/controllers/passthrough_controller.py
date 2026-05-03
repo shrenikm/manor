@@ -63,5 +63,5 @@ class PassthroughController:
         if action.joint_command is not None:
             joint_command = action.joint_command
         else:
-            raise NotImplementedError("PassthroughController only supports jonit commands.")
+            raise NotImplementedError("PassthroughController only supports joint commands.")
         return JointEECommand(header=header, joint_command=joint_command, ee_command=action.ee_command)
