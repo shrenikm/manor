@@ -15,11 +15,13 @@ PID-file state is sandboxed by pointing ``_PID_FILE_DIR`` at a
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from unittest import mock
 
 import pytest
 import typer
+import yaml
 from click.testing import CliRunner
 
 from manor.common.aegis import aegis_cli as cli_module
@@ -291,6 +293,20 @@ class TestReplHelp:
         # per-command help, not the command list.
         assert "commands:" not in out
 
+    @pytest.mark.parametrize("flag", ["-h", "--help"])
+    def test_reload_help_flag_prints_reload_help(
+        self,
+        flag: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # ``reload`` is REPL-only (no click counterpart) so its
+        # per-command help is hand-rolled rather than rendered by
+        # click. Verify the hand-rolled banner shows up.
+        state = cli_module._build_state(_bundled_config_path(), mode_override=None)
+        cli_module._dispatch_repl_line(f"reload {flag}", state)
+        out = capsys.readouterr().out
+        assert "Usage: aegis reload" in out
+
     def test_help_flag_after_block_still_short_circuits(
         self,
         capsys: pytest.CaptureFixture[str],
@@ -301,6 +317,207 @@ class TestReplHelp:
         out = capsys.readouterr().out
         assert "Usage: aegis run" in out
         assert "started" not in out
+
+
+@pytest.fixture
+def aegis_yaml_sandbox(tmp_path: Path) -> Path:
+    """
+    Mirror the bundled ``configs/aegis/`` tree into ``tmp_path`` so a
+    test can edit YAMLs (base, policy, controller) without touching
+    the real repo. Returns the path to the copied ``lite6_ac.yaml``;
+    the ``policies/`` and ``controllers/`` subdirs come along beside
+    it so the composer's sibling-directory resolution still finds
+    them.
+    """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
+    src_dir = Path(repo_root) / "configs" / "aegis"
+    dst_dir = tmp_path / "aegis"
+    shutil.copytree(src_dir, dst_dir)
+    return dst_dir / "lite6_ac.yaml"
+
+
+class TestReplReload:
+    """
+    ``reload`` re-reads the YAML configs from disk inside the REPL
+    so the user can iterate on a policy / controller / sim setting
+    without restarting the REPL. The launch-time ``--mode`` override
+    is preserved across reloads; already-running blocks keep their
+    stale config (with a warning) until they're restarted.
+    """
+
+    def test_reload_picks_up_metis_publish_frequency_change(
+        self,
+        aegis_yaml_sandbox: Path,
+    ) -> None:
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        original_hz = state.config.metis_config.publish_frequency_hz
+
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        new_hz = original_hz + 5.0
+        base["metis_config"]["publish_frequency_hz"] = new_hz
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        new_state = cli_module._reload_impl(state)
+        assert new_state is not state
+        assert new_state.config.metis_config.publish_frequency_hz == new_hz
+
+    def test_reload_picks_up_policy_type_change(
+        self,
+        aegis_yaml_sandbox: Path,
+    ) -> None:
+        # The bundled lite6_ac.yaml may swap its policy_type between
+        # sessions, so anchor the assertion on a switch we make in
+        # the test rather than on the starting value.
+        from manor.common.aegis.metis.policies.policy_manager import MetisPolicyType
+
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        target = (
+            MetisPolicyType.IDENTITY
+            if base["metis_config"]["policy_type"] != MetisPolicyType.IDENTITY.value
+            else MetisPolicyType.CONSTANT_JOINT_POSITIONS
+        )
+        base["metis_config"]["policy_type"] = target.value
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        new_state = cli_module._reload_impl(state)
+        assert new_state.config.metis_config.policy_config.POLICY_TYPE is target
+
+    def test_reload_picks_up_policy_sub_yaml_edit(
+        self,
+        aegis_yaml_sandbox: Path,
+    ) -> None:
+        # The motivating workflow: edit a policy sub-YAML between two
+        # ``run metis`` invocations and have ``reload`` pick up the
+        # change without restarting the REPL.
+        from manor.common.aegis.metis.policies.constant_policies import (
+            ConstantJointPositionsPolicyConfig,
+        )
+
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        base["metis_config"]["policy_type"] = "constant_joint_positions"
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        assert isinstance(state.config.metis_config.policy_config, ConstantJointPositionsPolicyConfig)
+
+        sub_path = aegis_yaml_sandbox.parent / "policies" / "constant_joint_positions_ac.yaml"
+        new_positions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+        with open(sub_path, "w") as fp:
+            yaml.safe_dump({"positions": new_positions}, fp)
+
+        new_state = cli_module._reload_impl(state)
+        assert isinstance(new_state.config.metis_config.policy_config, ConstantJointPositionsPolicyConfig)
+        assert list(new_state.config.metis_config.policy_config.positions) == new_positions
+
+    def test_reload_preserves_mode_override(
+        self,
+        aegis_yaml_sandbox: Path,
+    ) -> None:
+        # A session started with ``--mode hardware`` against a sim
+        # YAML must keep the hardware override after reload --
+        # otherwise the user's pinned setting silently regresses.
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        base["mode"] = "sim"
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        state = cli_module._build_state(aegis_yaml_sandbox, AegisMode.HARDWARE)
+        assert state.config.mode is AegisMode.HARDWARE
+        assert state.mode_override is AegisMode.HARDWARE
+
+        new_state = cli_module._reload_impl(state)
+        assert new_state.config.mode is AegisMode.HARDWARE
+        assert new_state.mode_override is AegisMode.HARDWARE
+
+    def test_reload_warns_when_blocks_are_running(
+        self,
+        aegis_yaml_sandbox: Path,
+        sandboxed_pid_dir: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # ``reload`` only affects blocks spawned *after* it; we warn
+        # so the user notices when their edit won't take effect on
+        # already-running children.
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        monkeypatch.setattr(cli_module, "_process_alive", lambda _pid: True)
+        cli_module._write_pid(AegisBlock.METIS, 12345)
+
+        new_state = cli_module._reload_impl(state)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+        assert "metis" in out
+        assert "still running" in out
+        assert new_state is not state
+
+    def test_reload_keeps_old_state_on_invalid_edit(
+        self,
+        aegis_yaml_sandbox: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # If the user botches the YAML, ``reload`` keeps the previous
+        # state instead of dropping the user out of the REPL.
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        base["metis_config"]["policy_type"] = "not_a_real_policy"
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        new_state = cli_module._reload_impl(state)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+        assert "reload failed" in out
+        assert new_state is state
+
+    def test_reload_via_dispatch_returns_new_state(
+        self,
+        aegis_yaml_sandbox: Path,
+    ) -> None:
+        # The REPL loop relies on the dispatcher's return value to
+        # re-bind its local ``state``. A reload that returned the
+        # old state would silently no-op, so anchor that contract.
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        with open(aegis_yaml_sandbox, "r") as fp:
+            base = yaml.safe_load(fp)
+        base["metis_config"]["publish_frequency_hz"] = state.config.metis_config.publish_frequency_hz + 7.5
+        with open(aegis_yaml_sandbox, "w") as fp:
+            yaml.safe_dump(base, fp)
+
+        returned = cli_module._dispatch_repl_line("reload", state)
+        assert returned is not state
+        assert returned.config.metis_config.publish_frequency_hz == state.config.metis_config.publish_frequency_hz + 7.5
+
+    def test_reload_rejects_extra_args(
+        self,
+        aegis_yaml_sandbox: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
+        returned = cli_module._dispatch_repl_line("reload extra", state)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+        assert "takes no arguments" in out
+        # Extra-arg failure is a no-op: state is preserved.
+        assert returned is state
+
+    def test_reload_appears_in_top_level_help_and_completer(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        cli_module._print_repl_help()
+        out = capsys.readouterr().out
+        assert "reload" in out
+        completer = cli_module._build_completer()
+        assert "reload" in completer.words
 
 
 if __name__ == "__main__":

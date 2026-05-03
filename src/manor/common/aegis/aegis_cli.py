@@ -279,13 +279,17 @@ def _load_config(config_path: Path, mode_override: Optional[AegisMode]) -> tuple
 class _CliState:
     """
     Per-invocation state shared with subcommands that need a parsed
-    config (``run`` and ``repl``). Reconstructed from disk inside the
-    REPL whenever it re-dispatches a ``run`` line.
+    config (``run`` and ``repl``). The REPL pins this at launch and
+    can refresh it via ``reload``; ``mode_override`` is stashed so a
+    reload reproduces the launch-time invocation faithfully (a session
+    started with ``--mode hardware`` keeps that override across YAML
+    re-reads, instead of silently reverting to the YAML's ``mode``).
     """
 
     config_path: Path
     config: AegisConfig
     raw_config: dict
+    mode_override: Optional[AegisMode] = None
 
 
 app = typer.Typer(
@@ -303,7 +307,7 @@ app = typer.Typer(
 
 def _build_state(config_path: Path, mode_override: Optional[AegisMode]) -> _CliState:
     resolved, parsed, raw = _load_config(config_path, mode_override)
-    return _CliState(config_path=resolved, config=parsed, raw_config=raw)
+    return _CliState(config_path=resolved, config=parsed, raw_config=raw, mode_override=mode_override)
 
 
 def _spawn_block(state: _CliState, block: AegisBlock) -> None:
@@ -425,6 +429,45 @@ def _status_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
     typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.MAGENTA, bold=True)
     for b in sorted(allowed, key=lambda x: x.value):
         typer.echo(f"  {_format_block_state(b.value, _read_pid(b))}")
+
+
+def _reload_impl(state: _CliState) -> _CliState:
+    """
+    Re-read the YAML configs from disk and rebuild the REPL's pinned
+    state. The launch-time ``mode_override`` (if any) is preserved
+    so a session started with ``--mode hardware`` keeps that override
+    after the reload.
+
+    Already-running blocks keep the stale config they were spawned
+    with -- the reload only affects blocks spawned *after* it. The
+    typical workflow is: kill the relevant block, edit the YAML or
+    a sub-YAML, ``reload``, then ``run`` it again. We warn (not
+    error) when blocks are still up so the user catches the case
+    where they expected the change to take effect immediately.
+
+    On parse / validation failure the previous state is kept and
+    the error is echoed -- a half-broken edit shouldn't drop the
+    user out of the REPL.
+    """
+    try:
+        new_state = _build_state(state.config_path, state.mode_override)
+    except typer.BadParameter as e:
+        _echo_error(f"reload failed: {e}")
+        return state
+    except AegisConfigError as e:
+        _echo_error(f"reload failed: {e}")
+        return state
+    running = [b for b in AegisBlock if _read_pid(b) is not None]
+    banner = f"reloaded -- mode={new_state.config.mode.value}, config={new_state.config_path}"
+    if running:
+        _echo_warn(banner)
+        _echo_warn(
+            f"warning: {sorted(b.value for b in running)} still running with the previous "
+            f"config; restart them to pick up the reload"
+        )
+    else:
+        _echo_success(banner)
+    return new_state
 
 
 # --- click wrappers ---------------------------------------------------------
@@ -556,7 +599,7 @@ def repl(
             if line == "help":
                 _print_repl_help()
                 continue
-            _dispatch_repl_line(line, state)
+            state = _dispatch_repl_line(line, state)
     finally:
         _kill_all_running_blocks()
 
@@ -566,7 +609,7 @@ def _build_completer() -> WordCompleter:
     Tab-completion vocabulary: top-level commands plus block names.
     Good enough that ``run g<TAB>`` finishes to ``run gylos``.
     """
-    words = ["run", "kill", "status", "help", "exit", "quit", "q"]
+    words = ["run", "kill", "status", "reload", "help", "exit", "quit", "q"]
     words.extend(block.value for block in AegisBlock)
     return WordCompleter(words, ignore_case=True)
 
@@ -578,16 +621,33 @@ def _print_repl_help() -> None:
     """
     Top-level REPL help. Custom (rather than click-generated) because
     this list also covers REPL-only words like ``help`` / ``exit`` /
-    ``quit`` / ``q`` that aren't click subcommands.
+    ``quit`` / ``q`` (and ``reload``) that aren't click subcommands.
     """
     typer.echo("commands:")
     typer.echo("  run [block]      spawn a block as a subprocess (no arg = all applicable)")
     typer.echo("  kill [block]     SIGTERM a running block (no arg = all running)")
     typer.echo("  status [block]   report block state (no arg = all applicable)")
+    typer.echo("  reload           re-read the YAML configs from disk (already-running blocks keep old config)")
     typer.echo("  help | -h        show this message")
     typer.echo("  exit | quit | q  leave the REPL (running blocks are stopped)")
     typer.echo("")
     typer.echo("type '<command> -h' for help on a specific command (e.g. 'run -h').")
+
+
+def _print_reload_help() -> None:
+    """
+    REPL-only ``reload`` has no click counterpart, so its help has to
+    be hand-rolled. Format mirrors click's ``Usage:`` block so the
+    visual cue is consistent across commands.
+    """
+    typer.echo("Usage: aegis reload")
+    typer.echo("")
+    typer.echo("  Re-read the base YAML and policy / controller sub-YAMLs from disk and rebuild")
+    typer.echo("  the REPL's pinned config. The launch-time --mode override (if any) is")
+    typer.echo("  preserved. Already-running blocks keep their old config until restarted.")
+    typer.echo("")
+    typer.echo("  Typical use: kill a block, edit a YAML, reload, run the block again -- without")
+    typer.echo("  exiting the REPL.")
 
 
 def _print_command_help(cmd_name: str) -> None:
@@ -614,6 +674,7 @@ def _print_command_help(cmd_name: str) -> None:
 
 
 _REPL_BLOCK_COMMANDS = {"run", "kill", "status"}
+_REPL_NULLARY_COMMANDS = {"reload"}
 
 
 def _parse_repl_block_arg(argv: list[str]) -> Optional[AegisBlock]:
@@ -635,44 +696,60 @@ def _parse_repl_block_arg(argv: list[str]) -> Optional[AegisBlock]:
         raise typer.BadParameter(f"{argv[0]}: unknown block {raw!r}; valid: {valid}") from None
 
 
-def _dispatch_repl_line(line: str, state: _CliState) -> None:
+def _dispatch_repl_line(line: str, state: _CliState) -> _CliState:
     """
     Parse a REPL line and call the matching impl function with the
-    REPL's pinned ``state``. We don't go through click here -- the
-    REPL doesn't accept ``--config`` / ``--mode`` per-line (those are
-    pinned at REPL launch), so the click flag-parsing layer would
-    just be in the way. ``-h`` / ``--help`` on its own re-prints the
-    top-level help; on a command (``run -h``, etc.) it prints that
-    command's help. Errors are caught and echoed instead of bubbling
-    up, so a bad command doesn't kill the REPL.
+    REPL's pinned ``state``. Returns the (possibly updated) state so
+    the REPL loop can re-bind it -- used by ``reload`` to refresh
+    state without restarting the REPL. Other commands return the
+    same state instance unchanged.
+
+    We don't go through click here -- the REPL doesn't accept
+    ``--config`` / ``--mode`` per-line (those are pinned at REPL
+    launch), so the click flag-parsing layer would just be in the
+    way. ``-h`` / ``--help`` on its own re-prints the top-level
+    help; on a command (``run -h``, etc.) it prints that command's
+    help. Errors are caught and echoed instead of bubbling up, so a
+    bad command doesn't kill the REPL.
     """
     try:
         argv = shlex.split(line)
     except ValueError as e:
         _echo_error(f"parse error: {e}")
-        return
+        return state
     if not argv:
-        return
+        return state
     if argv[0] in _HELP_FLAGS:
         _print_repl_help()
-        return
+        return state
     cmd = argv[0]
     if cmd == "repl":
         _echo_error("already in REPL")
-        return
+        return state
+    if cmd in _REPL_NULLARY_COMMANDS:
+        if any(a in _HELP_FLAGS for a in argv[1:]):
+            if cmd == "reload":
+                _print_reload_help()
+            return state
+        if len(argv) > 1:
+            _echo_error(f"{cmd}: takes no arguments (got {argv[1:]!r})")
+            return state
+        if cmd == "reload":
+            return _reload_impl(state)
+        return state
     if cmd not in _REPL_BLOCK_COMMANDS:
         _echo_error(f"unknown command: {cmd!r}; type 'help' for the list")
-        return
+        return state
     if any(a in _HELP_FLAGS for a in argv[1:]):
         # Mirror click's behaviour: a help flag anywhere in the
         # remaining argv short-circuits to per-command help.
         _print_command_help(cmd)
-        return
+        return state
     try:
         block = _parse_repl_block_arg(argv)
     except typer.BadParameter as e:
         _echo_error(str(e))
-        return
+        return state
     try:
         if cmd == "run":
             _run_impl(state, block)
@@ -684,6 +761,7 @@ def _dispatch_repl_line(line: str, state: _CliState) -> None:
         # Impls raise typer.Exit after echoing their own error
         # message; suppress so the REPL keeps running.
         pass
+    return state
 
 
 # typer apps are click apps under the hood; expose the click

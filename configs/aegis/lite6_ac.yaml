@@ -33,7 +33,7 @@ talos_config:
 
 metis_config:
   publish_frequency_hz: 10.0
-  policy_type: gripper_open_close
+  policy_type: constant_joint_velocities
 
 kyber_config:
   publish_frequency_hz: 500.0

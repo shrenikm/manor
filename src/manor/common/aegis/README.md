@@ -532,7 +532,8 @@ type 'help' for commands, 'exit' or Ctrl-D to leave (running blocks are stopped)
 aegis >>
 ```
 
-Inside, the same commands minus the `aegis` prefix:
+Inside, the same commands minus the `aegis` prefix, plus a
+REPL-only `reload`:
 
 ```text
 aegis >> status
@@ -540,11 +541,20 @@ aegis >> run gylos
 aegis >> run metis
 aegis >> status metis
 aegis >> kill metis
+aegis >> reload         # re-read YAMLs after editing on disk
+aegis >> run metis      # spawn metis again with the new config
 aegis >> q
 ```
 
 - Tab-complete: `run g<TAB>` → `run gylos`.
 - Arrow-up recalls past lines (history persists at `~/.aegis_history`).
+- `reload` re-reads the base YAML and policy / controller sub-YAMLs
+  from disk. Use it to iterate on a policy or sim setting without
+  restarting the REPL: kill the affected block, edit its YAML,
+  `reload`, then `run` it again. The launch-time `--mode` override
+  is preserved across reloads. Already-running blocks keep the
+  config they were spawned with — the REPL warns when a reload
+  happens while children are still up.
 - Ctrl-C clears the current line; Ctrl-D / `exit` / `quit` / `q`
   leaves the REPL. **Any blocks still running when you exit are
   SIGTERMed first** — the REPL refuses to leave rogue subprocesses
