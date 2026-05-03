@@ -13,7 +13,6 @@ import os
 
 import attr
 import pytest
-import yaml
 from pydrake.lcm import DrakeLcm
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
@@ -26,8 +25,9 @@ from manor.common.aegis.aegis_adapters import (
     AegisLCMSubscriberAdapter,
 )
 from manor.common.aegis.aegis_utils import AegisChannel
+from manor.common.aegis.kyber.controllers.controller_manager import KyberControllerType
 from manor.common.aegis.metis.metis import Metis, MetisConfig, MetisPorts
-from manor.common.aegis.metis.policies.policy_manager import MetisPolicyManager
+from manor.common.aegis.metis.policies.policy_manager import MetisPolicyManager, MetisPolicyType
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.proprioception import Proprioception
@@ -35,11 +35,54 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.testing_utils import run_manor_tests
 
 
-def _bundled_config(filename: str = "default_ac.yaml") -> AegisConfig:
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
-    path = os.path.join(repo_root, "configs", "aegis", filename)
-    with open(path, "r") as fp:
-        config = AegisConfig.from_yaml_dict(yaml.safe_load(fp))
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
+
+
+def _bundled_config(
+    filename: str = "lite6_ac.yaml",
+    *,
+    policy_type: MetisPolicyType | None = None,
+    controller_type: KyberControllerType | None = None,
+) -> AegisConfig:
+    """
+    Load the bundled aegis base YAML through the composer, optionally
+    swapping in a different policy / controller type for the load.
+    Used by the per-policy / per-controller round-trip tests so each
+    bundled sub-YAML is exercised end-to-end. The swap goes through
+    a temp YAML written next to the base so the composer's
+    sibling-directory resolution still finds ``policies/`` and
+    ``controllers/``.
+    """
+    import tempfile
+
+    import yaml as _yaml
+
+    from manor.common.aegis.aegis import compose_aegis_yaml_dict
+
+    path = os.path.join(_repo_root(), "configs", "aegis", filename)
+    if policy_type is None and controller_type is None:
+        config = AegisConfig.from_yaml(path)
+    else:
+        with open(path, "r") as fp:
+            base = _yaml.safe_load(fp) or {}
+        if policy_type is not None:
+            base["metis_config"]["policy_type"] = policy_type.value
+        if controller_type is not None:
+            base["kyber_config"]["controller_type"] = controller_type.value
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix="_ac.yaml",
+            dir=os.path.dirname(path),
+            delete=False,
+        ) as fp:
+            _yaml.safe_dump(base, fp)
+            tmp_path = fp.name
+        try:
+            raw = compose_aegis_yaml_dict(tmp_path)
+            config = AegisConfig.from_yaml_dict(raw)
+        finally:
+            os.unlink(tmp_path)
     # Disable meshcat for tests so the pinned port-7000 server doesn't
     # collide with other tests that also load the bundled YAML.
     return attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
@@ -224,22 +267,25 @@ def test_runner_module_imports_cleanly(module: str) -> None:
     __import__(module)
 
 
-@pytest.mark.parametrize(
-    "config_filename",
-    [
-        "gripper_open_close_ac.yaml",
-        "constant_cartesian_pose_ac.yaml",
-        "circle_ee_velocity_ac.yaml",
-    ],
-)
-def test_new_aegis_yaml_configs_parse(config_filename: str) -> None:
-    # Sanity check that each bundled aegis YAML parses end-to-end into
-    # an AegisConfig. The diagram-build smoke test for the default
-    # config exercises the wiring; this test catches schema breakage in
-    # the per-policy / per-controller YAML blocks.
-    config = _bundled_config(filename=config_filename)
+@pytest.mark.parametrize("policy_type", list(MetisPolicyType))
+def test_every_bundled_policy_yaml_parses(policy_type: MetisPolicyType) -> None:
+    # Each MetisPolicyType must have a matching ``policies/<name>_ac.yaml``
+    # body that round-trips through the composer + AegisConfig parser
+    # cleanly. Catches schema drift between policy configs and their
+    # bundled YAMLs without hand-maintaining a parametrize list.
+    config = _bundled_config(policy_type=policy_type)
     assert config.metis_config.policy_config is not None
+    assert config.metis_config.policy_config.POLICY_TYPE is policy_type
+
+
+@pytest.mark.parametrize("controller_type", list(KyberControllerType))
+def test_every_bundled_controller_yaml_parses(controller_type: KyberControllerType) -> None:
+    # Mirror of the policy version: each KyberControllerType must
+    # have a matching ``controllers/<name>_ac.yaml`` body that
+    # round-trips through the composer.
+    config = _bundled_config(controller_type=controller_type)
     assert config.kyber_config.controller_config is not None
+    assert config.kyber_config.controller_config.CONTROLLER_TYPE is controller_type
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ config schema.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Self
 
 import attr
@@ -46,10 +47,10 @@ from manor.common.aegis.gaia.gaia_advancer import GaiaAdvancer, GaiaAdvancerConf
 from manor.common.aegis.helios.hardware_backend import HardwareSensorBackend
 from manor.common.aegis.helios.helios import Helios, HeliosConfig, HeliosPorts, SensorBackend
 from manor.common.aegis.helios.sim_backend import SimSensorBackend
-from manor.common.aegis.kyber.controllers.controller_manager import KyberControllerManager
+from manor.common.aegis.kyber.controllers.controller_manager import KyberControllerManager, KyberControllerType
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.aegis.metis.metis import Metis, MetisConfig, MetisPorts
-from manor.common.aegis.metis.policies.policy_manager import MetisPolicyManager
+from manor.common.aegis.metis.policies.policy_manager import MetisPolicyManager, MetisPolicyType
 from manor.common.aegis.mode import AegisMode
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend
@@ -75,6 +76,150 @@ from manor.manipulators.manipulator_variant import get_variant_class
 _MANIPULATOR_TYPE_KEY = "type"
 _MANIPULATOR_VARIANT_KEY = "variant"
 _MANIPULATOR_ALLOWED_KEYS = {_MANIPULATOR_TYPE_KEY, _MANIPULATOR_VARIANT_KEY}
+
+# Layout for the split base / policy / controller YAML scheme. The
+# base YAML (e.g. ``lite6_ac.yaml``) lives directly under
+# ``configs/aegis/`` and references a policy and controller by name;
+# the per-policy and per-controller YAMLs live in sibling
+# subdirectories so the type-name -> filename mapping is mechanical.
+AEGIS_YAML_SUFFIX = "_ac.yaml"
+POLICIES_SUBDIR = "policies"
+CONTROLLERS_SUBDIR = "controllers"
+
+# YAML keys used by the composer. The base YAML carries
+# ``policy_type`` / ``controller_type`` strings; after composition
+# these are replaced with fully-inlined ``policy_config`` /
+# ``controller_config`` blocks (with a synthesised ``type:`` tag) so
+# that the existing ``MetisConfig`` / ``KyberConfig`` parsing path,
+# which dispatches off ``type:``, works unchanged.
+_POLICY_TYPE_KEY = "policy_type"
+_CONTROLLER_TYPE_KEY = "controller_type"
+_POLICY_CONFIG_KEY = "policy_config"
+_CONTROLLER_CONFIG_KEY = "controller_config"
+_TYPE_DISCRIMINATOR_KEY = "type"
+_METIS_CONFIG_KEY = "metis_config"
+_KYBER_CONFIG_KEY = "kyber_config"
+
+
+def _read_yaml_mapping(path: Path, context: str) -> dict:
+    """
+    Read a YAML file from disk and validate that its top-level value
+    is a mapping. Empty files round-trip to an empty mapping rather
+    than ``None`` so callers can rely on a uniform dict shape.
+    """
+    try:
+        with open(path, "r") as fp:
+            raw = yaml.safe_load(fp)
+    except OSError as e:
+        raise AegisConfigError(f"Failed to read {context} {str(path)!r}: {e}") from e
+    except yaml.YAMLError as e:
+        raise AegisConfigError(f"Failed to parse {context} {str(path)!r}: {e}") from e
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise AegisConfigError(f"{context} {str(path)!r} must be a mapping at the top level; got {type(raw).__name__}")
+    return raw
+
+
+def _resolve_typed_yaml_block(
+    block: dict,
+    block_name: str,
+    type_key: str,
+    config_key: str,
+    subdir: Path,
+    valid_type_values: set[str],
+) -> None:
+    """
+    Translate a base-YAML block of the form ``{<type_key>: <name>, ...}``
+    into the inlined ``{<config_key>: {type: <name>, ...sub_body}, ...}``
+    shape the existing aegis parsers expect. Mutates ``block`` in
+    place.
+
+    The plan: every metis_config / kyber_config block in the base
+    YAML names a policy / controller via ``policy_type`` /
+    ``controller_type``; the matching ``<name>_ac.yaml`` body lives
+    under ``configs/aegis/policies/`` or ``configs/aegis/controllers/``;
+    aegis refuses to run if either file is missing. The composer is
+    the single place those rules are enforced.
+    """
+    if config_key in block:
+        raise AegisConfigError(
+            f"{block_name}.{config_key} must not be set in the base YAML; "
+            f"set {block_name}.{type_key} instead and put the body in "
+            f"{subdir.name}/<{type_key}>{AEGIS_YAML_SUFFIX}"
+        )
+    if type_key not in block:
+        raise AegisConfigError(f"{block_name}.{type_key} is required and must name a YAML in {subdir.name}/")
+    type_value = block.pop(type_key)
+    if not isinstance(type_value, str) or not type_value:
+        raise AegisConfigError(f"{block_name}.{type_key} must be a non-empty string; got {type_value!r}")
+    if type_value not in valid_type_values:
+        raise AegisConfigError(
+            f"Unknown {block_name}.{type_key}: {type_value!r}; expected one of {sorted(valid_type_values)}"
+        )
+
+    sub_path = subdir / f"{type_value}{AEGIS_YAML_SUFFIX}"
+    if not sub_path.exists():
+        raise AegisConfigError(
+            f"{block_name}.{type_key}={type_value!r} but {sub_path} is missing; "
+            f"every policy / controller must have a YAML defined for it"
+        )
+
+    sub_body = _read_yaml_mapping(sub_path, context=f"{block_name}.{type_key}={type_value!r} body")
+    if _TYPE_DISCRIMINATOR_KEY in sub_body:
+        raise AegisConfigError(
+            f"{sub_path}: must not contain a {_TYPE_DISCRIMINATOR_KEY!r} key; the type is derived from the filename"
+        )
+
+    block[config_key] = {_TYPE_DISCRIMINATOR_KEY: type_value, **sub_body}
+
+
+def compose_aegis_yaml_dict(base_yaml_path: FilePath) -> dict:
+    """
+    Read a base aegis YAML and inline its policy and controller
+    sub-YAMLs into a single dict ready for ``AegisConfig.from_yaml_dict``.
+
+    The base YAML's ``metis_config.policy_type`` and
+    ``kyber_config.controller_type`` are looked up in
+    ``<base.parent>/policies/`` and ``<base.parent>/controllers/``
+    respectively. If a sub-YAML is missing the composer raises so
+    aegis refuses to run with a config that relies on undefined
+    behaviour.
+    """
+    base_path = Path(base_yaml_path)
+    raw = _read_yaml_mapping(base_path, context="aegis base config")
+
+    metis_block = raw.get(_METIS_CONFIG_KEY)
+    if not isinstance(metis_block, dict):
+        raise AegisConfigError(
+            f"{_METIS_CONFIG_KEY} block is required and must be a mapping; "
+            f"got {type(metis_block).__name__ if metis_block is not None else 'absent'}"
+        )
+    kyber_block = raw.get(_KYBER_CONFIG_KEY)
+    if not isinstance(kyber_block, dict):
+        raise AegisConfigError(
+            f"{_KYBER_CONFIG_KEY} block is required and must be a mapping; "
+            f"got {type(kyber_block).__name__ if kyber_block is not None else 'absent'}"
+        )
+
+    config_dir = base_path.parent
+    _resolve_typed_yaml_block(
+        block=metis_block,
+        block_name=_METIS_CONFIG_KEY,
+        type_key=_POLICY_TYPE_KEY,
+        config_key=_POLICY_CONFIG_KEY,
+        subdir=config_dir / POLICIES_SUBDIR,
+        valid_type_values={t.value for t in MetisPolicyType},
+    )
+    _resolve_typed_yaml_block(
+        block=kyber_block,
+        block_name=_KYBER_CONFIG_KEY,
+        type_key=_CONTROLLER_TYPE_KEY,
+        config_key=_CONTROLLER_CONFIG_KEY,
+        subdir=config_dir / CONTROLLERS_SUBDIR,
+        valid_type_values={t.value for t in KyberControllerType},
+    )
+    return raw
 
 
 def _parse_manipulator_model(value: object, context: str) -> IManipulatorModel:
@@ -145,24 +290,14 @@ class AegisConfig:
     @classmethod
     def from_yaml(cls, filepath: FilePath) -> Self:
         """
-        Load an ``AegisConfig`` from a YAML file. Top-level keys
-        match the attrs field names of this class so additions stay
-        in sync automatically.
+        Load an ``AegisConfig`` from a base YAML file. The base YAML
+        names a policy and controller via ``policy_type`` and
+        ``controller_type``; the matching bodies are read from
+        ``<base.parent>/policies/`` and ``<base.parent>/controllers/``
+        and inlined before parsing. See ``compose_aegis_yaml_dict``
+        for the rules.
         """
-        try:
-            with open(filepath, "r") as fp:
-                raw = yaml.safe_load(fp) or {}
-        except OSError as e:
-            raise AegisConfigError(f"Failed to read aegis config {filepath!r}: {e}") from e
-        except yaml.YAMLError as e:
-            raise AegisConfigError(f"Failed to parse aegis config {filepath!r}: {e}") from e
-
-        if not isinstance(raw, dict):
-            raise AegisConfigError(
-                f"Aegis config {filepath!r} must be a mapping at the top level; got {type(raw).__name__}"
-            )
-
-        return cls.from_yaml_dict(raw)
+        return cls.from_yaml_dict(compose_aegis_yaml_dict(filepath))
 
     @classmethod
     def from_yaml_dict(cls, raw: dict) -> Self:

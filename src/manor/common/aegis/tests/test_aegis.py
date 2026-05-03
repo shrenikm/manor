@@ -9,7 +9,7 @@ Metis / Kyber cycle (including LCM publisher / subscriber adapters)
 without schema mismatches or algebraic-loop errors.
 
 YAML round-trip coverage lives at the bottom: the bundled
-``configs/aegis/default_ac.yaml`` must load cleanly, and a
+``configs/aegis/lite6_ac.yaml`` must load cleanly, and a
 top-level dict round-trip must produce a buildable diagram.
 """
 
@@ -215,8 +215,8 @@ class TestAegisYamlDict:
 class TestBundledLite6DefaultYaml:
     def test_bundled_yaml_round_trips_and_builds(self) -> None:
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
-        path = os.path.join(repo_root, "configs", "aegis", "default_ac.yaml")
-        assert os.path.exists(path), f"bundled default yaml missing at {path}"
+        path = os.path.join(repo_root, "configs", "aegis", "lite6_ac.yaml")
+        assert os.path.exists(path), f"bundled lite6 yaml missing at {path}"
         config = AegisConfig.from_yaml(path)
         # Force meshcat off for the smoke test -- the bundled YAML pins
         # the meshcat server to port 7000, which collides with other

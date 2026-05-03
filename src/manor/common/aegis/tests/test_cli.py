@@ -30,7 +30,7 @@ from manor.common.testing_utils import run_manor_tests
 
 def _bundled_config_path() -> Path:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
-    return Path(repo_root) / "configs" / "aegis" / "default_ac.yaml"
+    return Path(repo_root) / "configs" / "aegis" / "lite6_ac.yaml"
 
 
 @pytest.fixture
@@ -159,7 +159,7 @@ class TestConfigResolution:
     """
 
     def test_bare_filename_resolves_under_configs_dir(self) -> None:
-        resolved = cli_module._resolve_config_path(Path("default_ac.yaml"))
+        resolved = cli_module._resolve_config_path(Path("lite6_ac.yaml"))
         assert resolved == _bundled_config_path()
 
     def test_absolute_path_passes_through(self) -> None:

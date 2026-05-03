@@ -65,7 +65,11 @@ class Lite6Driver(IManipulatorDriver):
 
     model: Lite6Model
     ip: str = _LITE6_DEFAULT_IP
-    _arm: Any = attr.field(default=None, init=False)
+    _arm: XArmAPI = attr.field(init=False)
+
+    @_arm.default
+    def _initialize_arm(self) -> XArmAPI:
+        return XArmAPI(port=self.ip, is_radian=True)
 
     @override
     def get_num_dof(self) -> int:
@@ -77,7 +81,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def prime(self) -> None:
-        self._arm = XArmAPI(port=self.ip, is_radian=True)
         self._check(self._arm.clean_error(), "clean_error")
         self._check(self._arm.motion_enable(enable=True), "motion_enable")
         self._check(self._arm.set_mode(mode=_XARM_MODE_SERVO_POSITION), "set_mode")

@@ -317,12 +317,20 @@ Currently shipped:
 2. Add an enum value to `MetisPolicyType` / `KyberControllerType`.
 3. Add the dispatch branch to the manager's `from_config` and
    `config_from_yaml_dict` classmethods.
-4. Reference it from YAML by setting `policy_config.type` /
-   `controller_config.type` to the new tag.
+4. Drop a body YAML at `configs/aegis/policies/<type>_ac.yaml` or
+   `configs/aegis/controllers/<type>_ac.yaml` (filename = the new
+   enum value, `_ac.yaml` suffix). The body must NOT carry a
+   `type:` key — the type is derived from the filename.
+5. Reference it from a base YAML (e.g. `lite6_ac.yaml`) by setting
+   `metis_config.policy_type` / `kyber_config.controller_type` to
+   the new tag.
 
-The `from_yaml_dict` round-trips through the manager: it reads the
-`type:` discriminator, strips it, and dispatches the rest of the body
-to the matching subclass's `from_yaml_dict`.
+The composer reads the base YAML, looks up the matching sub-YAML by
+name, and synthesises the inlined `policy_config` / `controller_config`
+block (re-injecting the `type:` discriminator) so the existing
+manager dispatch path still applies. A coverage test
+(`test_yaml_composer.TestBundledYamlCoverage`) catches enum / YAML
+drift in CI: every enum value must have a sub-YAML and vice versa.
 
 ## LCM bus
 
@@ -359,12 +367,27 @@ generically — no per-message wiring code.
 
 ## Configuration
 
-The default config lives at `configs/aegis/default_ac.yaml`. By
-convention every aegis config file ends with the `_ac.yaml` suffix
-(e.g. `default_ac.yaml`, `pickup_demo_ac.yaml`) so that aegis YAMLs
-are visually distinct from non-aegis configs in the same directory:
+Configs live under `configs/aegis/` and split into three layers:
+
+- **Base YAML** — one per manipulator type. Currently only
+  `configs/aegis/lite6_ac.yaml`. Holds every block aegis needs
+  (mode, manipulator, environment, helios, talos, gaia, gaia
+  advancer) plus the publish rates for metis and kyber. Names the
+  active policy and controller by string tag.
+- **Policy YAMLs** — one per `MetisPolicyType` value, under
+  `configs/aegis/policies/<type>_ac.yaml`. Carries the
+  policy-specific body (e.g. `positions`, `radius`, `num_cycles`).
+  The `type` is derived from the filename and must NOT appear inside
+  the body.
+- **Controller YAMLs** — one per `KyberControllerType` value, under
+  `configs/aegis/controllers/<type>_ac.yaml`. Same shape as the
+  policy YAMLs.
+
+Every aegis YAML file ends with the `_ac.yaml` suffix so they're
+visually distinct from non-aegis configs in the same tree.
 
 ```yaml
+# configs/aegis/lite6_ac.yaml
 mode: sim
 manipulator_model: { type: lite6, variant: parallel_gripper_normal }
 environment_config:
@@ -383,10 +406,10 @@ talos_config:
   hardware_backend_config: {}
 metis_config:
   publish_frequency_hz: 10.0
-  policy_config: { type: constant_joint_positions, positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0] }
+  policy_type: constant_joint_positions
 kyber_config:
   publish_frequency_hz: 500.0
-  controller_config: { type: passthrough, num_dof: 6 }
+  controller_type: passthrough
 gaia_config:
   time_step: 0.0
   enable_meshcat: true
@@ -399,24 +422,44 @@ gaia_advancer_config:
   advance_frequency_hz: 100.0
 ```
 
-Top-level keys map 1:1 to attrs fields on `AegisConfig`; sub-blocks
-recurse the same way. Every block is **required** in the YAML —
-inner fields within a block can omit defaults (e.g.
-`talos_config.sim_backend_config: {}` is valid), but the block itself
-must be present.
+```yaml
+# configs/aegis/policies/constant_joint_positions_ac.yaml
+positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0]
+```
+
+```yaml
+# configs/aegis/controllers/passthrough_ac.yaml
+num_dof: 6
+```
+
+Top-level keys in the base YAML map 1:1 to attrs fields on
+`AegisConfig`; sub-blocks recurse the same way. Every block is
+**required** in the base YAML — inner fields within a block can
+omit defaults (e.g. `talos_config.sim_backend_config: {}` is
+valid), but the block itself must be present.
+
+`AegisConfig.from_yaml(path)` (and the CLI) read the base, look up
+each sub-YAML by name, and assemble a single inlined `AegisConfig`.
+The composer (`compose_aegis_yaml_dict`) is the single place that
+enforces the layout: the sub-YAML must exist, must not contain a
+`type:` key, and the named `policy_type` / `controller_type` must
+match a registered `MetisPolicyType` / `KyberControllerType`. Aegis
+refuses to run if any of those rules is violated.
 
 To switch policies / controllers, edit
-`metis_config.policy_config.type` (one of `MetisPolicyType`) or
-`kyber_config.controller_config.type` (one of `KyberControllerType`).
-Toggle the visualiser via `gaia_config.enable_meshcat`. Change sim
-playback speed via `gaia_config.target_realtime_rate` (`0.0` = as fast
-as possible, `1.0` = real time).
+`metis_config.policy_type` (any `MetisPolicyType` value) or
+`kyber_config.controller_type` (any `KyberControllerType` value);
+the matching sub-YAML is loaded automatically. To tune a policy's
+parameters, edit its sub-YAML directly. Toggle the visualiser via
+`gaia_config.enable_meshcat`. Change sim playback speed via
+`gaia_config.target_realtime_rate` (`0.0` = as fast as possible,
+`1.0` = real time).
 
 Only the `repl` command accepts `--config` / `-c` and `--mode` /
 `-m`; those flags pin the config + mode for the entire REPL
 session. The standalone commands (`aegis run`, `aegis kill`,
 `aegis status`) deliberately take no overrides — they exist for
-debugging and always read the bundled `default_ac.yaml`. To run
+debugging and always read the bundled `lite6_ac.yaml`. To run
 against a different config or in hardware mode outside the REPL,
 edit the YAML.
 
@@ -455,11 +498,13 @@ Commands:
 
 `repl`-only flags:
 
-- `-c FILE`, `--config FILE` — aegis YAML to pin for this REPL
+- `-c FILE`, `--config FILE` — aegis base YAML to pin for this REPL
   session. Bare filenames resolve relative to `configs/aegis/`
   (so `-c foo_ac.yaml` is the typical form); absolute paths are
-  honoured as-is. Defaults to `default_ac.yaml`. Aegis configs
-  follow the `*_ac.yaml` naming convention.
+  honoured as-is. Defaults to `lite6_ac.yaml`. Aegis configs follow
+  the `*_ac.yaml` naming convention; the policy / controller
+  sub-YAMLs are looked up under `policies/` and `controllers/` next
+  to the base file.
 - `-m MODE`, `--mode MODE` — override the YAML's `mode` field
   (`sim` or `hardware`) for this REPL session.
 
@@ -482,7 +527,7 @@ aegis repl
 Drops you into:
 
 ```text
-aegis repl -- mode=sim, config=/.../default_ac.yaml
+aegis repl -- mode=sim, config=/.../lite6_ac.yaml
 type 'help' for commands, 'exit' or Ctrl-D to leave (running blocks are stopped).
 aegis >>
 ```
@@ -513,8 +558,11 @@ Each per-block runner is also runnable directly as `python -m`. Useful
 for dev iteration when you don't want to go through the supervisor.
 
 ```bash
-# Convert the YAML to JSON once
-python -c "import json, yaml; print(json.dumps(yaml.safe_load(open('configs/aegis/default_ac.yaml'))))" > /tmp/aegis.json
+# Compose the base + sub-YAMLs into a single inlined JSON payload.
+# The composer is what AegisConfig.from_yaml uses internally; this
+# command line shells out to it directly so the runners can read
+# the result over stdin.
+python -c "import json; from manor.common.aegis.aegis import compose_aegis_yaml_dict; print(json.dumps(compose_aegis_yaml_dict('configs/aegis/lite6_ac.yaml')))" > /tmp/aegis.json
 
 # In one terminal
 python -m manor.common.aegis.run.run_gylos < /tmp/aegis.json

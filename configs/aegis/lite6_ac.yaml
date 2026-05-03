@@ -33,15 +33,11 @@ talos_config:
 
 metis_config:
   publish_frequency_hz: 10.0
-  policy_config:
-    type: constant_joint_positions
-    positions: [0.0, 0.1733, 0.5550, 0.0, 0.3817, 0.0]
+  policy_type: constant_joint_positions
 
 kyber_config:
   publish_frequency_hz: 500.0
-  controller_config:
-    type: passthrough
-    num_dof: 6
+  controller_type: passthrough
 
 gaia_config:
   time_step: 0.0

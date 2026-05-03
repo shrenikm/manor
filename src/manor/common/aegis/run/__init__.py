@@ -6,8 +6,8 @@ diagram that lives inside one process and runs it forever (until
 SIGTERM / SIGINT). The CLI / REPL spawns these as subprocesses --
 they are also runnable standalone for dev iteration:
 
-    # convert the YAML to JSON once
-    python -c "import json, yaml; print(json.dumps(yaml.safe_load(open('configs/aegis/default_ac.yaml'))))" > /tmp/aegis.json
+    # compose the base + sub-yamls into an inlined JSON payload
+    python -c "import json; from manor.common.aegis.aegis import compose_aegis_yaml_dict; print(json.dumps(compose_aegis_yaml_dict('configs/aegis/lite6_ac.yaml')))" > /tmp/aegis.json
     # then feed it in over stdin
     python -m manor.common.aegis.run.run_metis < /tmp/aegis.json
 

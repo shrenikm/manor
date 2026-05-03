@@ -22,7 +22,7 @@ Cross-process state lives in PID files under ``/tmp/aegis_*.pid``,
 so ``status`` from a fresh shell still works after the REPL exits.
 
 Configuration is the project-bundled YAML
-(``configs/aegis/default_ac.yaml``). Only ``aegis repl`` accepts
+(``configs/aegis/lite6_ac.yaml``). Only ``aegis repl`` accepts
 ``--config`` / ``-c`` (bare filenames resolve under
 ``configs/aegis/``; absolute paths are honoured as-is) and
 ``--mode`` / ``-m``; those flags pin the config + mode for the entire
@@ -51,14 +51,13 @@ from typing import Annotated, Optional
 import attr
 import click
 import typer
-import yaml
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 
-from manor.common.aegis.aegis import AegisConfig
+from manor.common.aegis.aegis import AegisConfig, compose_aegis_yaml_dict
 from manor.common.aegis.mode import AegisMode
 from manor.common.exceptions import AegisConfigError
 
@@ -68,7 +67,7 @@ from manor.common.exceptions import AegisConfigError
 # src/manor/common/aegis/aegis_cli.py -> .../manor.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _CONFIG_DIR = _REPO_ROOT / "configs" / "aegis"
-_DEFAULT_CONFIG_PATH = _CONFIG_DIR / "default_ac.yaml"
+_DEFAULT_CONFIG_PATH = _CONFIG_DIR / "lite6_ac.yaml"
 
 # PID files live in /tmp, namespaced per-block so concurrent aegis
 # stacks (e.g. CI + local dev) don't collide. Keep a stable prefix
@@ -251,18 +250,22 @@ def _load_config(config_path: Path, mode_override: Optional[AegisMode]) -> tuple
     """
     Read + validate the YAML. Returns the resolved absolute path, the
     parsed ``AegisConfig`` (used to gate which blocks can run), and
-    the raw dict (re-serialised to JSON when we spawn each child).
-    When ``mode_override`` is given, the YAML's ``mode`` field is
-    replaced before validation, so a sim config can be coerced to
-    hardware (or vice versa) without editing the file on disk.
+    the inlined raw dict (re-serialised to JSON when we spawn each
+    child). The base YAML's ``policy_type`` / ``controller_type``
+    are resolved against ``policies/`` / ``controllers/`` siblings
+    via ``compose_aegis_yaml_dict``; the inlined dict is what the
+    runners receive. When ``mode_override`` is given, the YAML's
+    ``mode`` field is replaced before validation, so a sim config
+    can be coerced to hardware (or vice versa) without editing the
+    file on disk.
     """
     config_path = _resolve_config_path(config_path)
     if not config_path.exists():
         raise typer.BadParameter(f"config file not found: {config_path}")
-    with open(config_path, "r") as fp:
-        raw = yaml.safe_load(fp) or {}
-    if not isinstance(raw, dict):
-        raise typer.BadParameter(f"config {config_path} must be a top-level mapping")
+    try:
+        raw = compose_aegis_yaml_dict(config_path)
+    except AegisConfigError as e:
+        raise typer.BadParameter(f"config composition failed: {e}") from e
     if mode_override is not None:
         raw = {**raw, "mode": mode_override.value}
     try:
@@ -495,7 +498,7 @@ def repl(
                 "Aegis YAML to load for this REPL session. Bare "
                 "filenames resolve under configs/aegis/ (e.g. -c "
                 "foo_ac.yaml); absolute paths are honoured as-is. "
-                "Defaults to default_ac.yaml."
+                "Defaults to lite6_ac.yaml."
             ),
         ),
     ] = _DEFAULT_CONFIG_PATH,
