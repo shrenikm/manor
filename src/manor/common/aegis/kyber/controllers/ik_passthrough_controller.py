@@ -29,10 +29,22 @@ sim plant in Gaia and the FK plant in Talos. The arm / EE split is
 determined by IManipulatorModel.get_num_dof() so the controller works
 uniformly across robots and end-effector types -- no gripper-specific
 assumptions live here.
+
+Frame convention: every Cartesian target -- pose translation /
+orientation, twist linear / angular -- is interpreted in the
+**manipulator's own base frame**, not the sim world frame. The IK
+plant pulls the base frame name from
+IManipulatorModel.get_base_frame_name() and uses it directly as the
+reference frame for AddPositionConstraint / AddOrientationConstraint
+and as the (frame_A, frame_E) pair for CalcJacobianSpatialVelocity.
+That means a YAML translation of [0.25, 0.0, 0.15] is "0.25 m
+forward of the base, 0.15 m above the base," regardless of where
+the manipulator is mounted in the sim world.
 """
 
 from __future__ import annotations
 
+import time
 from typing import ClassVar, Self
 
 import attr
@@ -46,7 +58,7 @@ from pydrake.multibody.inverse_kinematics import (
 )
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
-from pydrake.multibody.tree import JacobianWrtVariable
+from pydrake.multibody.tree import Frame, JacobianWrtVariable
 from pydrake.solvers import Solve
 
 from manor.common.aegis.kyber.controllers.controller_manager import (
@@ -62,6 +74,7 @@ from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.logging_utils import ManorLogger
 from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 
@@ -82,6 +95,16 @@ _DEFAULT_DIFF_IK_TIME_STEP_S: float = 5e-3
 # entirely to the arm DOFs.
 _EE_BLOCK_POSITION_LOCK_TOL: float = 1e-4
 _DEFAULT_ORIENTATION_THETA_BOUND_RAD: float = 1e-3
+
+# Both solvers fall back to a "hold current state" command when IK
+# can't find a solution (target out of reach, orientation tolerance
+# violated, diff IK joint-limit infeasibility, etc.). Without a log
+# this looks identical to "policy is doing nothing", which is a
+# nightmare to debug -- so we emit a warning to stderr at most once
+# per ``_IK_FAILURE_LOG_INTERVAL_S`` per controller instance. The
+# rate limit matters: Kyber ticks at 500 Hz, so an unrate-limited
+# log on a sustained failure floods the terminal.
+_IK_FAILURE_LOG_INTERVAL_S: float = 1.0
 
 
 @attr.frozen
@@ -128,6 +151,17 @@ class IKPassthroughController:
     plant: MultibodyPlant
     _plant_context: object = attr.field(default=None)
     _diff_ik_params: DifferentialInverseKinematicsParameters = attr.field(default=None)
+    _base_frame: Frame | None = attr.field(default=None)
+    _tip_frame: Frame | None = attr.field(default=None)
+    _last_ik_failure_log_s: float = attr.field(default=0.0)
+    _logger: ManorLogger = attr.field(init=False)
+
+    @_logger.default
+    def _initialize_logger(self) -> ManorLogger:
+        # Logger name is the class name so subclasses (if any are
+        # ever introduced) get their own logger automatically without
+        # having to override anything.
+        return ManorLogger(self.__class__.__name__)
 
     @classmethod
     def build(
@@ -139,6 +173,12 @@ class IKPassthroughController:
         controller = cls(manipulator_model=manipulator_model, config=config, plant=plant)
         controller._plant_context = plant.CreateDefaultContext()
         controller._diff_ik_params = controller._build_diff_ik_params()
+        # Cache the base + tip frames so every solve doesn't re-look
+        # them up by name. The base frame is the explicit reference
+        # for every Cartesian target the controller accepts (pose
+        # translation, pose orientation, twist linear / angular).
+        controller._base_frame = plant.GetFrameByName(manipulator_model.get_base_frame_name())
+        controller._tip_frame = plant.GetFrameByName(manipulator_model.get_fk_ik_frame_name())
         return controller
 
     def _build_diff_ik_params(self) -> DifferentialInverseKinematicsParameters:
@@ -227,6 +267,20 @@ class IKPassthroughController:
             joint_velocities=JointVelocities(header=header, velocities=joint_velocities_arm),
         )
 
+    def _log_ik_failure(self, message: str) -> None:
+        """
+        Rate-limited warning when an IK / diff-IK solve fails. Without
+        this, both solver fall-back paths look identical to "policy is
+        doing nothing" -- the arm just freezes silently. Throttled to
+        one line per ``_IK_FAILURE_LOG_INTERVAL_S`` so a sustained
+        failure doesn't drown the log at the 500 Hz Kyber tick rate.
+        """
+        now = time.monotonic()
+        if now - self._last_ik_failure_log_s < _IK_FAILURE_LOG_INTERVAL_S:
+            return
+        self._last_ik_failure_log_s = now
+        self._logger.warning(message)
+
     def _populate_plant_context(self, proprioception: Proprioception) -> None:
         positions = proprioception.joint_state.joint_positions.positions
         velocities = proprioception.joint_state.joint_velocities.velocities
@@ -250,14 +304,17 @@ class IKPassthroughController:
         q_init = np.asarray(self.plant.GetPositions(self._plant_context), dtype=np.float64)
 
         ik = InverseKinematics(self.plant, with_joint_limits=True)
-        tip_frame = self.plant.GetFrameByName(self.manipulator_model.get_fk_ik_frame_name())
-        world_frame = self.plant.world_frame()
 
+        # Cartesian targets are explicitly in the manipulator base
+        # frame (see module docstring). Using the named base frame
+        # rather than world_frame makes the contract obvious in the
+        # constraint set and is robust against ever changing how the
+        # IK plant welds the manipulator into its world.
         target = np.asarray(target_translation, dtype=np.float64)
         ik.AddPositionConstraint(
-            frameB=tip_frame,
+            frameB=self._tip_frame,
             p_BQ=np.zeros(3),
-            frameA=world_frame,
+            frameA=self._base_frame,
             p_AQ_lower=target,
             p_AQ_upper=target,
         )
@@ -273,9 +330,9 @@ class IKPassthroughController:
         )
         target_rotation = RotationMatrix(target_quat)
         ik.AddOrientationConstraint(
-            frameAbar=world_frame,
+            frameAbar=self._base_frame,
             R_AbarA=target_rotation,
-            frameBbar=tip_frame,
+            frameBbar=self._tip_frame,
             R_BbarB=RotationMatrix(),
             theta_bound=self.config.orientation_theta_bound_rad,
         )
@@ -298,7 +355,16 @@ class IKPassthroughController:
         if not result.is_success():
             # Degrade gracefully: hold current arm q. The diagram keeps
             # ticking; the operator sees the arm freeze rather than
-            # crash.
+            # crash. Note the target is in the manipulator base frame
+            # (the IK plant welds the base to the world origin) -- the
+            # most common cause of failure here is an out-of-reach
+            # request expressed in the wrong frame.
+            translation_str = np.array2string(np.asarray(target_translation, dtype=np.float64), precision=4)
+            orientation_str = np.array2string(np.asarray(target_orientation_wxyz, dtype=np.float64), precision=4)
+            self._log_ik_failure(
+                f"pose IK infeasible: target translation={translation_str}, "
+                f"orientation_wxyz={orientation_str} (base frame); holding current arm q"
+            )
             return q_init[:num_arm_dof].copy()
         q_solution = np.asarray(result.GetSolution(ik.q()), dtype=np.float64)
         return q_solution[:num_arm_dof].copy()
@@ -314,24 +380,35 @@ class IKPassthroughController:
 
         q_current = np.asarray(self.plant.GetPositions(self._plant_context), dtype=np.float64)
         v_current = np.asarray(self.plant.GetVelocities(self._plant_context), dtype=np.float64)
-        tip_frame = self.plant.GetFrameByName(self.manipulator_model.get_fk_ik_frame_name())
-        world_frame = self.plant.world_frame()
 
-        # Drake's DoDifferentialInverseKinematics expects V as a
-        # 6-vector [angular; linear] in world frame; pair it with the
-        # spatial Jacobian computed in the same frame.
+        # Diff IK takes a 6-vector V = [angular; linear] paired with a
+        # spatial Jacobian; the V and the Jacobian must agree on which
+        # frame they're expressed in. The controller's contract is
+        # base-frame Cartesian targets (see module docstring), so the
+        # Jacobian uses the manipulator base as both the
+        # "with-respect-to" and the "expressed-in" frame. For a base
+        # whose orientation matches the world (e.g. lite6 with default
+        # base_rpy = [0, 0, 0]) this is numerically identical to the
+        # world-frame version, but the contract is now explicit and
+        # robust to a non-trivial mounting orientation later.
         V = np.concatenate([np.asarray(target_angular, dtype=np.float64), np.asarray(target_linear, dtype=np.float64)])
         jacobian = self.plant.CalcJacobianSpatialVelocity(
             self._plant_context,
             JacobianWrtVariable.kV,
-            tip_frame,
+            self._tip_frame,
             np.zeros(3),
-            world_frame,
-            world_frame,
+            self._base_frame,
+            self._base_frame,
         )
 
         result = DoDifferentialInverseKinematics(q_current, v_current, V, jacobian, self._diff_ik_params)
         if result.status != DifferentialInverseKinematicsStatus.kSolutionFound:
+            linear_str = np.array2string(np.asarray(target_linear, dtype=np.float64), precision=4)
+            angular_str = np.array2string(np.asarray(target_angular, dtype=np.float64), precision=4)
+            self._log_ik_failure(
+                f"diff IK infeasible: target linear={linear_str}, angular={angular_str} "
+                f"(base frame), status={result.status}; falling back to zero arm velocity"
+            )
             return np.zeros(num_arm_dof, dtype=np.float64)
         v_solution = np.asarray(result.joint_velocities, dtype=np.float64)
         return v_solution[:num_arm_dof].copy()
