@@ -124,7 +124,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_joint_positions(self, joint_positions: JointPositions) -> None:
-        self._require_armed()
         self._check(
             self._arm.set_servo_angle_j(
                 angles=joint_positions.positions.astype(np.float64).tolist(),
@@ -135,7 +134,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_joint_velocities(self, joint_velocities: JointVelocities) -> None:
-        self._require_armed()
         self._check(
             self._arm.vc_set_joint_velocity(
                 speeds=joint_velocities.velocities.astype(np.float64).tolist(),
@@ -147,7 +145,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_ee_positions(self, ee_positions: EEPositions) -> None:
-        self._require_armed()
         # Map the continuous EE position vector onto the SDK's binary
         # open / close command via a threshold on the max element.
         is_open = bool(np.any(np.abs(ee_positions.positions) > _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M))
@@ -155,7 +152,6 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_ee_velocities(self, ee_velocities: EEVelocities) -> None:
-        self._require_armed()
         # Sign of the velocity vector picks the direction; zero stops.
         max_abs = float(np.max(np.abs(ee_velocities.velocities))) if ee_velocities.velocities.size > 0 else 0.0
         if max_abs == 0.0:
@@ -165,7 +161,6 @@ class Lite6Driver(IManipulatorDriver):
             self._send_gripper_command(open_command=is_open)
 
     def _read_joint_state(self) -> tuple[np.ndarray, np.ndarray]:
-        self._require_armed()
         ret_code, raw = self._arm.get_joint_states(is_radian=True)
         if ret_code != 0:
             raise Lite6DriverError(f"get_joint_states failed (code={ret_code})")
@@ -194,10 +189,6 @@ class Lite6Driver(IManipulatorDriver):
             self._check(self._arm.set_vacuum_gripper(on=False), "set_vacuum_gripper")
         else:
             raise Lite6DriverError(f"Unhandled Lite6 variant: {self.model.variant!r}")
-
-    def _require_armed(self) -> None:
-        if self._arm is None:
-            raise Lite6DriverError("Lite6Driver.prime() must be called before issuing read/write commands")
 
     def _check(self, ret_code: int | tuple, op: str) -> None:
         # Some xarm calls return a plain int; others return a tuple
