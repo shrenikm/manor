@@ -35,6 +35,7 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
+from manor.common.definitions.action import Action
 from manor.common.definitions.cartesian_pose import CartesianPose
 from manor.common.definitions.cartesian_state import CartesianState
 from manor.common.definitions.cartesian_twist import CartesianTwist
@@ -53,6 +54,7 @@ class TalosPorts(StrEnum):
     """
 
     INPUT_JOINT_EE_COMMAND = "joint_ee_command"
+    INPUT_ACTION = "action"
     OUTPUT_PROPRIOCEPTION = "proprioception"
 
 
@@ -88,10 +90,14 @@ class ManipulatorBackend(Protocol):
     Protocol for a manipulator actuation-and-state interface.
 
     Exactly one backend owns the robot's actual state at a time. Talos
-    drives the backend on every tick by calling ``send_joint_ee_command``
-    and reads state back via ``read_joint_state`` / ``read_ee_state``.
-    Forward kinematics is Talos's responsibility, not the backend's.
+    drives the backend on every tick by calling notify_action_received
+    (with the latest Action header so the backend can run a stale-command
+    watchdog) and then send_joint_ee_command, and reads state back via
+    read_joint_state / read_ee_state. Forward kinematics is Talos's
+    responsibility, not the backend's.
     """
+
+    def notify_action_received(self, header: TimestampHeader) -> None: ...
 
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None: ...
 
@@ -132,6 +138,14 @@ class Talos(LeafSystem):
             TalosPorts.INPUT_JOINT_EE_COMMAND,
             AbstractValue.Make(JointEECommand.construct_default()),
         )
+        # Optional action input. Wired in run_kylos / run_gylos so the backend can run its
+        # stale-command watchdog against the source Action header. Left unconnected, the input port
+        # evaluates to a default-constructed Action whose header.monotonic_ns == 0 -- the watchdog
+        # treats that as "no action seen yet" and stays disarmed.
+        self._action_input = self.DeclareAbstractInputPort(
+            TalosPorts.INPUT_ACTION,
+            AbstractValue.Make(Action.construct_default()),
+        )
 
         self._proprioception_state_index = self.DeclareAbstractState(
             AbstractValue.Make(Proprioception.construct_default()),
@@ -168,6 +182,15 @@ class Talos(LeafSystem):
         output.set_value(context.get_abstract_state(self._proprioception_state_index).get_value())
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
+        # Notify the backend of the latest Action header *before* dispatching the joint-ee command:
+        # the watchdog uses this stamp to decide whether the command is fresh enough to forward to
+        # the driver, so the call ordering matters when a tick straddles a stale-trip transition.
+        # The action input is optional -- it's wired in the run_kylos / run_gylos process diagrams
+        # but unit tests that exercise Talos directly may leave it disconnected; in that case we
+        # skip the watchdog notify (the backend stays disarmed because no fresh header arrives).
+        if self._action_input.HasValue(context):
+            action: Action = self._action_input.Eval(context)
+            self.backend.notify_action_received(action.header)
         joint_ee_command: JointEECommand = self._joint_ee_command_input.Eval(context)
         self.backend.send_joint_ee_command(joint_ee_command)
 

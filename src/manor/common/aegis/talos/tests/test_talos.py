@@ -36,8 +36,12 @@ from manor.manipulators.lite6.variant import Lite6Variant
 class _RecordingBackend:
     def __init__(self) -> None:
         self.commands: list[JointEECommand] = []
+        self.action_headers: list[TimestampHeader] = []
         self.started = False
         self.stopped = False
+
+    def notify_action_received(self, header: TimestampHeader) -> None:
+        self.action_headers.append(header)
 
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         self.commands.append(joint_ee_command)
@@ -89,9 +93,10 @@ class TestTalosConstruction:
 
     def test_declares_expected_ports(self) -> None:
         talos = _make_talos(publish_frequency=200.0)
-        assert talos.num_input_ports() == 1
+        assert talos.num_input_ports() == 2
         assert talos.num_output_ports() == 1
         assert talos.GetInputPort(TalosPorts.INPUT_JOINT_EE_COMMAND) is not None
+        assert talos.GetInputPort(TalosPorts.INPUT_ACTION) is not None
         assert talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION) is not None
 
     def test_owns_a_finalized_plant(self) -> None:

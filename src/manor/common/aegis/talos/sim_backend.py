@@ -52,6 +52,11 @@ class SimManipulatorBackend:
     def stop(self) -> None:
         return
 
+    def notify_action_received(self, header: TimestampHeader) -> None:
+        # Sim has no safety watchdog -- there is no physical robot to stale-park. Mirrors the
+        # ManipulatorBackend protocol so Talos can call this uniformly across backends.
+        return
+
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         joint_command = joint_ee_command.joint_command
         if joint_command.joint_positions is not None:

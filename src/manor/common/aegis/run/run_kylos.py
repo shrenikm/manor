@@ -91,6 +91,12 @@ def run_kylos(
         action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
         kyber.GetInputPort(KyberPorts.INPUT_ACTION),
     )
+    # Same Action stream also fans out to Talos so the hardware backend's stale-command watchdog can
+    # see fresh-action headers without going through Kyber (which restamps with its own tick time).
+    builder.Connect(
+        action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
+        talos.GetInputPort(TalosPorts.INPUT_ACTION),
+    )
 
     builder.Connect(
         talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION),
