@@ -301,7 +301,7 @@ def unprime(arm: XArmAPI) -> None:
     """
     try:
         _switch_mode(arm, mode=XArmMode.POSITION)
-        # _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
+        _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
     except Exception as exc:
         typer.echo(f"  warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
     arm.set_state(state=XArmState.STOP)
