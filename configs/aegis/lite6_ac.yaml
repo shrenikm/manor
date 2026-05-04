@@ -1,4 +1,4 @@
-mode: sim
+mode: hardware
 
 manipulator_model:
   type: lite6
@@ -33,7 +33,7 @@ talos_config:
 
 metis_config:
   publish_frequency_hz: 10.0
-  policy_type: circle_ee_velocity
+  policy_type: constant_joint_velocities
 
 kyber_config:
   publish_frequency_hz: 500.0
