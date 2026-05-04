@@ -90,7 +90,11 @@ class Lite6Driver(IManipulatorDriver):
 
     @_arm.default
     def _initialize_arm(self) -> XArmAPI:
-        return XArmAPI(port=self.ip, is_radian=True)
+        # do_not_open=True keeps the constructor cheap and side-effect free: no socket is opened until
+        # prime() runs. Without this, instantiating the driver in a test (or in any code path that
+        # imports the hardware backend without intending to actually drive an arm) would synchronously
+        # try to reach the controller IP and fail. The first prime() call connects + brings the arm up.
+        return XArmAPI(port=self.ip, is_radian=True, do_not_open=True)
 
     @_logger.default
     def _initialize_logger(self) -> ManorLogger:
@@ -109,8 +113,14 @@ class Lite6Driver(IManipulatorDriver):
         # Bring-up sequence shared with lite6_cli: clean errors,
         # motion_enable, settle, mode 0 / READY, soft-recover on
         # latched servo errors, move to PRIME, then switch into the
-        # streaming mode the production write paths target.
+        # streaming mode the production write paths target. The
+        # XArmAPI was constructed with do_not_open=True, so open the
+        # TCP session before issuing SDK calls. arm.connect() is
+        # idempotent on the SDK side -- calling it again on an
+        # already-open session is a cheap no-op via arm.connected.
         try:
+            if not self._arm.connected:
+                self._arm.connect()
             xarm_prime(self._arm, mode=_DRIVER_PRIME_MODE, log_fn=self._logger.info)
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc

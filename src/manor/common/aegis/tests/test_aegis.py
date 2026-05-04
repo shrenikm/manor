@@ -228,7 +228,13 @@ class TestBundledLite6DefaultYaml:
         config = attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
         diagram, systems = build_aegis(config)
         assert isinstance(diagram, Diagram)
-        assert systems.gaia is not None
+        # gaia presence is mode-dependent: sim mode owns a gaia plant; hardware mode skips it. The
+        # bundled YAML's mode flag is the source of truth -- this test just verifies the YAML
+        # round-trips and the resulting AegisSystems matches what build_aegis produces for that mode.
+        if config.mode is AegisMode.SIM:
+            assert systems.gaia is not None
+        else:
+            assert systems.gaia is None
 
 
 if __name__ == "__main__":

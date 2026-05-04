@@ -46,6 +46,41 @@ def sandboxed_pid_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def stub_find_orphan_pids(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    /proc is global state; an unrelated process on the dev machine
+    matching a runner module's argv would otherwise leak into kill /
+    status assertions. Default tests to "no orphans". Tests that want
+    to exercise orphan handling can override this with monkeypatch.
+    """
+    monkeypatch.setattr(cli_module, "_find_orphan_pids", lambda _block: [])
+
+
+@pytest.fixture
+def sim_default_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """
+    Mirror the bundled aegis configs into tmp_path with the base YAML's
+    mode forced to sim, and point cli_module._DEFAULT_CONFIG_PATH at the
+    copy. The standalone CLI commands take no --mode flag, so the only
+    way to exercise sim-mode behaviour end-to-end is to pin a sim-mode
+    YAML in place of the bundled default. Decoupling the tests from the
+    bundled YAML's current mode also keeps them stable across local edits.
+    """
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
+    src_dir = Path(repo_root) / "configs" / "aegis"
+    dst_dir = tmp_path / "aegis"
+    shutil.copytree(src_dir, dst_dir)
+    yaml_path = dst_dir / "lite6_ac.yaml"
+    with open(yaml_path, "r") as fp:
+        base = yaml.safe_load(fp)
+    base["mode"] = AegisMode.SIM.value
+    with open(yaml_path, "w") as fp:
+        yaml.safe_dump(base, fp)
+    monkeypatch.setattr(cli_module, "_DEFAULT_CONFIG_PATH", yaml_path)
+    return yaml_path
+
+
 def _run_cli(args: list[str]) -> "CliRunner.Result":
     runner = CliRunner()
     return runner.invoke(cli, args)
@@ -57,7 +92,11 @@ class TestStandaloneCli:
     overrides are accepted. The bundled default is sim mode.
     """
 
-    def test_status_no_arg_lists_only_applicable_blocks(self, sandboxed_pid_dir: Path) -> None:
+    def test_status_no_arg_lists_only_applicable_blocks(
+        self,
+        sandboxed_pid_dir: Path,
+        sim_default_config: Path,
+    ) -> None:
         # Sim mode: status prints a banner + the applicable blocks
         # (metis, gylos). Hardware-only blocks are omitted entirely
         # rather than labelled "unavailable".
@@ -89,8 +128,12 @@ class TestStandaloneCli:
         assert result.exit_code == 0
         assert "nothing running" in result.output
 
-    def test_run_refuses_hardware_block_in_sim_mode(self, sandboxed_pid_dir: Path) -> None:
-        # Bundled default is sim mode; kylos is hardware-only.
+    def test_run_refuses_hardware_block_in_sim_mode(
+        self,
+        sandboxed_pid_dir: Path,
+        sim_default_config: Path,
+    ) -> None:
+        # Pinned sim-mode YAML; kylos is hardware-only.
         result = _run_cli(["run", "kylos"])
         assert result.exit_code != 0
         assert "refusing to run" in result.output
@@ -103,6 +146,7 @@ class TestStandaloneCli:
     def test_run_no_arg_spawns_every_applicable_block(
         self,
         sandboxed_pid_dir: Path,
+        sim_default_config: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         spawned: list[str] = []
@@ -126,6 +170,7 @@ class TestStandaloneCli:
     def test_run_no_arg_with_all_blocks_running_is_noop(
         self,
         sandboxed_pid_dir: Path,
+        sim_default_config: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(cli_module, "_process_alive", lambda _pid: True)
@@ -212,7 +257,8 @@ class TestReplPinnedState:
         self,
         sandboxed_pid_dir: Path,
     ) -> None:
-        state = cli_module._build_state(_bundled_config_path(), mode_override=None)
+        # Pin sim mode so kylos (hardware-only) is unambiguously out of scope.
+        state = cli_module._build_state(_bundled_config_path(), mode_override=AegisMode.SIM)
         with pytest.raises(typer.Exit):
             cli_module._run_impl(state, block=AegisBlock.KYLOS)
 
@@ -518,6 +564,118 @@ class TestReplReload:
         assert "reload" in out
         completer = cli_module._build_completer()
         assert "reload" in completer.words
+
+
+class TestOrphanHandling:
+    """
+    The kill / status paths sweep up runner-module processes that
+    aren't tracked by the PID file (e.g. a previous SIGTERM was
+    ignored and the PID file got cleared anyway). Cover the matcher
+    and the kill-side reaping.
+    """
+
+    def test_find_orphan_pids_matches_python_dash_m_invocation(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        # _find_orphan_pids should match argv == [python, -m, <module>, ...]
+        # exactly. An editor with the runner file open carries the file
+        # path positionally (slashes, .py extension), not -m <module>, so
+        # it must be ignored.
+        # Undo the autouse stub so we exercise the real implementation.
+        monkeypatch.undo()
+        monkeypatch.setattr(cli_module, "_PID_FILE_DIR", sandboxed_pid_dir)
+
+        proc_root = tmp_path / "proc"
+        proc_root.mkdir()
+        # Genuine orphan: python -m manor.common.aegis.run.run_helios.
+        _write_fake_proc(
+            proc_root, pid=1111, argv=["/opt/python", "-m", cli_module._BLOCK_RUN_MODULE[AegisBlock.HELIOS]]
+        )
+        # Editor with the runner file open: positional path argument, no -m.
+        _write_fake_proc(
+            proc_root,
+            pid=2222,
+            argv=["/usr/bin/nvim", "/home/shrenikm/Projects/manor/src/manor/common/aegis/run/run_helios.py"],
+        )
+        # A different block's runner: must not match HELIOS.
+        _write_fake_proc(
+            proc_root, pid=3333, argv=["/opt/python", "-m", cli_module._BLOCK_RUN_MODULE[AegisBlock.METIS]]
+        )
+        # Tracked PID for HELIOS: must be filtered out via the read_pid check.
+        cli_module._write_pid(AegisBlock.HELIOS, 4444)
+        _write_fake_proc(
+            proc_root, pid=4444, argv=["/opt/python", "-m", cli_module._BLOCK_RUN_MODULE[AegisBlock.HELIOS]]
+        )
+        # Force the tracked-PID check to consider 4444 alive.
+        monkeypatch.setattr(cli_module, "_process_alive", lambda pid: pid == 4444)
+        monkeypatch.setattr(cli_module, "Path", _PathProxy(real_path_class=Path, proc_root=proc_root))
+
+        orphans = cli_module._find_orphan_pids(AegisBlock.HELIOS)
+        assert orphans == [1111]
+
+    def test_kill_block_reaps_orphans_when_pid_file_empty(
+        self,
+        sandboxed_pid_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # No tracked PID for helios, but two orphan processes exist.
+        # `aegis kill helios` should _terminate both and exit 0
+        # (instead of erroring out with "is not running").
+        terminated: list[int] = []
+        monkeypatch.setattr(
+            cli_module, "_find_orphan_pids", lambda block: [7001, 7002] if block is AegisBlock.HELIOS else []
+        )
+        monkeypatch.setattr(cli_module, "_terminate", lambda pid, _label: terminated.append(pid))
+
+        result = _run_cli(["kill", "helios"])
+        assert result.exit_code == 0, result.output
+        assert terminated == [7001, 7002]
+        assert "reaping orphan helios (pid 7001)" in result.output
+        assert "reaping orphan helios (pid 7002)" in result.output
+
+    def test_kill_block_errors_when_no_pid_and_no_orphans(
+        self,
+        sandboxed_pid_dir: Path,
+    ) -> None:
+        # Nothing tracked, no orphans (autouse stub returns []) -> error.
+        result = _run_cli(["kill", "helios"])
+        assert result.exit_code != 0
+        assert "is not running" in result.output
+
+
+def _write_fake_proc(proc_root: Path, pid: int, argv: list[str]) -> None:
+    """
+    Write a /proc/<pid>/cmdline-shaped fixture (null-separated argv,
+    trailing null) under proc_root for _find_orphan_pids to discover.
+    """
+    pid_dir = proc_root / str(pid)
+    pid_dir.mkdir()
+    payload = b"\x00".join(s.encode("utf-8") for s in argv) + b"\x00"
+    (pid_dir / "cmdline").write_bytes(payload)
+
+
+class _PathProxy:
+    """
+    Stand-in for pathlib.Path inside cli_module that redirects
+    Path("/proc") to a tmp_path-rooted proc tree but otherwise behaves
+    like the real Path class. Lets _find_orphan_pids walk a fake /proc
+    without touching the host's /proc.
+    """
+
+    def __init__(self, real_path_class: type, proc_root: Path) -> None:
+        self._real = real_path_class
+        self._proc_root = proc_root
+
+    def __call__(self, *args: object, **kwargs: object) -> Path:
+        if len(args) == 1 and args[0] == "/proc":
+            return self._proc_root
+        return self._real(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._real, name)
 
 
 if __name__ == "__main__":
