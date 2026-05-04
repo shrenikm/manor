@@ -160,16 +160,32 @@ def connect(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
 
     Step ordering matches the cli's connect command (which has been validated on real hardware).
 
-    The post-bring-up assert is load-bearing: motion_enable may return success at the controller level
-    while a servo-level error is latched on an individual joint (e.g. servo_id=6, code=23 after a previous
-    abrupt unprime). Without this check we'd happily proceed and the next motion command would fail with
-    the unhelpful code=1 (Not Ready). On failure we attempt a soft motion_enable toggle before raising
-    with a power-cycle hint.
+    Two recovery branches handle the two ways latched faults manifest:
+
+    1. The first call in run_prime_sequence (clean_warn) returns code=1 (Not Ready) because
+       error_code is non-zero -- the arm is refusing commands outright. The bring-up sequence raises
+       partway through, so we never reach a successful end state to inspect. Catch the XArmCallError,
+       attempt try_soft_recover (which cycles motion_enable off/on and replays the sequence), and
+       continue.
+    2. The sequence completes but arm.error_code / warn_code is still non-zero -- a servo-level
+       error latched silently while the controller-level calls returned success (e.g. servo_id=6,
+       code=23 after a previous abrupt unprime). The post-bring-up check catches this and runs the
+       same try_soft_recover path.
+
+    Both paths re-check error_code / warn_code afterwards; if either is still non-zero we raise with
+    a power-cycle hint since neither soft path can clear servo errors that need a physical reset.
     """
-    run_prime_sequence(arm, mode=XArmMode.POSITION)
+    try:
+        run_prime_sequence(arm, mode=XArmMode.POSITION)
+    except XArmCallError as exc:
+        log_fn(
+            f"connect's bring-up sequence failed mid-call ({exc}); the arm is likely refusing "
+            f"commands due to a latched fault. Attempting soft recovery (motion_enable off/on cycle)..."
+        )
+        try_soft_recover(arm, mode=XArmMode.POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         log_fn(
-            f"connect caught error_code={arm.error_code}, warn_code={arm.warn_code}; "
+            f"connect caught error_code={arm.error_code}, warn_code={arm.warn_code} after bring-up; "
             f"attempting soft recovery (motion_enable off/on cycle)..."
         )
         try_soft_recover(arm, mode=XArmMode.POSITION)

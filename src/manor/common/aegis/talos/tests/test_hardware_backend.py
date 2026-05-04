@@ -97,9 +97,10 @@ def fake_driver() -> _FakeDriver:
 
 @pytest.fixture
 def backend(fake_driver: _FakeDriver) -> HardwareManipulatorBackend:
+    # 1 / 0.3s ~= 3.33 Hz -- watchdog trips after ~300 ms of silence.
     return HardwareManipulatorBackend(
         driver=fake_driver,
-        config=HardwareManipulatorBackendConfig(stale_command_threshold_s=0.3),
+        config=HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=1.0 / 0.3),
     )
 
 
@@ -141,13 +142,23 @@ class TestWatchdogStartupGrace:
         fake_now: dict,
     ) -> None:
         backend.start()
-        # Time advances well past the threshold but no action has ever been observed -- staleness
-        # check is gated on _latest_action_monotonic_ns > 0, so the backend stays armed and the
-        # command is forwarded.
+        # No action has ever been observed -- staleness check is gated on
+        # _latest_action_monotonic_ns > 0, so the backend stays armed (does not park).
         fake_now["now_ns"] += int(10.0 * 1e9)
         backend.send_joint_ee_command(_make_command())
         assert backend._parked is False
-        assert fake_driver.write_calls == ["joint_positions"]
+
+    def test_send_without_any_action_drops_command(
+        self,
+        backend: HardwareManipulatorBackend,
+        fake_driver: _FakeDriver,
+    ) -> None:
+        # Before any action arrives the JointEECommand on the wire is the default-constructed one,
+        # which carries an empty joint_positions array that crashes the xarm SDK. Backend must drop
+        # those sends.
+        backend.start()
+        backend.send_joint_ee_command(_make_command())
+        assert fake_driver.write_calls == []
 
 
 class TestWatchdogTrip:
@@ -237,6 +248,20 @@ class TestWatchdogTrip:
         fake_now["now_ns"] += int(1.0 * 1e9)
         backend.pet_watchdog(repeating_header)
         assert backend._latest_action_monotonic_ns == first_stamp
+
+
+class TestHardwareManipulatorBackendConfig:
+    def test_default_minimum_watchdog_frequency_hz_is_positive(self) -> None:
+        config = HardwareManipulatorBackendConfig()
+        assert config.minimum_watchdog_frequency_hz > 0.0
+
+    def test_rejects_non_positive_minimum_watchdog_frequency_hz(self) -> None:
+        with pytest.raises(ValueError):
+            HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=0.0)
+
+    def test_from_yaml_dict(self) -> None:
+        config = HardwareManipulatorBackendConfig.from_yaml_dict({"minimum_watchdog_frequency_hz": 2.0})
+        assert config.minimum_watchdog_frequency_hz == 2.0
 
 
 if __name__ == "__main__":

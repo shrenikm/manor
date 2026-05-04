@@ -25,10 +25,13 @@ LeafSystems by reference, not by Drake port.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import ClassVar, Self
 
+import attr
 from pydrake.common.value import AbstractValue
 from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
 
 
@@ -40,31 +43,50 @@ class StaleCommandWatchdogPorts(StrEnum):
     INPUT_ACTION = "action"
 
 
+@attr.frozen
+class StaleCommandWatchdogConfig:
+    """
+    Configuration for the StaleCommandWatchdog LeafSystem.
+
+    publish_frequency_hz controls how often the watchdog samples the latest Action and pets the
+    backend. SYSTEM_NAME is the name applied to the watchdog LeafSystem in the diagram, mirroring
+    the TalosConfig / KyberConfig pattern.
+    """
+
+    SYSTEM_NAME: ClassVar[str] = "stale_command_watchdog"
+
+    publish_frequency_hz: float = attr.field(default=100.0, validator=attr.validators.gt(0.0))
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        return cls(**parse_attrs_yaml(cls, d, "stale_command_watchdog_config"))
+
+
 class StaleCommandWatchdog(LeafSystem):
     """
     Pumps the latest Action header into a backend's action-staleness
     watchdog at a fixed periodic rate.
 
     The backend is responsible for the actual trip decision; the
-    watchdog only forwards the header. tick_frequency_hz should be at
-    least the Metis publish frequency so the backend always observes
-    the freshest header before the threshold elapses.
+    watchdog only forwards the header. publish_frequency_hz should be
+    at least the Metis publish rate so the backend always observes the
+    freshest header before the staleness threshold elapses.
     """
 
-    def __init__(self, backend, tick_frequency_hz: float) -> None:
+    def __init__(self, backend, publish_frequency_hz: float) -> None:
         super().__init__()
-        if tick_frequency_hz <= 0.0:
-            raise ValueError(f"tick_frequency_hz must be positive, got {tick_frequency_hz}")
+        if publish_frequency_hz <= 0.0:
+            raise ValueError(f"publish_frequency_hz must be positive, got {publish_frequency_hz}")
 
         self.backend = backend
-        self.tick_frequency_hz = tick_frequency_hz
+        self.publish_frequency_hz = publish_frequency_hz
 
         self._action_input = self.DeclareAbstractInputPort(
             StaleCommandWatchdogPorts.INPUT_ACTION,
             AbstractValue.Make(Action.construct_default()),
         )
         self.DeclarePeriodicUnrestrictedUpdateEvent(
-            period_sec=1.0 / tick_frequency_hz,
+            period_sec=1.0 / publish_frequency_hz,
             offset_sec=0.0,
             update=self._periodic_update,
         )

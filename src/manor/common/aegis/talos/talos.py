@@ -34,6 +34,7 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
+from manor.common.aegis.talos.stale_command_watchdog import StaleCommandWatchdogConfig
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.cartesian_pose import CartesianPose
 from manor.common.definitions.cartesian_state import CartesianState
@@ -61,9 +62,11 @@ class TalosConfig:
     """
     Talos sub-system configuration.
 
-    ``sim_backend_config`` and ``hardware_backend_config`` parametrise
-    the per-mode manipulator backends. ``SYSTEM_NAME`` is the name
-    applied to the Talos LeafSystem in the diagram.
+    sim_backend_config and hardware_backend_config parametrise the
+    per-mode manipulator backends. stale_command_watchdog_config
+    parametrises the hardware-only StaleCommandWatchdog LeafSystem
+    (consumed by run_kylos; ignored in sim mode). SYSTEM_NAME is the
+    name applied to the Talos LeafSystem in the diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "talos"
@@ -71,13 +74,12 @@ class TalosConfig:
     publish_frequency_hz: float = 200.0
     sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
     hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
+    stale_command_watchdog_config: StaleCommandWatchdogConfig = attr.field(factory=StaleCommandWatchdogConfig)
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``talos_config:`` block of an aegis YAML. Backend
-        configs currently carry no tunable fields but are still
-        accepted (as empty mappings) for schema symmetry with helios.
+        Parse the talos_config: block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "talos_config"))
 

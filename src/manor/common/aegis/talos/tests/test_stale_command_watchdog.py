@@ -9,10 +9,15 @@ import pytest
 from pydrake.common.value import AbstractValue
 from pydrake.systems.analysis import Simulator
 
-from manor.common.aegis.talos.stale_command_watchdog import StaleCommandWatchdog, StaleCommandWatchdogPorts
+from manor.common.aegis.talos.stale_command_watchdog import (
+    StaleCommandWatchdog,
+    StaleCommandWatchdogConfig,
+    StaleCommandWatchdogPorts,
+)
 from manor.common.definitions.action import Action
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.timestamp_header import TimestampHeader
+from manor.common.exceptions import AegisConfigError
 from manor.common.testing_utils import run_manor_tests
 
 
@@ -40,11 +45,11 @@ class TestConstruction:
     def test_rejects_non_positive_frequency(self) -> None:
         backend = _RecordingBackend()
         with pytest.raises(ValueError):
-            StaleCommandWatchdog(backend=backend, tick_frequency_hz=0.0)
+            StaleCommandWatchdog(backend=backend, publish_frequency_hz=0.0)
 
     def test_declares_expected_ports(self) -> None:
         backend = _RecordingBackend()
-        watchdog = StaleCommandWatchdog(backend=backend, tick_frequency_hz=100.0)
+        watchdog = StaleCommandWatchdog(backend=backend, publish_frequency_hz=100.0)
         assert watchdog.num_input_ports() == 1
         assert watchdog.num_output_ports() == 0
         assert watchdog.GetInputPort(StaleCommandWatchdogPorts.INPUT_ACTION) is not None
@@ -53,7 +58,7 @@ class TestConstruction:
 class TestPeriodicNotify:
     def test_forwards_action_header_to_backend(self) -> None:
         backend = _RecordingBackend()
-        watchdog = StaleCommandWatchdog(backend=backend, tick_frequency_hz=200.0)
+        watchdog = StaleCommandWatchdog(backend=backend, publish_frequency_hz=200.0)
 
         action = _make_action(monotonic_ns=12_345, system_ns=67_890)
         watchdog.GetInputPort(StaleCommandWatchdogPorts.INPUT_ACTION).FixValue(
@@ -76,6 +81,27 @@ class TestPeriodicNotify:
 
         assert len(backend.headers) > 0
         assert backend.headers[-1] == action.header
+
+
+class TestConfig:
+    def test_defaults(self) -> None:
+        config = StaleCommandWatchdogConfig()
+        assert config.publish_frequency_hz == 100.0
+
+    def test_rejects_non_positive_frequency(self) -> None:
+        with pytest.raises(ValueError):
+            StaleCommandWatchdogConfig(publish_frequency_hz=0.0)
+
+    def test_from_yaml_dict(self) -> None:
+        config = StaleCommandWatchdogConfig.from_yaml_dict({"publish_frequency_hz": 50.0})
+        assert config.publish_frequency_hz == 50.0
+
+    def test_from_yaml_dict_rejects_unknown_keys(self) -> None:
+        with pytest.raises(AegisConfigError):
+            StaleCommandWatchdogConfig.from_yaml_dict({"frequency": 50.0})
+
+    def test_system_name_pinned(self) -> None:
+        assert StaleCommandWatchdogConfig.SYSTEM_NAME == "stale_command_watchdog"
 
 
 if __name__ == "__main__":

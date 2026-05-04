@@ -7,15 +7,14 @@ routes ManipulatorBackend calls (send_joint_ee_command / read_joint_state /
 read_ee_state / start / stop) to the corresponding driver methods.
 
 The backend also runs a stale-command watchdog: every action header
-seen via pet_watchdog is stamped against time.monotonic_ns;
-if no fresh action arrives within stale_command_threshold_s the
-backend calls driver.unprime() to drop the arm to ZERO + STOP and
-flips into a "parked" state where subsequent
-send_joint_ee_command calls are dropped. The trip is sticky -- a fresh
-action does NOT auto-rearm the backend, because the user spec calls
-out that we must not let a rogue policy reattach after an outage. Only
-a fresh start() (i.e. an aegis restart) re-primes the driver and
-re-arms the watchdog.
+seen via pet_watchdog is stamped against time.monotonic_ns; if no
+fresh action arrives within 1 / minimum_watchdog_frequency_hz seconds
+the backend calls driver.unprime() to drop the arm to ZERO + STOP and
+flips into a "parked" state where subsequent send_joint_ee_command
+calls are dropped. The trip is sticky -- a fresh action does NOT
+auto-rearm the backend, because the user spec calls out that we must
+not let a rogue policy reattach after an outage. Only a fresh start()
+(i.e. an aegis restart) re-primes the driver and re-arms the watchdog.
 """
 
 from __future__ import annotations
@@ -36,10 +35,10 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.logging_utils import ManorLogger
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 
-# Default staleness threshold for the action watchdog. Picked at ~3 ticks of a 10 Hz Metis publisher; if
-# Metis publishes faster the threshold is comfortably loose, and if Metis publishes slower the operator
-# can override via stale_command_threshold_s in talos_config / hardware_backend_config.
-_DEFAULT_STALE_COMMAND_THRESHOLD_S = 0.3
+# Default minimum watchdog frequency. Sized at roughly 1/3 of the typical 10 Hz Metis publish rate so a
+# couple of dropped messages don't trip the watchdog while still parking the arm well within a second of
+# Metis going silent. Operators can override via talos_config.hardware_backend_config in the YAML.
+_DEFAULT_MINIMUM_WATCHDOG_FREQUENCY_HZ = 3.0
 
 
 @attr.frozen
@@ -48,13 +47,17 @@ class HardwareManipulatorBackendConfig:
     Hardware-specific knobs for the manipulator backend. joint DOF / EE
     DOF counts intentionally live on the driver, not here.
 
-    stale_command_threshold_s controls the action-staleness watchdog:
-    if no fresh Action arrives via pet_watchdog within this
-    window, the backend parks the arm (driver.unprime) and drops
-    further commands until the next backend.start().
+    minimum_watchdog_frequency_hz sets the lower bound on the rate at
+    which the backend expects pet_watchdog calls (proxying for the
+    Metis Action stream). The staleness threshold the backend trips on
+    is 1 / minimum_watchdog_frequency_hz seconds. Lower this for slow
+    policies whose action publish rate sits below the default.
     """
 
-    stale_command_threshold_s: float = _DEFAULT_STALE_COMMAND_THRESHOLD_S
+    minimum_watchdog_frequency_hz: float = attr.field(
+        default=_DEFAULT_MINIMUM_WATCHDOG_FREQUENCY_HZ,
+        validator=attr.validators.gt(0.0),
+    )
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
@@ -112,13 +115,21 @@ class HardwareManipulatorBackend:
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         if self._parked:
             return
+        # Startup gate: if no real action has ever made it through, the JointEECommand on the wire
+        # is the default-constructed one (Kyber stamps it but the inner JointCommand still carries
+        # an empty joint_positions array, since JointCommand.construct_default sets joint_positions
+        # to size num_joints=0). Forwarding that to the driver crashes the xarm SDK when it iterates
+        # angs[i]. Drop the send until the watchdog has been pet at least once.
+        if self._latest_action_monotonic_ns == 0:
+            return
         if self._is_action_stale():
             # Trip the watchdog: log, unprime the arm (move to ZERO + STOP, no disconnect), park.
             stale_age_s = (time.monotonic_ns() - self._latest_action_monotonic_ns) * 1e-9
+            threshold_s = 1.0 / self.config.minimum_watchdog_frequency_hz
             self._logger.warning(
                 f"action stream stale ({stale_age_s:.3f}s since last fresh action; threshold "
-                f"{self.config.stale_command_threshold_s:.3f}s) -- parking the arm. Restart aegis to "
-                f"re-arm."
+                f"{threshold_s:.3f}s = 1 / {self.config.minimum_watchdog_frequency_hz:.3f}Hz) -- "
+                f"parking the arm. Restart aegis to re-arm."
             )
             self._parked = True
             self.driver.unprime()
@@ -169,5 +180,5 @@ class HardwareManipulatorBackend:
         # will set _latest_action_monotonic_ns; only after that point can the watchdog trip.
         if self._latest_action_monotonic_ns == 0:
             return False
-        threshold_ns = int(self.config.stale_command_threshold_s * 1e9)
+        threshold_ns = int(1e9 / self.config.minimum_watchdog_frequency_hz)
         return (time.monotonic_ns() - self._latest_action_monotonic_ns) > threshold_ns

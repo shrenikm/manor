@@ -29,7 +29,10 @@ helios_config:
 talos_config:
   publish_frequency_hz: 100.0
   sim_backend_config: {}
-  hardware_backend_config: {}
+  hardware_backend_config:
+    minimum_watchdog_frequency_hz: 3.0
+  stale_command_watchdog_config:
+    publish_frequency_hz: 100.0
 
 metis_config:
   publish_frequency_hz: 10.0
