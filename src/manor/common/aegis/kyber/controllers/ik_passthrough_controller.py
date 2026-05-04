@@ -44,7 +44,6 @@ the manipulator is mounted in the sim world.
 
 from __future__ import annotations
 
-import time
 from typing import ClassVar, Self
 
 import attr
@@ -96,24 +95,12 @@ _DEFAULT_DIFF_IK_TIME_STEP_S: float = 5e-3
 _EE_BLOCK_POSITION_LOCK_TOL: float = 1e-4
 _DEFAULT_ORIENTATION_THETA_BOUND_RAD: float = 1e-3
 
-# Trajectory-shaped Actions (joint / cartesian / EE trajectory) aren't
-# supported by a passthrough controller. step() falls back to a zero-
-# velocity arm command in those cases; without a log this looks like the
-# policy is publishing dead air. Same throttle interval as the IK-failure
-# path -- this fires once per second per controller no matter how many
-# trajectory ticks come in.
-_TRAJECTORY_FALLBACK_LOG_INTERVAL_S: float = 1.0
-
-
-# Both solvers fall back to a "hold current state" command when IK
-# can't find a solution (target out of reach, orientation tolerance
-# violated, diff IK joint-limit infeasibility, etc.). Without a log
-# this looks identical to "policy is doing nothing", which is a
-# nightmare to debug -- so we emit a warning to stderr at most once
-# per ``_IK_FAILURE_LOG_INTERVAL_S`` per controller instance. The
-# rate limit matters: Kyber ticks at 500 Hz, so an unrate-limited
-# log on a sustained failure floods the terminal.
-_IK_FAILURE_LOG_INTERVAL_S: float = 1.0
+# Throttle keys for ManorLogger.warning_throttled. Each key buckets one class of warning so a
+# sustained problem fires at most once per second per controller instance instead of flooding the
+# terminal at the 500 Hz Kyber tick rate. Without these the IK-failure / unsupported-action paths
+# look identical to "policy is doing nothing" and the operator can't tell the arm is wedged.
+_IK_FAILURE_THROTTLE_KEY: str = "ik_failure"
+_TRAJECTORY_FALLBACK_THROTTLE_KEY: str = "trajectory_fallback"
 
 
 @attr.frozen
@@ -162,8 +149,6 @@ class IKPassthroughController:
     _diff_ik_params: DifferentialInverseKinematicsParameters = attr.field(default=None)
     _base_frame: Frame | None = attr.field(default=None)
     _tip_frame: Frame | None = attr.field(default=None)
-    _last_ik_failure_log_s: float = attr.field(default=0.0)
-    _last_trajectory_fallback_log_s: float = attr.field(default=0.0)
     _logger: ManorLogger = attr.field(init=False)
 
     @_logger.default
@@ -286,33 +271,20 @@ class IKPassthroughController:
 
     def _log_ik_failure(self, message: str) -> None:
         """
-        Rate-limited warning when an IK / diff-IK solve fails. Without
-        this, both solver fall-back paths look identical to "policy is
-        doing nothing" -- the arm just freezes silently. Throttled to
-        one line per ``_IK_FAILURE_LOG_INTERVAL_S`` so a sustained
-        failure doesn't drown the log at the 500 Hz Kyber tick rate.
+        Rate-limited warning when an IK / diff-IK solve fails. Both solver fall-back paths look
+        identical to "policy is doing nothing" without a log -- the arm just freezes silently. The
+        ManorLogger throttle keeps this to one line per second per logger so a sustained failure
+        doesn't drown the log at the 500 Hz Kyber tick rate.
         """
-        now = time.monotonic()
-        if now - self._last_ik_failure_log_s < _IK_FAILURE_LOG_INTERVAL_S:
-            return
-        self._last_ik_failure_log_s = now
-        self._logger.warning(message)
+        self._logger.warning_throttled(message, key=_IK_FAILURE_THROTTLE_KEY)
 
     def _log_trajectory_fallback(self, action: Action) -> None:
         """
-        Rate-limited warning when an unsupported (trajectory-shaped)
-        Action arrives and step() falls back to a zero-velocity arm
-        command. Same motivation as _log_ik_failure: without a log the
-        arm just freezes silently and the operator can't tell whether
-        the policy is dead or shaped wrong. Throttled per controller so
-        a sustained mismatch doesn't drown the log at kyber tick rate.
-        Names the offending shape so the operator knows which side of
-        the contract is wrong (policy vs. controller).
+        Rate-limited warning when an unsupported (trajectory-shaped) Action arrives and step() falls
+        back to a zero-velocity arm command. Same motivation as _log_ik_failure -- silent fallback
+        looks like a dead policy. Names the offending shape so the operator knows which side of the
+        policy/controller contract is wrong.
         """
-        now = time.monotonic()
-        if now - self._last_trajectory_fallback_log_s < _TRAJECTORY_FALLBACK_LOG_INTERVAL_S:
-            return
-        self._last_trajectory_fallback_log_s = now
         if action.joint_trajectory_command is not None:
             shape = "joint_trajectory_command"
         elif action.cartesian_trajectory_command is not None:
@@ -321,9 +293,10 @@ class IKPassthroughController:
             shape = "ee_trajectory_command"
         else:
             shape = "unknown (no command field set)"
-        self._logger.warning(
+        self._logger.warning_throttled(
             f"IKPassthroughController received unsupported action shape ({shape}); "
-            f"falling back to zero-velocity arm command. Use a trajectory-aware controller to handle this."
+            f"falling back to zero-velocity arm command. Use a trajectory-aware controller to handle this.",
+            key=_TRAJECTORY_FALLBACK_THROTTLE_KEY,
         )
 
     def _populate_plant_context(self, proprioception: Proprioception) -> None:
