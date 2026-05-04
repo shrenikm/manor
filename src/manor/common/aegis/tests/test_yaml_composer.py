@@ -67,7 +67,7 @@ def aegis_yaml_workspace(tmp_path: Path) -> Path:
         "manipulator_model": {"type": "lite6", "variant": "parallel_gripper_normal"},
         "environment_config": {},
         "helios_config": {},
-        "talos_config": {},
+        "talos_config": {"hardware_backend_config": {"minimum_watchdog_frequency_hz": 3.0}},
         "metis_config": {
             "publish_frequency_hz": 10.0,
             "policy_type": "constant_joint_positions",

@@ -251,9 +251,10 @@ class TestWatchdogTrip:
 
 
 class TestHardwareManipulatorBackendConfig:
-    def test_default_minimum_watchdog_frequency_hz_is_positive(self) -> None:
-        config = HardwareManipulatorBackendConfig()
-        assert config.minimum_watchdog_frequency_hz > 0.0
+    def test_minimum_watchdog_frequency_hz_is_required(self) -> None:
+        # No default -- every aegis YAML must set it explicitly.
+        with pytest.raises(TypeError):
+            HardwareManipulatorBackendConfig()
 
     def test_rejects_non_positive_minimum_watchdog_frequency_hz(self) -> None:
         with pytest.raises(ValueError):
@@ -262,6 +263,12 @@ class TestHardwareManipulatorBackendConfig:
     def test_from_yaml_dict(self) -> None:
         config = HardwareManipulatorBackendConfig.from_yaml_dict({"minimum_watchdog_frequency_hz": 2.0})
         assert config.minimum_watchdog_frequency_hz == 2.0
+
+    def test_from_yaml_dict_missing_field_raises(self) -> None:
+        from manor.common.exceptions import AegisConfigError
+
+        with pytest.raises(AegisConfigError):
+            HardwareManipulatorBackendConfig.from_yaml_dict({})
 
 
 if __name__ == "__main__":

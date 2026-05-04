@@ -142,7 +142,10 @@ class TestManipulatorBackendProtocolCompliance:
 
     def test_hardware_backend_satisfies_protocol(self) -> None:
         driver = Lite6Driver(model=_make_lite6_model())
-        backend = HardwareManipulatorBackend(driver=driver, config=HardwareManipulatorBackendConfig())
+        backend = HardwareManipulatorBackend(
+            driver=driver,
+            config=HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0),
+        )
         assert isinstance(backend, ManipulatorBackend)
 
 

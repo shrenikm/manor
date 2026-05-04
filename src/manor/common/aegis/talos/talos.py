@@ -73,7 +73,11 @@ class TalosConfig:
 
     publish_frequency_hz: float = 200.0
     sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
-    hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
+    # HardwareManipulatorBackendConfig.minimum_watchdog_frequency_hz has no default, so this field
+    # is required (kw_only keeps it after the defaulted fields above without breaking attrs's
+    # default-ordering rule). Every aegis YAML must declare hardware_backend_config with the
+    # watchdog frequency the operator has consciously chosen for the policy on the wire.
+    hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(kw_only=True)
     stale_command_watchdog_config: StaleCommandWatchdogConfig = attr.field(factory=StaleCommandWatchdogConfig)
 
     @classmethod

@@ -35,11 +35,6 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.logging_utils import ManorLogger
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 
-# Default minimum watchdog frequency. Sized at roughly 1/3 of the typical 10 Hz Metis publish rate so a
-# couple of dropped messages don't trip the watchdog while still parking the arm well within a second of
-# Metis going silent. Operators can override via talos_config.hardware_backend_config in the YAML.
-_DEFAULT_MINIMUM_WATCHDOG_FREQUENCY_HZ = 3.0
-
 
 @attr.frozen
 class HardwareManipulatorBackendConfig:
@@ -50,14 +45,12 @@ class HardwareManipulatorBackendConfig:
     minimum_watchdog_frequency_hz sets the lower bound on the rate at
     which the backend expects pet_watchdog calls (proxying for the
     Metis Action stream). The staleness threshold the backend trips on
-    is 1 / minimum_watchdog_frequency_hz seconds. Lower this for slow
-    policies whose action publish rate sits below the default.
+    is 1 / minimum_watchdog_frequency_hz seconds. Required (no default)
+    -- every hardware run must declare it in the YAML so the operator
+    has consciously chosen a value matched to the policy's publish rate.
     """
 
-    minimum_watchdog_frequency_hz: float = attr.field(
-        default=_DEFAULT_MINIMUM_WATCHDOG_FREQUENCY_HZ,
-        validator=attr.validators.gt(0.0),
-    )
+    minimum_watchdog_frequency_hz: float = attr.field(validator=attr.validators.gt(0.0))
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
@@ -71,7 +64,7 @@ class HardwareManipulatorBackend:
     """
 
     driver: IManipulatorDriver
-    config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
+    config: HardwareManipulatorBackendConfig
     # Newest action header seen via pet_watchdog, in monotonic ns. Zero means "no action has
     # ever arrived" -- the watchdog stays disarmed during the startup grace window before the first
     # real Metis publish.

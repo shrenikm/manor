@@ -37,6 +37,7 @@ from manor.common.aegis.kyber.kyber import KyberConfig
 from manor.common.aegis.metis.metis import MetisConfig
 from manor.common.aegis.metis.policies.constant_policies import ConstantJointVelocitiesPolicyConfig
 from manor.common.aegis.mode import AegisMode
+from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
 from manor.common.aegis.talos.talos import TalosConfig
 from manor.common.exceptions import AegisConfigError
 from manor.common.testing_utils import run_manor_tests
@@ -66,7 +67,10 @@ def _fast_config(mode: AegisMode) -> AegisConfig:
         kyber_config=_fast_kyber_config(),
         environment_config=EnvironmentConfig(),
         helios_config=HeliosConfig(publish_rgb_frequency_hz=10.0, publish_depth_frequency_hz=10.0),
-        talos_config=TalosConfig(publish_frequency_hz=20.0),
+        talos_config=TalosConfig(
+            publish_frequency_hz=20.0,
+            hardware_backend_config=HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0),
+        ),
         gaia_advancer_config=GaiaAdvancerConfig(),
         gaia_config=GaiaConfig(),
     )
@@ -143,7 +147,7 @@ def _full_yaml_dict(mode: str = "sim") -> dict:
         },
         "environment_config": {},
         "helios_config": {},
-        "talos_config": {},
+        "talos_config": {"hardware_backend_config": {"minimum_watchdog_frequency_hz": 3.0}},
         "gaia_advancer_config": {},
         "gaia_config": {},
     }
