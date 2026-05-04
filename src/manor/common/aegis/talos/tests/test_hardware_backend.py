@@ -158,7 +158,7 @@ class TestWatchdogTrip:
         fake_now: dict,
     ) -> None:
         backend.start()
-        backend.notify_action_received(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         # Time advances within the threshold.
         fake_now["now_ns"] += int(0.1 * 1e9)
         backend.send_joint_ee_command(_make_command())
@@ -175,7 +175,7 @@ class TestWatchdogTrip:
         backend.start()
         # Stamp an action header at "now"; then advance time past the threshold so the next send
         # detects staleness.
-        backend.notify_action_received(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())
         # Watchdog tripped: backend parked, driver unprimed, command dropped.
@@ -190,14 +190,14 @@ class TestWatchdogTrip:
         fake_now: dict,
     ) -> None:
         backend.start()
-        backend.notify_action_received(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())  # trip
         assert backend._parked is True
 
         # A fresh action arrives after a Metis restart; the spec says we must NOT auto-rearm.
         fake_now["now_ns"] += int(1.0 * 1e9)
-        backend.notify_action_received(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         backend.send_joint_ee_command(_make_command())
         assert backend._parked is True
         assert fake_driver.write_calls == []
@@ -212,7 +212,7 @@ class TestWatchdogTrip:
         fake_now: dict,
     ) -> None:
         backend.start()
-        backend.notify_action_received(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())
         assert backend._parked is True
@@ -232,10 +232,10 @@ class TestWatchdogTrip:
         # must not advance with later wall-time, so once the threshold elapses the watchdog will
         # still trip on the next send.
         repeating_header = TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0)
-        backend.notify_action_received(repeating_header)
+        backend.pet_watchdog(repeating_header)
         first_stamp = backend._latest_action_monotonic_ns
         fake_now["now_ns"] += int(1.0 * 1e9)
-        backend.notify_action_received(repeating_header)
+        backend.pet_watchdog(repeating_header)
         assert backend._latest_action_monotonic_ns == first_stamp
 
 

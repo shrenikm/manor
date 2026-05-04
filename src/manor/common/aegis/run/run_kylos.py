@@ -38,6 +38,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import KyberControl
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.aegis.run.run_utils import advance_until_signal
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackend
+from manor.common.aegis.talos.stale_command_watchdog import StaleCommandWatchdog, StaleCommandWatchdogPorts
 from manor.common.aegis.talos.talos import Talos, TalosConfig, TalosPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.proprioception import Proprioception
@@ -91,11 +92,18 @@ def run_kylos(
         action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
         kyber.GetInputPort(KyberPorts.INPUT_ACTION),
     )
-    # Same Action stream also fans out to Talos so the hardware backend's stale-command watchdog can
-    # see fresh-action headers without going through Kyber (which restamps with its own tick time).
+
+    # Hardware-only stale-command watchdog. Lives outside Talos because Action is a Metis concept
+    # that doesn't belong on Talos's port surface. Holds a direct reference to the backend (same
+    # ownership pattern Talos uses) and pets the backend's watchdog at Talos's publish frequency so
+    # the staleness timer always sees the freshest action header before the threshold elapses.
+    watchdog = builder.AddSystem(
+        StaleCommandWatchdog(backend=backend, tick_frequency_hz=talos_config.publish_frequency_hz)
+    )
+    watchdog.set_name("stale_command_watchdog")
     builder.Connect(
         action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
-        talos.GetInputPort(TalosPorts.INPUT_ACTION),
+        watchdog.GetInputPort(StaleCommandWatchdogPorts.INPUT_ACTION),
     )
 
     builder.Connect(

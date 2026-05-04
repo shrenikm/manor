@@ -7,7 +7,7 @@ routes ManipulatorBackend calls (send_joint_ee_command / read_joint_state /
 read_ee_state / start / stop) to the corresponding driver methods.
 
 The backend also runs a stale-command watchdog: every action header
-seen via notify_action_received is stamped against time.monotonic_ns;
+seen via pet_watchdog is stamped against time.monotonic_ns;
 if no fresh action arrives within stale_command_threshold_s the
 backend calls driver.unprime() to drop the arm to ZERO + STOP and
 flips into a "parked" state where subsequent
@@ -49,7 +49,7 @@ class HardwareManipulatorBackendConfig:
     DOF counts intentionally live on the driver, not here.
 
     stale_command_threshold_s controls the action-staleness watchdog:
-    if no fresh Action arrives via notify_action_received within this
+    if no fresh Action arrives via pet_watchdog within this
     window, the backend parks the arm (driver.unprime) and drops
     further commands until the next backend.start().
     """
@@ -69,7 +69,7 @@ class HardwareManipulatorBackend:
 
     driver: IManipulatorDriver
     config: HardwareManipulatorBackendConfig = attr.field(factory=HardwareManipulatorBackendConfig)
-    # Newest action header seen via notify_action_received, in monotonic ns. Zero means "no action has
+    # Newest action header seen via pet_watchdog, in monotonic ns. Zero means "no action has
     # ever arrived" -- the watchdog stays disarmed during the startup grace window before the first
     # real Metis publish.
     _latest_action_monotonic_ns: int = attr.field(init=False, default=0)
@@ -96,15 +96,16 @@ class HardwareManipulatorBackend:
         # the arm is already at ZERO.
         self.driver.unprime()
 
-    def notify_action_received(self, header: TimestampHeader) -> None:
+    def pet_watchdog(self, header: TimestampHeader) -> None:
         """
-        Stamp the most recent Action header into the watchdog. Called by Talos on every periodic tick
-        in modes where an Action input port is wired (currently kylos and gylos -- the sim backend's
-        notify is a no-op so the call is harmless there).
+        Reset the staleness timer with the latest upstream-action header. Called by
+        StaleCommandWatchdog on every periodic tick; the watchdog only "bites" (parks the arm) once
+        the gap between time.monotonic_ns and the latest petted header crosses the configured
+        threshold.
         """
         # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the last
-        # received message, so Talos hands us the same header tick after tick when Metis is paused; if
-        # we treated each call as "fresh" the watchdog could never trip.
+        # received message, so the watchdog hands us the same header tick after tick when Metis is
+        # paused; if we treated each call as "fresh" the timer could never trip.
         if header.monotonic_ns > self._latest_action_monotonic_ns:
             self._latest_action_monotonic_ns = int(header.monotonic_ns)
 

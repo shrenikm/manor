@@ -134,12 +134,6 @@ def run_gylos(
         action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
         kyber.GetInputPort(KyberPorts.INPUT_ACTION),
     )
-    # Talos exposes the action input port uniformly across modes so the watchdog interface is the
-    # same for every backend; in sim mode SimManipulatorBackend.notify_action_received is a no-op.
-    builder.Connect(
-        action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
-        talos.GetInputPort(TalosPorts.INPUT_ACTION),
-    )
 
     # Talos's proprioception drives Kyber directly (no LCM hop) and
     # is also published on LCM so the metis process can subscribe.
