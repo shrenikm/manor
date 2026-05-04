@@ -182,11 +182,17 @@ def _process_alive(pid: int) -> bool:
 
 def _find_orphan_pids(block: AegisBlock) -> list[int]:
     """
-    Scan /proc for python processes running ``block``'s runner module
-    that aren't tracked by its PID file. Catches the case where the
-    process didn't exit on SIGTERM and the PID file got cleared anyway
-    (or where a previous session's process was never killed). Linux-
-    specific; the project already targets linux so /proc is fine.
+    Scan /proc for processes invoked as ``python -m <runner_module>``
+    that aren't tracked by ``block``'s PID file. Catches the case where
+    a child didn't exit on SIGTERM and the PID file got cleared anyway
+    (or where a previous session's process was never killed).
+
+    The match is structural, not a substring grep: argv must look like
+    ``[<python>, "-m", "<module>", ...]`` exactly. An editor with the
+    runner's *file* open carries the path on disk in its argv (slashes,
+    .py extension, positional), not ``-m <module>``, so it won't match
+    here. Linux-specific; the project already targets linux so /proc is
+    fine.
     """
     module = _BLOCK_RUN_MODULE[block]
     expected_pid = _read_pid(block)
@@ -204,9 +210,9 @@ def _find_orphan_pids(block: AegisBlock) -> list[int]:
             cmdline = (proc_dir / "cmdline").read_bytes()
         except (FileNotFoundError, PermissionError, OSError):
             continue
-        # /proc/<pid>/cmdline is null-separated. Match against the runner module path -- it's
-        # specific enough that no other python process on the box would carry it as an arg.
-        if module.encode() in cmdline:
+        # /proc/<pid>/cmdline is null-separated; the trailing null leaves an empty final field.
+        argv = [s.decode("utf-8", errors="replace") for s in cmdline.split(b"\x00") if s]
+        if len(argv) >= 3 and Path(argv[0]).name.startswith("python") and argv[1] == "-m" and argv[2] == module:
             orphans.append(pid)
     return orphans
 
@@ -274,25 +280,41 @@ def _format_block_state(name: str, pid: Optional[int], orphan_pids: list[int]) -
     return f"{name}: {state} {typer.style(f'[orphan pids: {orphan_list}]', fg=typer.colors.YELLOW)}"
 
 
+def _reap_orphans(block: AegisBlock) -> int:
+    """
+    Terminate every orphan PID found for ``block``. Orphans are matched
+    structurally (argv == ``[python, -m, <module>, ...]``), so editors
+    with the runner file open are not at risk. Returns the number of
+    orphans terminated.
+    """
+    orphans = _find_orphan_pids(block)
+    for pid in orphans:
+        _echo_warn(f"reaping orphan {block.value} (pid {pid})")
+        _terminate(pid, f"orphan {block.value} (pid {pid})")
+    return len(orphans)
+
+
 def _kill_all_running_blocks() -> list[AegisBlock]:
     """
     Stop every block whose PID file points at a live process and clear
-    its PID file once the process is actually gone. Used both as the
-    REPL shutdown hook (so children don't outlive the supervisor) and
-    as the no-arg ``kill`` implementation. SIGTERM is escalated to
-    SIGKILL inside ``_terminate`` if a child doesn't honour the soft
-    signal in time.
+    its PID file once the process is actually gone, then sweep up any
+    orphan PIDs (runner-module processes not tracked by the PID file).
+    Used both as the REPL shutdown hook (so children don't outlive the
+    supervisor) and as the no-arg ``kill`` implementation. SIGTERM is
+    escalated to SIGKILL inside ``_terminate`` if a child doesn't honour
+    the soft signal in time.
     """
     killed: list[AegisBlock] = []
     for block in AegisBlock:
         pid = _read_pid(block)
-        if pid is None:
-            continue
-        _echo_warn(f"signalled {block.value} (pid {pid})")
-        _terminate(pid, f"{block.value} (pid {pid})")
-        _clear_pid(block)
-        _echo_warn(f"stopped {block.value} (pid {pid})")
-        killed.append(block)
+        if pid is not None:
+            _echo_warn(f"signalled {block.value} (pid {pid})")
+            _terminate(pid, f"{block.value} (pid {pid})")
+            _clear_pid(block)
+            _echo_warn(f"stopped {block.value} (pid {pid})")
+            killed.append(block)
+        if _reap_orphans(block) > 0 and block not in killed:
+            killed.append(block)
     return killed
 
 
@@ -450,9 +472,10 @@ def _run_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
 
 def _kill_impl(block: Optional[AegisBlock]) -> None:
     """
-    SIGTERM ``block``'s subprocess (or every running block, if
-    ``block is None``). Doesn't take state -- ``kill`` operates
-    purely on PID files.
+    Stop ``block``'s subprocess (or every running block, if ``block is
+    None``) and sweep up any orphan PIDs left behind by previous runs
+    that didn't clean up. ``kill`` operates purely on PID files +
+    /proc cmdline scans -- no state needed.
     """
     if block is None:
         killed = _kill_all_running_blocks()
@@ -460,16 +483,18 @@ def _kill_impl(block: Optional[AegisBlock]) -> None:
             _echo_warn("nothing running")
         return
     pid = _read_pid(block)
-    if pid is None:
+    if pid is not None:
+        _echo_warn(f"signalled {block.value} (pid {pid})")
+        # Block until the child is actually gone (escalating to SIGKILL on timeout) so its
+        # SIGTERM-handler print ("received signal 15; stopping") lands before the REPL redraws the
+        # next prompt and so we never clear the PID file while the process is still around.
+        _terminate(pid, f"{block.value} (pid {pid})")
+        _clear_pid(block)
+        _echo_warn(f"stopped {block.value} (pid {pid})")
+    reaped = _reap_orphans(block)
+    if pid is None and reaped == 0:
         _echo_error(f"{block.value} is not running")
         raise typer.Exit(code=1)
-    _echo_warn(f"signalled {block.value} (pid {pid})")
-    # Block until the child is actually gone (escalating to SIGKILL on timeout) so its
-    # SIGTERM-handler print ("received signal 15; stopping") lands before the REPL redraws the next
-    # prompt and so we never clear the PID file while the process is still around.
-    _terminate(pid, f"{block.value} (pid {pid})")
-    _clear_pid(block)
-    _echo_warn(f"stopped {block.value} (pid {pid})")
 
 
 def _status_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
