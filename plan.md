@@ -1,15 +1,12 @@
-Ok so next task, I don't really like how the current aegis config yamls are set up.
+Next up: complete hardware integration.
 
-We have individual yamls for individual policies but this defeats the purpose.
+We know that the stuff in lite6_cli is able to effectively operate the robot. Next is to make sure that the things in lite6 driver aligns with this.
 
-My plan:
+Specifically:
 
-1. Let's have a single base yaml for each manipulator type. So currently just lite6_ac.yaml
-2. This will have all of the params except for the policy and controller configs
-3. Under config/aegis/ let's have two directories to store the individual policy and controller configs. So config/aegis/policies/ and config/aegis/controllers/
-4. Create a config yaml for each existing policy and controller
-5. In the base yaml, under metis config, we will only have the publish hz and a "policy_type" that will be a string that coresponds to the type of policy. Same for controller inside kyber_config
-6. Adn then in the individual policy and controller yamls we will store the policy and controller specific configs. So for example, the policy_config under metis_config will no longer exist and will instead be moved into policies/
-7. Note that there will be some changes, eg: when moved into the separate yaml, the policy/controller configs will not have "type" as we will know the tyupe from the name of the yaml itself. Note that the name must be <policy/controller_type_name>_ac.yaml. And then the metis/kyber will have policy/controller_type: <policy/controller_type_name>
-8. Make sure that all the parsing accounts for this. DO NOT allow aegis to be run if the controller/policy does not have a yaml defined. There must be no default values outside, everything must happen through the yaml. Obivously while parsing, we need to account for the _ac suffix in the yaml filename etc.
-9. Make sure we write tests for the updated parsing. Also write a test that lists out every single policy and controller implementation and check that yamls exist for them matching the policy/controller type name (in the enum). Also add any other tests you can think of.
+- Please make sure that the stuff in the driver aligns with the stuff in the cli (that we know works). But please note that the things in the cli is very hacky atm so please clean up, consolidate logic, etc and then port into the driver to ensure that things are working. We use the cli as the base because I have validated that everything works as expected on actual hardware, although the code quality is a bit suspect.
+- Make sure that we are able to prime and unprime the robot. So when the driver is constructed (as part of talos or kylos), it must prime. When the policy is stopped, it must unprime
+- For the unpriming thinng let's also combine this with safety:
+  - I want some safety integrated into the robot so that running stuff on the real robot is safe
+  - I want it designed so that if metis is stopped or the frequency of commands out of metis is too low, the robot will automatically stop moving and unprime. For the lite6 this means switching the mode, unpriming (which means going back to zero position) and waiting there (doesn't nee to disconnect). This must happen either if Metis suddenly has a lapse in commands or it is outright killed while a policy is running. We don't want a rogue policy sending commands. Ideally this is based on the timestamp of the commands for the staleness of commands and for the thing where metis is killed, maybe we can still use the same staleness in timestmap logic as it's clean. Let's make a plan for how to tackle this.
+  - Obvioulsy if aegis as a whole is also stopped, we must unprime. Again no reason to disconnect
