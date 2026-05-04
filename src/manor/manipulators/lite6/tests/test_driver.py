@@ -156,6 +156,24 @@ class TestPrime:
             parallel_driver.prime()
 
 
+class TestHaltResume:
+    def test_halt_calls_set_state_stop(self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock) -> None:
+        parallel_driver.halt()
+        arm_mock.set_state.assert_called_once_with(state=4)
+        # halt must NOT touch motion_enable or disconnect; motors stay energized at current pose.
+        arm_mock.motion_enable.assert_not_called()
+        arm_mock.disconnect.assert_not_called()
+        arm_mock.set_servo_angle.assert_not_called()
+        arm_mock.set_mode.assert_not_called()
+
+    def test_resume_calls_set_state_ready(self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock) -> None:
+        parallel_driver.resume()
+        arm_mock.set_state.assert_called_once_with(state=0)
+        # resume is the symmetric counterpart to halt -- no motion, no mode change.
+        arm_mock.set_servo_angle.assert_not_called()
+        arm_mock.set_mode.assert_not_called()
+
+
 class TestUnprime:
     def test_unprime_switches_to_position_moves_to_zero_and_stops(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock

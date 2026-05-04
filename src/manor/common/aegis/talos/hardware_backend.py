@@ -6,15 +6,21 @@ the source of truth for joint DOF / EE DOF counts; this backend just
 routes ManipulatorBackend calls (send_joint_ee_command / read_joint_state /
 read_ee_state / start / stop) to the corresponding driver methods.
 
-The backend also runs a stale-command watchdog: every action header
-seen via pet_watchdog is stamped against time.monotonic_ns; if no
-fresh action arrives within 1 / minimum_watchdog_frequency_hz seconds
-the backend calls driver.unprime() to drop the arm to ZERO + STOP and
-flips into a "parked" state where subsequent send_joint_ee_command
-calls are dropped. The trip is sticky -- a fresh action does NOT
-auto-rearm the backend, because the user spec calls out that we must
-not let a rogue policy reattach after an outage. Only a fresh start()
-(i.e. an aegis restart) re-primes the driver and re-arms the watchdog.
+Lifecycle ownership splits along two axes:
+
+* Kyber lifecycle (start / stop) drives prime / unprime. start() runs
+  the full bring-up sequence and moves to PRIME; stop() reverses it
+  and parks at ZERO. This binds prime/unprime to the kylos process
+  itself -- spinning kylos up means the arm is ready, spinning it
+  down means the arm goes home and powers down.
+* Metis lifecycle (action stream presence) drives halt / resume. If
+  the action stream goes stale, the backend calls driver.halt() to
+  freeze motion at the current pose without unpriming -- mode and
+  energization are preserved, the arm just refuses commands. When a
+  fresh action arrives again the backend calls driver.resume() and
+  command flow restarts from wherever the arm currently is. No move
+  to ZERO, no mode reset; restarting Metis just resumes where you
+  left off.
 """
 
 from __future__ import annotations
@@ -65,14 +71,15 @@ class HardwareManipulatorBackend:
 
     driver: IManipulatorDriver
     config: HardwareManipulatorBackendConfig
-    # Newest action header seen via pet_watchdog, in monotonic ns. Zero means "no action has
-    # ever arrived" -- the watchdog stays disarmed during the startup grace window before the first
-    # real Metis publish.
+    # Newest action header seen via pet_watchdog, in monotonic ns. Zero means "no action has ever
+    # arrived" -- the watchdog stays disarmed during the startup grace window before the first real
+    # Metis publish.
     _latest_action_monotonic_ns: int = attr.field(init=False, default=0)
-    # Sticky parked flag. Set when the watchdog trips; cleared only by start(). While parked, the
-    # driver has been unprimed and send_joint_ee_command is a no-op so a rogue policy resuming after
-    # an outage cannot reattach without an explicit aegis restart.
-    _parked: bool = attr.field(init=False, default=False)
+    # Halted flag. Set when the watchdog trips on a stale action stream; cleared automatically when
+    # a strictly-newer action header arrives. While halted the driver has been driver.halt()'d (arm
+    # holds its current pose, motors energized, mode preserved) and send_joint_ee_command is a
+    # no-op so commands routed from stale Kyber state aren't pushed to the driver.
+    _stopped: bool = attr.field(init=False, default=False)
     _logger: ManorLogger = attr.field(init=False)
 
     @_logger.default
@@ -80,52 +87,64 @@ class HardwareManipulatorBackend:
         return ManorLogger(self.__class__.__name__)
 
     def start(self) -> None:
-        # start() always re-primes and re-arms the watchdog so a manual REPL relaunch (after a
-        # watchdog trip + Metis restart) restores normal operation.
+        # Kyber-lifecycle hook: bring up the arm. Reset watchdog state so a relaunched kylos always
+        # starts from a known-clean baseline.
         self._latest_action_monotonic_ns = 0
-        self._parked = False
+        self._stopped = False
         self.driver.prime()
 
     def stop(self) -> None:
-        # Aegis-wide shutdown path. Unprime is idempotent enough that calling it again after a
-        # watchdog-driven park is safe: the helpers' switch_mode and move-to-ZERO don't fault when
-        # the arm is already at ZERO.
+        # Kyber-lifecycle hook: tear down the arm (move to ZERO, set_state STOP, no disconnect).
+        # If the watchdog had already halted the arm, unprime is still safe -- the cli helpers'
+        # switch_mode + move-to-ZERO no-op cleanly when the arm is already there.
         self.driver.unprime()
 
     def pet_watchdog(self, header: TimestampHeader) -> None:
         """
         Reset the staleness timer with the latest upstream-action header. Called by
-        StaleCommandWatchdog on every periodic tick; the watchdog only "bites" (parks the arm) once
-        the gap between time.monotonic_ns and the latest petted header crosses the configured
-        threshold.
+        StaleCommandWatchdog on every periodic tick. Two side effects:
+
+        * Strictly-newer header advances _latest_action_monotonic_ns so _is_action_stale stays
+          False until at least one threshold-window passes without a fresh tick.
+        * If the watchdog had previously halted the arm and we now see a strictly-newer header,
+          auto-resume: call driver.resume() and clear the halted flag so subsequent
+          send_joint_ee_command calls flow through again. This makes a Metis restart "just work"
+          without operator intervention.
         """
-        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the last
-        # received message, so the watchdog hands us the same header tick after tick when Metis is
-        # paused; if we treated each call as "fresh" the timer could never trip.
-        if header.monotonic_ns > self._latest_action_monotonic_ns:
-            self._latest_action_monotonic_ns = int(header.monotonic_ns)
+        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the
+        # last received message, so the watchdog hands us the same header tick after tick when
+        # Metis is paused; if we treated each call as "fresh" the timer could never trip.
+        if header.monotonic_ns <= self._latest_action_monotonic_ns:
+            return
+        self._latest_action_monotonic_ns = int(header.monotonic_ns)
+        if self._stopped:
+            self._logger.info("fresh action stream detected after halt -- resuming arm motion")
+            self.driver.resume()
+            self._stopped = False
 
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
-        if self._parked:
+        if self._stopped:
             return
         # Startup gate: if no real action has ever made it through, the JointEECommand on the wire
         # is the default-constructed one (Kyber stamps it but the inner JointCommand still carries
         # an empty joint_positions array, since JointCommand.construct_default sets joint_positions
-        # to size num_joints=0). Forwarding that to the driver crashes the xarm SDK when it iterates
-        # angs[i]. Drop the send until the watchdog has been pet at least once.
+        # to size num_joints=0). Forwarding that to the driver crashes the xarm SDK when it
+        # iterates angs[i]. Drop the send until the watchdog has been pet at least once.
         if self._latest_action_monotonic_ns == 0:
             return
         if self._is_action_stale():
-            # Trip the watchdog: log, unprime the arm (move to ZERO + STOP, no disconnect), park.
+            # Trip the watchdog: log, halt the arm (set_state STOP -- pose / mode / energization
+            # all preserved), mark _stopped so subsequent commands are dropped until pet_watchdog
+            # sees a fresh header and auto-resumes.
             stale_age_s = (time.monotonic_ns() - self._latest_action_monotonic_ns) * 1e-9
             threshold_s = 1.0 / self.config.minimum_watchdog_frequency_hz
             self._logger.warning(
                 f"action stream stale ({stale_age_s:.3f}s since last fresh action; threshold "
                 f"{threshold_s:.3f}s = 1 / {self.config.minimum_watchdog_frequency_hz:.3f}Hz) -- "
-                f"parking the arm. Restart aegis to re-arm."
+                f"halting arm motion. Restart Metis to resume."
             )
-            self._parked = True
-            self.driver.unprime()
+            self._stopped = True
+            self.driver.halt()
             return
         joint_command = joint_ee_command.joint_command
         if joint_command.joint_positions is not None:

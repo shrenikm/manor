@@ -33,12 +33,14 @@ _NUM_EE_DOFS = 2
 @attr.define
 class _FakeDriver(IManipulatorDriver):
     """
-    Minimal IManipulatorDriver that records every prime / unprime / write call. Read methods are
-    stubbed because the watchdog tests only exercise the write path.
+    Minimal IManipulatorDriver that records every prime / unprime / halt / resume / write call.
+    Read methods are stubbed because the watchdog tests only exercise the write path.
     """
 
     primed: bool = False
     unprime_count: int = 0
+    halt_count: int = 0
+    resume_count: int = 0
     write_calls: list[str] = attr.field(factory=list)
 
     def get_num_dof(self) -> int:
@@ -53,6 +55,12 @@ class _FakeDriver(IManipulatorDriver):
     def unprime(self) -> None:
         self.primed = False
         self.unprime_count += 1
+
+    def halt(self) -> None:
+        self.halt_count += 1
+
+    def resume(self) -> None:
+        self.resume_count += 1
 
     def read_joint_positions(self) -> JointPositions:
         return JointPositions(header=TimestampHeader.construct_default(), positions=np.zeros(_NUM_DOF))
@@ -120,12 +128,12 @@ def fake_now(monkeypatch: pytest.MonkeyPatch):
 
 
 class TestStartStopLifecycle:
-    def test_start_primes_driver_and_resets_park(
+    def test_start_primes_driver_and_clears_stopped(
         self, backend: HardwareManipulatorBackend, fake_driver: _FakeDriver
     ) -> None:
         backend.start()
         assert fake_driver.primed is True
-        assert backend._parked is False
+        assert backend._stopped is False
         assert backend._latest_action_monotonic_ns == 0
 
     def test_stop_unprimes_driver(self, backend: HardwareManipulatorBackend, fake_driver: _FakeDriver) -> None:
@@ -135,7 +143,7 @@ class TestStartStopLifecycle:
 
 
 class TestWatchdogStartupGrace:
-    def test_send_without_any_action_does_not_park(
+    def test_send_without_any_action_does_not_halt(
         self,
         backend: HardwareManipulatorBackend,
         fake_driver: _FakeDriver,
@@ -143,10 +151,11 @@ class TestWatchdogStartupGrace:
     ) -> None:
         backend.start()
         # No action has ever been observed -- staleness check is gated on
-        # _latest_action_monotonic_ns > 0, so the backend stays armed (does not park).
+        # _latest_action_monotonic_ns > 0, so the backend stays armed (does not halt).
         fake_now["now_ns"] += int(10.0 * 1e9)
         backend.send_joint_ee_command(_make_command())
-        assert backend._parked is False
+        assert backend._stopped is False
+        assert fake_driver.halt_count == 0
 
     def test_send_without_any_action_drops_command(
         self,
@@ -173,11 +182,11 @@ class TestWatchdogTrip:
         # Time advances within the threshold.
         fake_now["now_ns"] += int(0.1 * 1e9)
         backend.send_joint_ee_command(_make_command())
-        assert backend._parked is False
-        assert fake_driver.unprime_count == 0
+        assert backend._stopped is False
+        assert fake_driver.halt_count == 0
         assert fake_driver.write_calls == ["joint_positions"]
 
-    def test_stale_action_parks_and_drops_command(
+    def test_stale_action_halts_arm_without_unpriming(
         self,
         backend: HardwareManipulatorBackend,
         fake_driver: _FakeDriver,
@@ -189,12 +198,14 @@ class TestWatchdogTrip:
         backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())
-        # Watchdog tripped: backend parked, driver unprimed, command dropped.
-        assert backend._parked is True
-        assert fake_driver.unprime_count == 1
+        # Watchdog tripped: backend halted, command dropped, but the arm was NOT unprimed -- the
+        # arm holds its current pose with motors energized.
+        assert backend._stopped is True
+        assert fake_driver.halt_count == 1
+        assert fake_driver.unprime_count == 0
         assert fake_driver.write_calls == []
 
-    def test_park_is_sticky_against_fresh_action(
+    def test_subsequent_sends_while_stopped_are_dropped_without_re_halt(
         self,
         backend: HardwareManipulatorBackend,
         fake_driver: _FakeDriver,
@@ -204,19 +215,62 @@ class TestWatchdogTrip:
         backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())  # trip
-        assert backend._parked is True
+        assert fake_driver.halt_count == 1
 
-        # A fresh action arrives after a Metis restart; the spec says we must NOT auto-rearm.
+        # Repeated sends while stopped: short-circuit at the _stopped check, no second halt.
+        backend.send_joint_ee_command(_make_command())
+        backend.send_joint_ee_command(_make_command())
+        assert fake_driver.halt_count == 1
+        assert fake_driver.write_calls == []
+
+
+class TestWatchdogAutoResume:
+    def test_fresh_action_after_halt_auto_resumes(
+        self,
+        backend: HardwareManipulatorBackend,
+        fake_driver: _FakeDriver,
+        fake_now: dict,
+    ) -> None:
+        backend.start()
+        # Trip the watchdog.
+        backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
+        fake_now["now_ns"] += int(0.5 * 1e9)
+        backend.send_joint_ee_command(_make_command())
+        assert backend._stopped is True
+        assert fake_driver.resume_count == 0
+
+        # Metis restarts and publishes a fresh action with a strictly-newer header.
         fake_now["now_ns"] += int(1.0 * 1e9)
         backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
-        backend.send_joint_ee_command(_make_command())
-        assert backend._parked is True
-        assert fake_driver.write_calls == []
-        # No second unprime: the backend short-circuits at the parked check before re-checking
-        # staleness.
-        assert fake_driver.unprime_count == 1
+        # Auto-resume: backend cleared _stopped and called driver.resume().
+        assert backend._stopped is False
+        assert fake_driver.resume_count == 1
 
-    def test_restart_clears_park_state(
+        # Subsequent send goes through to the driver from the current pose.
+        backend.send_joint_ee_command(_make_command())
+        assert fake_driver.write_calls == ["joint_positions"]
+
+    def test_pet_with_same_header_does_not_resume(
+        self,
+        backend: HardwareManipulatorBackend,
+        fake_driver: _FakeDriver,
+        fake_now: dict,
+    ) -> None:
+        backend.start()
+        # Trip the watchdog.
+        last_header = TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0)
+        backend.pet_watchdog(last_header)
+        fake_now["now_ns"] += int(0.5 * 1e9)
+        backend.send_joint_ee_command(_make_command())
+        assert backend._stopped is True
+
+        # The LCM subscriber keeps serving the same pre-kill header -- pet_watchdog must not
+        # treat that as fresh and must not auto-resume.
+        backend.pet_watchdog(last_header)
+        assert backend._stopped is True
+        assert fake_driver.resume_count == 0
+
+    def test_restart_clears_stopped_state(
         self,
         backend: HardwareManipulatorBackend,
         fake_driver: _FakeDriver,
@@ -226,14 +280,16 @@ class TestWatchdogTrip:
         backend.pet_watchdog(TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0))
         fake_now["now_ns"] += int(0.5 * 1e9)
         backend.send_joint_ee_command(_make_command())
-        assert backend._parked is True
+        assert backend._stopped is True
 
         backend.start()  # operator re-launches kylos
-        assert backend._parked is False
+        assert backend._stopped is False
         assert backend._latest_action_monotonic_ns == 0
         assert fake_driver.primed is True
 
-    def test_notify_does_not_advance_on_repeated_header(
+
+class TestPetWatchdogAdvancement:
+    def test_pet_does_not_advance_on_repeated_header(
         self,
         backend: HardwareManipulatorBackend,
         fake_now: dict,

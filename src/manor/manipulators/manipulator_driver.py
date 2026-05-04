@@ -64,6 +64,29 @@ class IManipulatorDriver(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def halt(self) -> None:
+        """
+        Pause motion immediately, but stay primed. Motors stay
+        energized, the operating mode is preserved, and the arm holds
+        its current pose. Subsequent write_* calls are refused by the
+        controller until ``resume`` is called. Distinct from
+        ``unprime``: no move-to-rest, no mode reset, no teardown.
+        Used by the safety watchdog when upstream commands go stale.
+        """
+        ...
+
+    @abc.abstractmethod
+    def resume(self) -> None:
+        """
+        Undo a prior ``halt``. The controller accepts write_* calls
+        again from whatever pose / mode the arm was halted in. Safe to
+        call when not halted (idempotent at the driver level; the SDK
+        treats the underlying state-set as a no-op when state is already
+        the target).
+        """
+        ...
+
+    @abc.abstractmethod
     def read_joint_positions(self) -> JointPositions: ...
 
     @abc.abstractmethod

@@ -42,6 +42,7 @@ from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.lite6.xarm_helpers import (
     XArmCallError,
     XArmMode,
+    XArmState,
     check_xarm_call,
 )
 from manor.manipulators.lite6.xarm_helpers import (
@@ -125,6 +126,19 @@ class Lite6Driver(IManipulatorDriver):
             xarm_unprime(self._arm, log_fn=self._logger.info)
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
+
+    @override
+    def halt(self) -> None:
+        # Refuse motion at the controller level without moving or changing mode -- the arm holds
+        # its current pose, motors stay energized, mode stays as set by prime. The watchdog calls
+        # this when the action stream goes stale; resume() flips state back to READY.
+        self._call(self._arm.set_state(state=XArmState.STOP), "set_state(stop)")
+
+    @override
+    def resume(self) -> None:
+        # Inverse of halt: re-arm the controller for motion. set_state(READY) is idempotent on the
+        # firmware side when state is already READY, so spurious resume calls are harmless.
+        self._call(self._arm.set_state(state=XArmState.READY), "set_state(ready)")
 
     @override
     def read_joint_positions(self) -> JointPositions:
