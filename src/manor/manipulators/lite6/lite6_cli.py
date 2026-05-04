@@ -135,23 +135,21 @@ _PRIME_MOVE_ACC_RAD_S2 = 2.0
 _MODE_REPORT_SETTLE_S = 1.0
 
 
-def prime(arm: XArmAPI, mode: XArmMode = XArmMode.SERVO_POSITION) -> None:
+def connect(arm: XArmAPI) -> None:
     """
-    Bring the arm into a state where reads + writes work, then move it to a known-clear operational pose
-    (Lite6JointConfiguration.PRIME).
+    Bring the controller to a state where reads + writes work: clear latched faults, energize the motors,
+    activate mode 0 (motion-plan position) + state READY, and verify a clean error/warn code with a soft
+    recovery fallback. No motion is commanded -- the arm stays where it currently is.
 
     Sequence:
 
     1. clean_warn() + clean_error() to wipe latched faults.
     2. motion_enable(True) turns motors on (audible click).
     3. Sleep _MOTION_ENABLE_SETTLE_S so servos lock onto encoder pose.
-    4. set_mode(0) -- always activate in motion-plan position mode so we can use set_servo_angle's
-    built-in trajectory generation to move to PRIME.
-    5. set_state(0) puts the controller in READY; required before motion calls.
+    4. set_mode(0) -- mode 0 is the canonical "ready to accept any further command" mode; subsequent
+    operations switch from there.
+    5. set_state(0) puts the controller in READY.
     6. Assert error_code == 0 and warn_code == 0, with _try_soft_recover fallback on failure.
-    7. set_servo_angle to Lite6JointConfiguration.PRIME, getting clear of the zero-pose self-collision
-    envelope before exposing the arm to operator commands.
-    8. Switch to mode if it's not mode 0.
 
     Step 6 is load-bearing: motion_enable may return success at the controller level while a servo-level
     error is latched on an individual joint (e.g. servo_id=6, code=23 after a previous abrupt unprime).
@@ -159,30 +157,46 @@ def prime(arm: XArmAPI, mode: XArmMode = XArmMode.SERVO_POSITION) -> None:
     code=1 (Not Ready). On failure we attempt a soft motion_enable toggle before raising with a
     power-cycle hint.
 
-    Step 7 deliberately uses mode 0's set_servo_angle (with built-in trajectory generation) rather than
-    mode 1's set_servo_angle_j -- mode 1 is the call we're still characterising via the experiment
-    commands, so we don't want prime/unprime depending on it. Mode 0 is the canonical, well-understood
-    "go to" interface.
+    This is the inverse of the disconnect path -- it explicitly sets up the robot so the bring-up isn't
+    implicitly buried inside operating commands. ``prime`` calls this first and then layers a move-to-PRIME
+    + optional mode switch on top.
     """
-    # Always activate in mode 0 (motion-plan position) so step 7 can use set_servo_angle for the move to
-    # PRIME. Modes 1 and 4 get switched in at step 8 if that's what the caller asked for.
     _run_prime_sequence(arm, mode=XArmMode.POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         typer.echo(
-            f"  prime caught error_code={arm.error_code}, warn_code={arm.warn_code}; "
+            f"  connect caught error_code={arm.error_code}, warn_code={arm.warn_code}; "
             f"attempting soft recovery (motion_enable off/on cycle)..."
         )
         _try_soft_recover(arm, mode=XArmMode.POSITION)
     if arm.error_code != 0 or arm.warn_code != 0:
         raise RuntimeError(
-            f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} after prime + soft "
+            f"arm reports error_code={arm.error_code}, warn_code={arm.warn_code} after connect + soft "
             f"recovery. Servo-level errors can survive both clean_error/clean_warn and motion_enable "
             f"cycling -- power-cycle the controller (turn it off, wait a few seconds, turn back on) and "
             f"retry."
         )
 
-    _move_to_configuration(arm, Lite6JointConfiguration.PRIME)
 
+def prime(arm: XArmAPI, mode: XArmMode = XArmMode.SERVO_POSITION) -> None:
+    """
+    Connect the arm (motors energized, mode 0 / READY, errors clean -- see ``connect``), then move it to a
+    known-clear operational pose (Lite6JointConfiguration.PRIME) and optionally switch into the requested
+    operating mode.
+
+    Steps:
+
+    1. ``connect(arm)`` -- bring-up sequence (see its docstring for the per-call breakdown).
+    2. set_servo_angle to Lite6JointConfiguration.PRIME, getting clear of the zero-pose self-collision
+    envelope before exposing the arm to operator commands.
+    3. Switch to ``mode`` if it's not mode 0.
+
+    Step 2 deliberately uses mode 0's set_servo_angle (with built-in trajectory generation) rather than
+    mode 1's set_servo_angle_j -- mode 1 is the call we're still characterising via the experiment
+    commands, so we don't want prime/unprime depending on it. Mode 0 is the canonical, well-understood
+    "go to" interface.
+    """
+    connect(arm)
+    _move_to_configuration(arm, Lite6JointConfiguration.PRIME)
     if mode != XArmMode.POSITION:
         typer.echo(f"  switching from mode {XArmMode.POSITION} to mode {mode}...")
         _switch_mode(arm, mode=mode)
@@ -287,7 +301,7 @@ def unprime(arm: XArmAPI) -> None:
     """
     try:
         _switch_mode(arm, mode=XArmMode.POSITION)
-        _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
+        # _move_to_configuration(arm, Lite6JointConfiguration.ZERO)
     except Exception as exc:
         typer.echo(f"  warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
     arm.set_state(state=XArmState.STOP)
@@ -504,6 +518,27 @@ def cmd_probe(
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
     probe(arm)
+
+
+@app.command("connect")
+def cmd_connect(
+    ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
+) -> None:
+    """
+    Explicit bring-up: clean_warn + clean_error, motion_enable(True), settle, set_mode(0),
+    set_state(READY), and verify error_code/warn_code are clean (with a soft motion_enable-cycle recovery
+    on failure). The arm is left energized in mode 0 / READY without being moved -- inverse of disconnect.
+
+    Other commands (stream, send_jp, send_jv, manual) implicitly run this same sequence inside prime() at
+    the start of every invocation; this dedicated command is for when you want the bring-up to be its own
+    explicit step (e.g. after a power-cycle, or before opening a teach-pendant session, so the next motion
+    command isn't slowed by the audible-click + 2 s encoder-relock that motion_enable triggers).
+    """
+    typer.echo(f"connecting to {ip}...")
+    arm = XArmAPI(port=ip, is_radian=True)
+    typer.echo("running connect sequence...")
+    connect(arm)
+    typer.echo("connected (motors energized, mode 0, READY).")
 
 
 @app.command("disconnect")
