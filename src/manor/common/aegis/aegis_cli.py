@@ -86,6 +86,10 @@ _PID_FILE_SUFFIX = ".pid"
 _KILL_WAIT_TIMEOUT_S = 5.0
 _KILL_WAIT_POLL_INTERVAL_S = 0.02
 
+# After SIGTERM times out we escalate to SIGKILL. SIGKILL can't be caught, so the kernel reaps the
+# process almost immediately -- 1 s is more than enough margin while keeping the wait responsive.
+_SIGKILL_WAIT_TIMEOUT_S = 1.0
+
 # After spawning a block, sleep this long before returning so the
 # child's startup output (Drake's "Meshcat listening at ..." banner,
 # in particular) lands on the TTY before the REPL redraws its prompt.
@@ -176,14 +180,75 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
-def _wait_for_exit(pid: int, timeout_s: float = _KILL_WAIT_TIMEOUT_S) -> None:
+def _find_orphan_pids(block: AegisBlock) -> list[int]:
+    """
+    Scan /proc for python processes running ``block``'s runner module
+    that aren't tracked by its PID file. Catches the case where the
+    process didn't exit on SIGTERM and the PID file got cleared anyway
+    (or where a previous session's process was never killed). Linux-
+    specific; the project already targets linux so /proc is fine.
+    """
+    module = _BLOCK_RUN_MODULE[block]
+    expected_pid = _read_pid(block)
+    orphans: list[int] = []
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return orphans
+    for proc_dir in proc_root.iterdir():
+        if not proc_dir.name.isdigit():
+            continue
+        pid = int(proc_dir.name)
+        if pid == expected_pid:
+            continue
+        try:
+            cmdline = (proc_dir / "cmdline").read_bytes()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        # /proc/<pid>/cmdline is null-separated. Match against the runner module path -- it's
+        # specific enough that no other python process on the box would carry it as an arg.
+        if module.encode() in cmdline:
+            orphans.append(pid)
+    return orphans
+
+
+def _wait_for_exit(pid: int, timeout_s: float = _KILL_WAIT_TIMEOUT_S) -> bool:
     """
     Block until ``pid`` is gone (or ``timeout_s`` elapses), so any
     last-gasp output the child writes lands before our caller redraws.
+    Returns True if the process actually exited within the window.
     """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline and _process_alive(pid):
         time.sleep(_KILL_WAIT_POLL_INTERVAL_S)
+    return not _process_alive(pid)
+
+
+def _terminate(pid: int, label: str) -> None:
+    """
+    Reliably end ``pid``: SIGTERM, wait for graceful exit, escalate to
+    SIGKILL if the process is still alive after the timeout. ``label``
+    is the user-facing name (e.g. block name + pid) used in warnings.
+    Returns when the process is actually gone or after SIGKILL gives
+    up too -- but SIGKILL can't be caught, so non-exit after SIGKILL
+    means the process is in uninterruptible sleep, which we surface as
+    an error rather than silently moving on.
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    if _wait_for_exit(pid):
+        return
+    _echo_warn(f"{label} did not exit within {_KILL_WAIT_TIMEOUT_S:.0f}s of SIGTERM; sending SIGKILL")
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    if not _wait_for_exit(pid, timeout_s=_SIGKILL_WAIT_TIMEOUT_S):
+        _echo_error(
+            f"{label} still alive after SIGKILL -- likely uninterruptible kernel sleep "
+            f"(stuck in a syscall). Investigate before relaunching."
+        )
 
 
 def _echo_success(msg: str) -> None:
@@ -198,38 +263,37 @@ def _echo_error(msg: str) -> None:
     typer.secho(msg, fg=typer.colors.RED, err=True)
 
 
-def _format_block_state(name: str, pid: Optional[int]) -> str:
+def _format_block_state(name: str, pid: Optional[int], orphan_pids: list[int]) -> str:
     if pid is None:
-        return f"{name}: {typer.style('stopped', fg=typer.colors.RED)}"
-    return f"{name}: {typer.style(f'running (pid {pid})', fg=typer.colors.GREEN)}"
+        state = typer.style("stopped", fg=typer.colors.RED)
+    else:
+        state = typer.style(f"running (pid {pid})", fg=typer.colors.GREEN)
+    if not orphan_pids:
+        return f"{name}: {state}"
+    orphan_list = ", ".join(str(p) for p in orphan_pids)
+    return f"{name}: {state} {typer.style(f'[orphan pids: {orphan_list}]', fg=typer.colors.YELLOW)}"
 
 
 def _kill_all_running_blocks() -> list[AegisBlock]:
     """
-    SIGTERM every block whose PID file points at a live process, wait
-    for each to exit, and clear its PID file. Returns the list of
-    blocks that were actually signalled. Used both as the REPL
-    shutdown hook (so children don't outlive the supervisor) and as
-    the no-arg ``kill`` implementation. Output mirrors per-block
-    ``kill_block`` so the log reads like a series of normal kills.
+    Stop every block whose PID file points at a live process and clear
+    its PID file once the process is actually gone. Used both as the
+    REPL shutdown hook (so children don't outlive the supervisor) and
+    as the no-arg ``kill`` implementation. SIGTERM is escalated to
+    SIGKILL inside ``_terminate`` if a child doesn't honour the soft
+    signal in time.
     """
-    pending: list[tuple[AegisBlock, int]] = []
+    killed: list[AegisBlock] = []
     for block in AegisBlock:
         pid = _read_pid(block)
         if pid is None:
             continue
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            _clear_pid(block)
-            continue
         _echo_warn(f"signalled {block.value} (pid {pid})")
-        pending.append((block, pid))
-    for block, pid in pending:
-        _wait_for_exit(pid)
+        _terminate(pid, f"{block.value} (pid {pid})")
         _clear_pid(block)
         _echo_warn(f"stopped {block.value} (pid {pid})")
-    return [b for b, _ in pending]
+        killed.append(block)
+    return killed
 
 
 def _resolve_config_path(config_path: Path) -> Path:
@@ -399,20 +463,13 @@ def _kill_impl(block: Optional[AegisBlock]) -> None:
     if pid is None:
         _echo_error(f"{block.value} is not running")
         raise typer.Exit(code=1)
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        # Race: process exited between the read_pid check and the kill.
-        _clear_pid(block)
-        _echo_warn(f"{block.value} already exited")
-        return
-    _clear_pid(block)
-    # Block until the child is gone so its own SIGTERM-handler print
-    # ("received signal 15; stopping") lands before the REPL redraws
-    # the next prompt. Without this the child's last line writes onto
-    # the line where ``aegis>`` already is and strands the cursor.
-    _wait_for_exit(pid)
     _echo_warn(f"signalled {block.value} (pid {pid})")
+    # Block until the child is actually gone (escalating to SIGKILL on timeout) so its
+    # SIGTERM-handler print ("received signal 15; stopping") lands before the REPL redraws the next
+    # prompt and so we never clear the PID file while the process is still around.
+    _terminate(pid, f"{block.value} (pid {pid})")
+    _clear_pid(block)
+    _echo_warn(f"stopped {block.value} (pid {pid})")
 
 
 def _status_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
@@ -420,15 +477,17 @@ def _status_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
     Report block state. With ``block``, prints just that block's PID
     state. With no block, prints a mode banner followed by every
     block applicable to ``state.config.mode``; non-applicable blocks
-    are omitted entirely.
+    are omitted entirely. Each line also surfaces any orphan PIDs --
+    runner-module processes not tracked by the PID file -- so a child
+    that survived its kill (or was never killed) doesn't sit invisible.
     """
     if block is not None:
-        typer.echo(_format_block_state(block.value, _read_pid(block)))
+        typer.echo(_format_block_state(block.value, _read_pid(block), _find_orphan_pids(block)))
         return
     allowed = _MODE_BLOCKS[state.config.mode]
     typer.secho(f"mode: {state.config.mode.value}", fg=typer.colors.MAGENTA, bold=True)
     for b in sorted(allowed, key=lambda x: x.value):
-        typer.echo(f"  {_format_block_state(b.value, _read_pid(b))}")
+        typer.echo(f"  {_format_block_state(b.value, _read_pid(b), _find_orphan_pids(b))}")
 
 
 def _reload_impl(state: _CliState) -> _CliState:
