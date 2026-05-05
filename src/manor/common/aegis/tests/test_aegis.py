@@ -45,9 +45,10 @@ from manor.manipulators.lite6.driver import Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
-# Sentinel speed limit for the hardware-mode build smoke tests. Required field on
-# Lite6DriverConfig (no default), included in every hardware_backend_config the tests construct.
+# Sentinel speed / accel limits for the hardware-mode build smoke tests. Required fields on
+# Lite6DriverConfig (no defaults), included in every hardware_backend_config the tests construct.
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
+_TEST_JOINT_ACC_LIMIT_RAD_S2 = 2.0
 
 
 def _fast_metis_config() -> MetisConfig:
@@ -76,7 +77,10 @@ def _fast_config(mode: AegisMode) -> AegisConfig:
             publish_frequency_hz=20.0,
             hardware_backend_config=HardwareManipulatorBackendConfig(
                 minimum_watchdog_frequency_hz=3.0,
-                lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+                lite6_driver_config=Lite6DriverConfig(
+                    joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
+                    joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
+                ),
             ),
         ),
         gaia_advancer_config=GaiaAdvancerConfig(),
@@ -158,7 +162,10 @@ def _full_yaml_dict(mode: str = "sim") -> dict:
         "talos_config": {
             "hardware_backend_config": {
                 "minimum_watchdog_frequency_hz": 3.0,
-                "lite6_driver_config": {"joint_speed_limit_rad_s": _TEST_JOINT_SPEED_LIMIT_RAD_S},
+                "lite6_driver_config": {
+                    "joint_speed_limit_rad_s": _TEST_JOINT_SPEED_LIMIT_RAD_S,
+                    "joint_acc_limit_rad_s2": _TEST_JOINT_ACC_LIMIT_RAD_S2,
+                },
             }
         },
         "gaia_advancer_config": {},

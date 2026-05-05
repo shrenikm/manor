@@ -82,7 +82,8 @@ def run_kylos(
     _LOGGER.info(
         f"kylos: controller={type(controller).__name__} (config={type(kyber_config.controller_config).__name__}), "
         f"driver={type(driver).__name__} ({manipulator_model.__class__.__name__}), "
-        f"joint_speed_limit={driver.config.joint_speed_limit_rad_s:.3f} rad/s"
+        f"joint_speed_limit={driver.config.joint_speed_limit_rad_s:.3f} rad/s, "
+        f"joint_acc_limit={driver.config.joint_acc_limit_rad_s2:.3f} rad/s^2"
     )
 
     builder = DiagramBuilder()

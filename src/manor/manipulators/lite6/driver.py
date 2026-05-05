@@ -85,11 +85,19 @@ class Lite6DriverConfig:
     joint_speed_limit_rad_s caps the per-joint speed the xarm SDK uses to interpolate position
     commands in mode 1 (set_servo_angle_j). The SDK clamps the requested value to
     [_min_joint_speed, pi] so any value above pi is silently floored to pi; values <=0 are
-    rejected at construction time. Required (no default) -- every hardware run must declare it
-    in the YAML so the operator has consciously chosen a value matched to the policy.
+    rejected at construction time.
+
+    joint_acc_limit_rad_s2 caps the per-joint acceleration the xarm SDK uses for the same
+    interpolation. Without it the SDK reuses _last_joint_acc, which defaults to the firmware
+    ceiling (20 rad/s^2) and produces visibly jerky motion on small position deltas. Clamped by
+    the SDK to [_min_joint_acc, 20]; values <=0 rejected at construction time.
+
+    Both fields required (no default) -- every hardware run must declare them in the YAML so the
+    operator has consciously chosen values matched to the policy.
     """
 
     joint_speed_limit_rad_s: float = attr.field(validator=attr.validators.gt(0.0))
+    joint_acc_limit_rad_s2: float = attr.field(validator=attr.validators.gt(0.0))
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
@@ -224,14 +232,17 @@ class Lite6Driver(IManipulatorDriver):
     def write_joint_positions(self, joint_positions: JointPositions) -> None:
         # set_servo_angle_j requires mode SERVO_POSITION (mode 1). Switch lazily on the first
         # joint-position write after prime / a velocity write; subsequent same-shape writes are a
-        # cheap cache hit. speed is the per-joint speed limit the xarm SDK uses to interpolate to
-        # the target -- without it the SDK uses _last_joint_speed (defaulting to its uncapped
-        # ceiling of pi rad/s), which jerks the arm at full speed even for tiny moves.
+        # cheap cache hit. speed / mvacc are the per-joint speed and acceleration limits the xarm
+        # SDK uses to interpolate to the target -- without speed the SDK falls back to
+        # _last_joint_speed (defaulting to its uncapped ceiling of pi rad/s) and without mvacc to
+        # _last_joint_acc (defaulting to the firmware ceiling of 20 rad/s^2), both of which jerk
+        # the arm at full speed/accel even for tiny moves.
         self._ensure_mode(XArmMode.SERVO_POSITION)
         self._call(
             self._arm.set_servo_angle_j(
                 angles=joint_positions.positions.astype(np.float64).tolist(),
                 speed=self.config.joint_speed_limit_rad_s,
+                mvacc=self.config.joint_acc_limit_rad_s2,
                 is_radian=True,
             ),
             "set_servo_angle_j",

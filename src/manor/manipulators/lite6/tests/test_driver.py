@@ -33,9 +33,11 @@ from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
-# Sentinel speed limit for the driver-construction fixtures. Required field on Lite6DriverConfig
-# (no default), so tests have to declare one; the value isn't asserted on, the SDK call is mocked.
+# Sentinel speed / accel limits for the driver-construction fixtures. Required fields on
+# Lite6DriverConfig (no defaults), so tests have to declare them; the values aren't asserted on,
+# the SDK call is mocked.
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
+_TEST_JOINT_ACC_LIMIT_RAD_S2 = 2.0
 
 
 def _make_arm_mock(positions: np.ndarray | None = None, velocities: np.ndarray | None = None) -> mock.MagicMock:
@@ -93,7 +95,10 @@ def parallel_driver(arm_mock: mock.MagicMock):
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
         yield Lite6Driver(
             model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
-            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+            config=Lite6DriverConfig(
+                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
+                joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
+            ),
         )
 
 
@@ -102,7 +107,10 @@ def vacuum_driver(arm_mock: mock.MagicMock):
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
         yield Lite6Driver(
             model=Lite6Model(variant=Lite6Variant.VACUUM_GRIPPER),
-            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+            config=Lite6DriverConfig(
+                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
+                joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
+            ),
         )
 
 
@@ -265,6 +273,8 @@ class TestWriteJointCalls:
         kwargs = arm_mock.set_servo_angle_j.call_args.kwargs
         assert kwargs["is_radian"] is True
         assert np.allclose(kwargs["angles"], positions)
+        assert kwargs["speed"] == _TEST_JOINT_SPEED_LIMIT_RAD_S
+        assert kwargs["mvacc"] == _TEST_JOINT_ACC_LIMIT_RAD_S2
 
     def test_write_joint_velocities_calls_vc_set_joint_velocity(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock

@@ -141,7 +141,7 @@ class TestManipulatorBackendProtocolCompliance:
         assert isinstance(backend, ManipulatorBackend)
 
     def test_hardware_backend_satisfies_protocol(self) -> None:
-        driver_config = Lite6DriverConfig(joint_speed_limit_rad_s=1.0)
+        driver_config = Lite6DriverConfig(joint_speed_limit_rad_s=1.0, joint_acc_limit_rad_s2=2.0)
         driver = Lite6Driver(model=_make_lite6_model(), config=driver_config)
         backend = HardwareManipulatorBackend(
             driver=driver,
