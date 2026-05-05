@@ -181,12 +181,50 @@ class TestHaltResume:
         arm_mock.set_servo_angle.assert_not_called()
         arm_mock.set_mode.assert_not_called()
 
-    def test_resume_calls_set_state_ready(self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock) -> None:
+    def test_resume_before_prime_calls_set_state_ready(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # Pre-prime _current_mode is None, so there's no streaming controller to re-arm. resume
+        # falls back to a bare set_state(READY).
         parallel_driver.resume()
         arm_mock.set_state.assert_called_once_with(state=0)
-        # resume is the symmetric counterpart to halt -- no motion, no mode change.
         arm_mock.set_servo_angle.assert_not_called()
         arm_mock.set_mode.assert_not_called()
+
+    def test_resume_after_prime_re_arms_via_switch_mode(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # After prime _current_mode is POSITION. set_state(READY) alone leaves the firmware's
+        # streaming context dormant after a halt's STOP, so resume re-runs the full switch_mode
+        # dance (set_state STOP -> set_mode -> set_state READY).
+        parallel_driver.prime()
+        arm_mock.set_mode.reset_mock()
+        arm_mock.set_state.reset_mock()
+        parallel_driver.resume()
+        modes = [c.kwargs["mode"] for c in arm_mock.set_mode.call_args_list]
+        assert modes == [0]  # POSITION re-flipped to itself
+        states = [c.kwargs["state"] for c in arm_mock.set_state.call_args_list]
+        # switch_mode emits set_state(STOP=4) then set_state(READY=0).
+        assert states == [4, 0]
+
+    def test_resume_in_velocity_mode_re_arms_velocity(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # The motivating bug: a velocity-streaming policy halted by the watchdog, then resumed,
+        # would have its commands silently ignored by the firmware. Resume must re-flip mode 4
+        # specifically (not just set_state READY) so streaming reactivates.
+        parallel_driver.prime()
+        parallel_driver.write_joint_velocities(
+            JointVelocities(header=TimestampHeader.from_system_time(), velocities=np.zeros(LITE6_ARM_DOF))
+        )
+        assert parallel_driver._current_mode == 4  # VELOCITY
+        arm_mock.set_mode.reset_mock()
+        arm_mock.set_state.reset_mock()
+        parallel_driver.resume()
+        modes = [c.kwargs["mode"] for c in arm_mock.set_mode.call_args_list]
+        assert modes == [4]
+        states = [c.kwargs["state"] for c in arm_mock.set_state.call_args_list]
+        assert states == [4, 0]
 
 
 class TestUnprime:
