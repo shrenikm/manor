@@ -179,7 +179,7 @@ class Lite6Driver(IManipulatorDriver):
         self._current_mode = XArmMode.POSITION
         self._reset_position_limiter()
 
-    def _ensure_mode(self, target: XArmMode) -> None:
+    def _ensure_mode(self, target: XArmMode, *, write_kind: str) -> None:
         # Sticky-mode gate for the streaming write paths. switch_mode goes through STOP -> set_mode
         # -> READY and waits for the heartbeat to confirm; expensive (~200 ms) and aborts any in-
         # flight motion, so we only call it on transitions. Mid-motion switches are safe (the
@@ -188,12 +188,19 @@ class Lite6Driver(IManipulatorDriver):
         # error -- raise rather than silently driving a not-ready arm. Any actual mode change
         # also resets the position limiter -- the previously commanded streaming target is stale
         # if motion went through a different mode in between (e.g. a VELOCITY phase moved the arm
-        # away from _last_commanded_position), so we re-seed from the measured pose on the next
-        # joint-position write.
+        # away from the last commanded JointPositions), so we re-seed from the measured pose on
+        # the next joint-position write. write_kind is the caller's label for the kind of command
+        # that triggered the check (e.g. "joint_positions", "joint_velocities") -- used purely for
+        # the mismatch log so a policy whose command shape disagrees with the previous tick's
+        # shape shows up in the unified manor log stream.
         if self._current_mode is None:
             raise Lite6DriverError("write call issued before prime(); the arm has no operating mode set")
         if self._current_mode is target:
             return
+        self._logger.info(
+            f"command kind={write_kind} requires mode={target.name}; "
+            f"driver was in mode={self._current_mode.name} -- switching"
+        )
         try:
             xarm_switch_mode(self._arm, mode=target, log_fn=self._logger.info)
         except XArmCallError as exc:
@@ -206,6 +213,7 @@ class Lite6Driver(IManipulatorDriver):
         # Refuse motion at the controller level without moving or changing mode -- the arm holds
         # its current pose, motors stay energized, mode stays as set by prime. The watchdog calls
         # this when the action stream goes stale; resume() flips state back to READY.
+        self._logger.info("halt: set_state STOP -- arm holds pose, motors energized, mode preserved")
         self._call(self._arm.set_state(state=XArmState.STOP), "set_state(stop)")
 
     @override
@@ -213,8 +221,9 @@ class Lite6Driver(IManipulatorDriver):
         # Inverse of halt: re-arm the controller for motion. set_state(READY) is idempotent on the
         # firmware side when state is already READY, so spurious resume calls are harmless. Also
         # reset the position limiter -- if the arm decelerated under halt the firmware's actual
-        # pose may have drifted away from _last_commanded_position, and re-seeding from measured on
-        # the next write avoids a snap when streaming resumes.
+        # pose may have drifted away from the last commanded JointPositions, and re-seeding from
+        # measured on the next write avoids a snap when streaming resumes.
+        self._logger.info("resume: set_state READY -- position limiter will re-seed from measured on next write")
         self._call(self._arm.set_state(state=XArmState.READY), "set_state(ready)")
         self._reset_position_limiter()
 
@@ -252,7 +261,7 @@ class Lite6Driver(IManipulatorDriver):
         # _compute_rate_limited_target so each call advances by at most
         # joint_speed_limit_rad_s * dt from the previously commanded position; the SDK's own
         # speed= argument is reserved/ignored by the firmware for this call so we don't pass it.
-        self._ensure_mode(XArmMode.SERVO_POSITION)
+        self._ensure_mode(XArmMode.SERVO_POSITION, write_kind="joint_positions")
         target = joint_positions.positions.astype(np.float64)
         commanded = self._compute_rate_limited_target(target)
         self._call(
@@ -296,7 +305,7 @@ class Lite6Driver(IManipulatorDriver):
         # vc_set_joint_velocity requires mode VELOCITY (mode 4). Same sticky-cache pattern as
         # write_joint_positions; the arm's controller silently no-ops vc_set_joint_velocity if the
         # mode is wrong, which is exactly the bug that motivated this whole refactor.
-        self._ensure_mode(XArmMode.VELOCITY)
+        self._ensure_mode(XArmMode.VELOCITY, write_kind="joint_velocities")
         self._call(
             self._arm.vc_set_joint_velocity(
                 speeds=joint_velocities.velocities.astype(np.float64).tolist(),
