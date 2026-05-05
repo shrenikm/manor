@@ -386,9 +386,12 @@ def cmd_send_jp(
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
     try:
-        typer.echo("priming (target mode: servo position)...")
-        prime(arm, mode=XArmMode.SERVO_POSITION, log_fn=_cli_log)
-        typer.echo("primed.")
+        typer.echo("priming...")
+        prime(arm, log_fn=_cli_log)
+        typer.echo("primed; switching to SERVO_POSITION for streaming...")
+        # prime() always leaves the arm in mode 0 (POSITION); set_servo_angle_j needs mode 1
+        # (SERVO_POSITION), so flip explicitly here.
+        switch_mode(arm, mode=XArmMode.SERVO_POSITION, log_fn=_cli_log)
         send_joint_positions(arm, targets=targets)
     finally:
         typer.echo("unpriming...")
@@ -418,9 +421,12 @@ def cmd_send_jv(
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
     try:
-        typer.echo("priming (target mode: velocity)...")
-        prime(arm, mode=XArmMode.VELOCITY, log_fn=_cli_log)
-        typer.echo("primed.")
+        typer.echo("priming...")
+        prime(arm, log_fn=_cli_log)
+        typer.echo("primed; switching to VELOCITY for streaming...")
+        # prime() always leaves the arm in mode 0 (POSITION); vc_set_joint_velocity needs mode 4
+        # (VELOCITY), so flip explicitly here.
+        switch_mode(arm, mode=XArmMode.VELOCITY, log_fn=_cli_log)
         send_joint_velocities(arm, velocities=velocities, duration_s=duration)
     finally:
         typer.echo("unpriming...")

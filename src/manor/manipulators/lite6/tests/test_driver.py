@@ -136,16 +136,20 @@ class TestPrime:
         parallel_driver.prime()
 
         # The shared helpers ordering: clean_warn, clean_error, motion_enable(True), set_mode(0),
-        # set_state(0), then the move-to-PRIME (set_servo_angle), then a switch into the streaming
-        # mode (STOP -> set_mode(1) -> READY).
+        # set_state(READY), then the move-to-PRIME (set_servo_angle). prime() always leaves the arm
+        # in mode 0 (POSITION); the operating mode for streaming commands is selected lazily by the
+        # write paths via _ensure_mode, so set_mode is called exactly once here (no streaming-mode
+        # flip during prime any more).
         arm_mock.clean_warn.assert_called_once()
         arm_mock.clean_error.assert_called_once()
         arm_mock.motion_enable.assert_called_once_with(enable=True)
         arm_mock.set_servo_angle.assert_called_once()
-        # set_mode is called twice: once during connect (mode 0) and once during the streaming-mode
-        # switch (mode 1).
         modes_called = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
-        assert 0 in modes_called and 1 in modes_called
+        assert modes_called == [0]
+        # _current_mode cache is seeded so write paths know they don't need to switch on the first
+        # POSITION-shaped call (defensive: we never write angles via mode 0 in production, but the
+        # cache is an honest reflection of what xarm_helpers.prime leaves on the arm).
+        assert parallel_driver._current_mode == 0
 
     def test_prime_raises_on_persistent_servo_error(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
@@ -239,6 +243,10 @@ class TestWriteJointCalls:
     def test_write_joint_positions_calls_set_servo_angle_j(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
     ) -> None:
+        # Writes require prime() first so the sticky-mode cache is seeded; otherwise _ensure_mode
+        # raises a Lite6DriverError ("write call issued before prime()") -- which is itself covered
+        # in TestStickyMode.
+        parallel_driver.prime()
         positions = np.linspace(0.0, 0.5, LITE6_ARM_DOF)
         parallel_driver.write_joint_positions(
             JointPositions(header=TimestampHeader.from_system_time(), positions=positions)
@@ -251,6 +259,7 @@ class TestWriteJointCalls:
     def test_write_joint_velocities_calls_vc_set_joint_velocity(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
     ) -> None:
+        parallel_driver.prime()
         velocities = np.full(LITE6_ARM_DOF, 0.1, dtype=np.float64)
         parallel_driver.write_joint_velocities(
             JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
@@ -260,6 +269,104 @@ class TestWriteJointCalls:
         assert kwargs["is_radian"] is True
         assert kwargs["duration"] == 0
         assert np.allclose(kwargs["speeds"], velocities)
+
+
+class TestStickyMode:
+    """
+    Sticky-mode caching in Lite6Driver._ensure_mode. Verifies switch_mode is invoked only on
+    transitions, never on cache hits, and that prime / unprime always leave the arm in POSITION
+    (mode 0) so the cache and the firmware agree.
+    """
+
+    def test_write_before_prime_raises(self, parallel_driver: Lite6Driver) -> None:
+        # _current_mode is None until prime(); writing before prime would silently send commands
+        # to an arm in an unknown mode. Raise instead.
+        positions = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        with pytest.raises(Lite6DriverError, match="before prime"):
+            parallel_driver.write_joint_positions(
+                JointPositions(header=TimestampHeader.from_system_time(), positions=positions)
+            )
+
+    def test_first_position_write_after_prime_switches_to_servo_position(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # prime() ends in POSITION (mode 0); the first set_servo_angle_j requires SERVO_POSITION
+        # (mode 1), so _ensure_mode must call switch_mode (which set_mode's the new mode).
+        parallel_driver.prime()
+        arm_mock.set_mode.reset_mock()
+        positions = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        parallel_driver.write_joint_positions(
+            JointPositions(header=TimestampHeader.from_system_time(), positions=positions)
+        )
+        modes = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
+        assert modes == [1]
+        assert parallel_driver._current_mode == 1
+
+    def test_first_velocity_write_after_prime_switches_to_velocity(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        parallel_driver.prime()
+        arm_mock.set_mode.reset_mock()
+        velocities = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        parallel_driver.write_joint_velocities(
+            JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
+        )
+        modes = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
+        assert modes == [4]
+        assert parallel_driver._current_mode == 4
+
+    def test_repeated_same_shape_writes_skip_switch_mode(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # The whole point of the cache: a streaming policy that publishes only joint velocities
+        # pays the switch cost once, then never again.
+        parallel_driver.prime()
+        velocities = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        for _ in range(5):
+            parallel_driver.write_joint_velocities(
+                JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
+            )
+        # set_mode is called exactly twice: once inside prime() for mode 0, once for the first
+        # transition into mode 4. The remaining four velocity writes hit the cache.
+        modes = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
+        assert modes == [0, 4]
+        assert arm_mock.vc_set_joint_velocity.call_count == 5
+
+    def test_alternating_shapes_switch_each_transition(
+        self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
+    ) -> None:
+        # Worst-case mixed-shape policy: every command flips shape. switch_mode fires on every
+        # transition. Confirms _ensure_mode is called per-write (no missed transitions) and that
+        # the cache reflects the latest write's mode.
+        parallel_driver.prime()
+        arm_mock.set_mode.reset_mock()
+        positions = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        velocities = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        parallel_driver.write_joint_positions(
+            JointPositions(header=TimestampHeader.from_system_time(), positions=positions)
+        )
+        parallel_driver.write_joint_velocities(
+            JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
+        )
+        parallel_driver.write_joint_positions(
+            JointPositions(header=TimestampHeader.from_system_time(), positions=positions)
+        )
+        modes = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
+        assert modes == [1, 4, 1]
+        assert parallel_driver._current_mode == 1
+
+    def test_unprime_resets_cache_to_position(self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock) -> None:
+        # After write_joint_velocities flips us to VELOCITY, unprime takes us back through
+        # POSITION (the move-to-ZERO needs mode 0). The cache must follow so a subsequent prime+
+        # write doesn't think it's still in VELOCITY and skip a needed switch.
+        parallel_driver.prime()
+        velocities = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        parallel_driver.write_joint_velocities(
+            JointVelocities(header=TimestampHeader.from_system_time(), velocities=velocities)
+        )
+        assert parallel_driver._current_mode == 4
+        parallel_driver.unprime()
+        assert parallel_driver._current_mode == 0
 
 
 class TestWriteEECallsParallelGripper:

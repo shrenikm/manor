@@ -49,6 +49,9 @@ from manor.manipulators.lite6.xarm_helpers import (
     prime as xarm_prime,
 )
 from manor.manipulators.lite6.xarm_helpers import (
+    switch_mode as xarm_switch_mode,
+)
+from manor.manipulators.lite6.xarm_helpers import (
     unprime as xarm_unprime,
 )
 from manor.manipulators.manipulator_driver import IManipulatorDriver
@@ -70,11 +73,6 @@ _LITE6_DEFAULT_IP = "192.168.1.178"
 # parallel-gripper URDFs use ~0.008 m for "open"; halfway is fine.
 _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M = 0.004
 
-# Operating mode the driver primes into. Mode 1 (servo position) is the
-# low-latency joint-streaming mode write_joint_positions targets;
-# write_joint_velocities flips to mode 4 on demand inside the call.
-_DRIVER_PRIME_MODE = XArmMode.SERVO_POSITION
-
 
 @attr.define
 class Lite6Driver(IManipulatorDriver):
@@ -86,6 +84,14 @@ class Lite6Driver(IManipulatorDriver):
     model: Lite6Model
     ip: str = _LITE6_DEFAULT_IP
     _arm: XArmAPI = attr.field(init=False)
+    # Sticky-mode cache. Source of truth for the current operating mode -- the firmware's heartbeat-
+    # cached arm.mode lags by ~200 ms and isn't reliable to compare against. None until prime() runs;
+    # prime / unprime always end in mode POSITION (mode 0) so we set it to that. write_joint_positions
+    # / write_joint_velocities lazily switch into SERVO_POSITION (mode 1) / VELOCITY (mode 4) on
+    # first use and on every shape transition; characterised cost is ~190-210 ms per switch (mostly
+    # the heartbeat-poll inside switch_mode), so per-tick switching is infeasible -- caching is what
+    # makes mixed-shape policies tolerable.
+    _current_mode: XArmMode | None = attr.field(init=False, default=None)
     _logger: ManorLogger = attr.field(init=False)
 
     @_arm.default
@@ -110,32 +116,47 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def prime(self) -> None:
-        # Bring-up sequence shared with lite6_cli: clean errors,
-        # motion_enable, settle, mode 0 / READY, soft-recover on
-        # latched servo errors, move to PRIME, then switch into the
-        # streaming mode the production write paths target. The
-        # XArmAPI was constructed with do_not_open=True, so open the
-        # TCP session before issuing SDK calls. arm.connect() is
-        # idempotent on the SDK side -- calling it again on an
-        # already-open session is a cheap no-op via arm.connected.
+        # Bring-up sequence shared with lite6_cli: clean errors, motion_enable, settle, mode 0 /
+        # READY, soft-recover on latched servo errors, move to PRIME. Always leaves the arm in mode
+        # POSITION (mode 0). The XArmAPI was constructed with do_not_open=True, so open the TCP
+        # session before issuing SDK calls. arm.connect() is cheap if already open (we guard on
+        # arm.connected anyway).
         try:
             if not self._arm.connected:
                 self._arm.connect()
-            xarm_prime(self._arm, mode=_DRIVER_PRIME_MODE, log_fn=self._logger.info)
+            xarm_prime(self._arm, log_fn=self._logger.info)
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
+        self._current_mode = XArmMode.POSITION
 
     @override
     def unprime(self) -> None:
-        # Inverse of prime: switch back to mode 0, move to ZERO,
-        # set_state(STOP). Does NOT call motion_enable(False), does NOT
-        # disconnect the TCP session, and does NOT null self._arm --
-        # the watchdog / aegis-shutdown paths may re-prime on the same
-        # driver instance.
+        # Inverse of prime: switch back to mode 0, move to ZERO, set_state(STOP). Does NOT call
+        # motion_enable(False), does NOT disconnect the TCP session, and does NOT null self._arm --
+        # the watchdog / aegis-shutdown paths may re-prime on the same driver instance. xarm_unprime
+        # always finishes by setting mode POSITION, so reset the cache to match.
         try:
             xarm_unprime(self._arm, log_fn=self._logger.info)
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
+        self._current_mode = XArmMode.POSITION
+
+    def _ensure_mode(self, target: XArmMode) -> None:
+        # Sticky-mode gate for the streaming write paths. switch_mode goes through STOP -> set_mode
+        # -> READY and waits for the heartbeat to confirm; expensive (~200 ms) and aborts any in-
+        # flight motion, so we only call it on transitions. Mid-motion switches are safe (the
+        # embedded set_state(STOP) decelerates cleanly, no faults), characterised on hardware on
+        # 2026-05-04. _current_mode is None only before prime(); a write before prime is a usage
+        # error -- raise rather than silently driving a not-ready arm.
+        if self._current_mode is None:
+            raise Lite6DriverError("write call issued before prime(); the arm has no operating mode set")
+        if self._current_mode is target:
+            return
+        try:
+            xarm_switch_mode(self._arm, mode=target, log_fn=self._logger.info)
+        except XArmCallError as exc:
+            raise Lite6DriverError(str(exc)) from exc
+        self._current_mode = target
 
     @override
     def halt(self) -> None:
@@ -178,6 +199,10 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_joint_positions(self, joint_positions: JointPositions) -> None:
+        # set_servo_angle_j requires mode SERVO_POSITION (mode 1). Switch lazily on the first
+        # joint-position write after prime / a velocity write; subsequent same-shape writes are a
+        # cheap cache hit.
+        self._ensure_mode(XArmMode.SERVO_POSITION)
         self._call(
             self._arm.set_servo_angle_j(
                 angles=joint_positions.positions.astype(np.float64).tolist(),
@@ -188,6 +213,10 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def write_joint_velocities(self, joint_velocities: JointVelocities) -> None:
+        # vc_set_joint_velocity requires mode VELOCITY (mode 4). Same sticky-cache pattern as
+        # write_joint_positions; the arm's controller silently no-ops vc_set_joint_velocity if the
+        # mode is wrong, which is exactly the bug that motivated this whole refactor.
+        self._ensure_mode(XArmMode.VELOCITY)
         self._call(
             self._arm.vc_set_joint_velocity(
                 speeds=joint_velocities.velocities.astype(np.float64).tolist(),

@@ -250,22 +250,19 @@ def move_to_configuration(arm: XArmAPI, configuration: Lite6JointConfiguration, 
     )
 
 
-def prime(arm: XArmAPI, mode: XArmMode = XArmMode.SERVO_POSITION, log_fn: LogFn = _noop_log) -> None:
+def prime(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
     """
-    Connect the arm (motors energized, mode 0 / READY, errors clean -- see connect), then move it to a
-    known-clear operational pose (Lite6JointConfiguration.PRIME) and optionally switch into the requested
-    operating mode.
+    Connect the arm (motors energized, mode 0 / READY, errors clean -- see connect) and move it to a
+    known-clear operational pose (Lite6JointConfiguration.PRIME). Always leaves the arm in mode 0
+    (POSITION); the operating mode for streaming commands is the caller's responsibility -- typically
+    Lite6Driver flips into SERVO_POSITION / VELOCITY lazily on the first write.
 
-    Step 2 below deliberately uses mode 0's set_servo_angle (with built-in trajectory generation) rather
-    than mode 1's set_servo_angle_j -- mode 1 is the call we're still characterising via the experiment
-    commands, so we don't want prime/unprime depending on it. Mode 0 is the canonical, well-understood
-    "go to" interface.
+    The move-to-PRIME step uses mode 0's set_servo_angle (with built-in trajectory generation) rather
+    than mode 1's set_servo_angle_j: mode 0 is the canonical "go to" interface and the move-to-PRIME
+    helper requires that mode.
     """
     connect(arm, log_fn=log_fn)
     move_to_configuration(arm, Lite6JointConfiguration.PRIME, log_fn=log_fn)
-    if mode != XArmMode.POSITION:
-        log_fn(f"switching from mode {XArmMode.POSITION} to mode {mode}...")
-        switch_mode(arm, mode=mode, log_fn=log_fn)
 
 
 def unprime(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
