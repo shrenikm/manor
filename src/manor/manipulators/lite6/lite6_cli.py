@@ -31,11 +31,13 @@ import typer
 with contextlib.redirect_stdout(io.StringIO()):
     from xarm.wrapper import XArmAPI
 
+from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguration
 from manor.manipulators.lite6.xarm_helpers import (
     XArmMode,
     XArmState,
     check_xarm_call,
     connect,
+    move_to_configuration,
     prime,
     switch_mode,
     unprime,
@@ -288,25 +290,61 @@ def cmd_probe(
     probe(arm)
 
 
+def _clear_latched_faults(arm: XArmAPI) -> None:
+    """
+    Clear latched controller faults BEFORE running the connect helper. clean_error first, then
+    clean_warn -- the xArm controller refuses warn-clears (returns code=1 'Not Ready') while
+    error_code is non-zero, so a warn-clear-first sequence would raise on a faulted arm and leave
+    the bring-up wedged. This is the user-side counterpart to the latent ordering bug in
+    run_prime_sequence; calling it from the cli's recovery commands lets the operator unwedge an
+    arm without having to drop into the xarm web UI.
+    """
+    _cli_log("clearing latched errors and warnings...")
+    check_xarm_call(arm.clean_error(), "clean_error", arm=arm)
+    check_xarm_call(arm.clean_warn(), "clean_warn", arm=arm)
+
+
 @app.command("connect")
 def cmd_connect(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Explicit bring-up: clean_warn + clean_error, motion_enable(True), settle, set_mode(0),
-    set_state(READY), and verify error_code/warn_code are clean (with a soft motion_enable-cycle recovery
-    on failure). The arm is left energized in mode 0 / READY without being moved -- inverse of disconnect.
+    Explicit bring-up: clear latched faults (clean_error + clean_warn), then run the connect
+    sequence (motion_enable(True), settle, set_mode(0), set_state(READY), verify error_code /
+    warn_code are clean with a soft motion_enable-cycle recovery on failure). The arm is left
+    energized in mode 0 / READY without being moved -- inverse of disconnect.
 
-    Other commands (stream, send_jp, send_jv, manual) implicitly run this same sequence inside prime() at
-    the start of every invocation; this dedicated command is for when you want the bring-up to be its own
-    explicit step (e.g. after a power-cycle, or before opening a teach-pendant session, so the next motion
-    command isn't slowed by the audible-click + 2 s encoder-relock that motion_enable triggers).
+    Other commands (stream, send_jp, send_jv, manual) implicitly run the connect sequence inside
+    prime() at the start of every invocation but skip the explicit fault-clear step; this dedicated
+    command is the right one to reach for after a fault that latched in a previous session (e.g.
+    collision, abrupt unprime).
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
+    _clear_latched_faults(arm)
     typer.echo("running connect sequence...")
     connect(arm, log_fn=_cli_log)
     typer.echo("connected (motors energized, mode 0, READY).")
+
+
+@app.command("zero")
+def cmd_zero(
+    ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
+) -> None:
+    """
+    Move the arm to the ZERO joint configuration in mode 0 (POSITION). Mirrors prime's shape -- the
+    only difference is the target pose -- and like connect, clears latched faults first so the
+    operator can recover a faulted arm with a single command. Leaves the arm energized in mode 0 /
+    READY at ZERO; use disconnect afterward for full teardown.
+    """
+    typer.echo(f"connecting to {ip}...")
+    arm = XArmAPI(port=ip, is_radian=True)
+    _clear_latched_faults(arm)
+    typer.echo("running connect sequence...")
+    connect(arm, log_fn=_cli_log)
+    typer.echo(f"moving to {Lite6JointConfiguration.ZERO.name} pose...")
+    move_to_configuration(arm, Lite6JointConfiguration.ZERO, log_fn=_cli_log)
+    typer.echo(f"at {Lite6JointConfiguration.ZERO.name} (motors energized, mode 0, READY).")
 
 
 @app.command("disconnect")
