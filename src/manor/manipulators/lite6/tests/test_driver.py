@@ -33,11 +33,10 @@ from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
-# Sentinel speed / accel limits for the driver-construction fixtures. Required fields on
-# Lite6DriverConfig (no defaults), so tests have to declare them; the values aren't asserted on,
-# the SDK call is mocked.
+# Sentinel speed limit for the driver-construction fixtures. Required field on
+# Lite6DriverConfig (no default), so tests have to declare one. Most tests don't assert on the
+# value (the SDK call is mocked); the rate-limiter tests in TestRateLimiter pick their own.
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
-_TEST_JOINT_ACC_LIMIT_RAD_S2 = 2.0
 
 
 def _make_arm_mock(positions: np.ndarray | None = None, velocities: np.ndarray | None = None) -> mock.MagicMock:
@@ -95,10 +94,7 @@ def parallel_driver(arm_mock: mock.MagicMock):
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
         yield Lite6Driver(
             model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
-            config=Lite6DriverConfig(
-                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
-                joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
-            ),
+            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
         )
 
 
@@ -107,10 +103,7 @@ def vacuum_driver(arm_mock: mock.MagicMock):
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
         yield Lite6Driver(
             model=Lite6Model(variant=Lite6Variant.VACUUM_GRIPPER),
-            config=Lite6DriverConfig(
-                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
-                joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
-            ),
+            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
         )
 
 
@@ -272,9 +265,11 @@ class TestWriteJointCalls:
         arm_mock.set_servo_angle_j.assert_called_once()
         kwargs = arm_mock.set_servo_angle_j.call_args.kwargs
         assert kwargs["is_radian"] is True
-        assert np.allclose(kwargs["angles"], positions)
-        assert kwargs["speed"] == _TEST_JOINT_SPEED_LIMIT_RAD_S
-        assert kwargs["mvacc"] == _TEST_JOINT_ACC_LIMIT_RAD_S2
+        # Per-call speed / mvacc are NOT passed -- the firmware ignores them for set_servo_angle_j.
+        # Speed limiting happens client-side in _compute_rate_limited_target; see TestRateLimiter.
+        assert "speed" not in kwargs
+        assert "mvacc" not in kwargs
+        assert len(kwargs["angles"]) == LITE6_ARM_DOF
 
     def test_write_joint_velocities_calls_vc_set_joint_velocity(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
@@ -387,6 +382,146 @@ class TestStickyMode:
         assert parallel_driver._current_mode == 4
         parallel_driver.unprime()
         assert parallel_driver._current_mode == 0
+
+
+class TestRateLimiter:
+    """
+    Client-side joint-position rate limiter inside Lite6Driver.write_joint_positions. The xarm
+    SDK's per-call speed= argument on set_servo_angle_j is reserved/ignored by the firmware for
+    mode 1 streaming, so the driver clamps each commanded position to advance by at most
+    joint_speed_limit_rad_s * dt from the previously commanded pose.
+    """
+
+    @staticmethod
+    def _patch_clock(driver: Lite6Driver, timestamps_ns: list[int]) -> None:
+        """
+        Override driver._now_ns to yield the given timestamps in order. Patching the instance
+        method (rather than the global time module) avoids breaking other code in the process
+        that reads monotonic_ns -- TimestampHeader.from_system_time, in particular, is called
+        every time the test constructs a JointPositions/JointVelocities.
+        """
+        it = iter(timestamps_ns)
+        driver._now_ns = lambda: next(it)  # type: ignore[method-assign]
+
+    def _make_driver(self, arm_mock: mock.MagicMock, speed_limit_rad_s: float) -> Lite6Driver:
+        with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
+            return Lite6Driver(
+                model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
+                config=Lite6DriverConfig(joint_speed_limit_rad_s=speed_limit_rad_s),
+            )
+
+    def test_first_write_after_prime_seeds_from_measured_pose(self, arm_mock: mock.MagicMock) -> None:
+        # Set the measured pose to something distinguishable so we can tell the SDK call carried
+        # the measured pose (limiter seed) and not the policy target.
+        measured = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float64)
+        arm_mock.get_joint_states.return_value = (0, (list(measured) + [0.0], [0.0] * 7, [0.0] * 7))
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=1.0)
+        self._patch_clock(driver, [1_000_000_000])
+        driver.prime()
+        target = np.full(LITE6_ARM_DOF, 1.5, dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args.kwargs
+        np.testing.assert_allclose(kwargs["angles"], measured)
+
+    def test_second_write_advances_full_step_when_within_speed_budget(self, arm_mock: mock.MagicMock) -> None:
+        # First call seeds at zeros (the default measured pose). Second call has dt=1s and a
+        # speed limit of 100 rad/s, so max_step=100 rad easily covers a 0.5-rad target delta --
+        # the commanded pose lands exactly on the target.
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=100.0)
+        self._patch_clock(driver, [0, 1_000_000_000])
+        driver.prime()
+        target = np.full(LITE6_ARM_DOF, 0.5, dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args_list[-1].kwargs
+        np.testing.assert_allclose(kwargs["angles"], target)
+
+    def test_second_write_clips_to_max_step_when_target_exceeds_speed_budget(self, arm_mock: mock.MagicMock) -> None:
+        # speed=0.1 rad/s and dt=1s gives max_step=0.1 rad. Target at +1.0 rad far exceeds the
+        # budget; commanded pose advances by exactly 0.1 rad past the seed (zeros).
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=0.1)
+        self._patch_clock(driver, [0, 1_000_000_000])
+        driver.prime()
+        target = np.full(LITE6_ARM_DOF, 1.0, dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args_list[-1].kwargs
+        np.testing.assert_allclose(kwargs["angles"], np.full(LITE6_ARM_DOF, 0.1))
+
+    def test_clip_is_per_joint_signed(self, arm_mock: mock.MagicMock) -> None:
+        # Mixed positive / negative deltas larger than the budget per joint clip toward the target
+        # in each joint independently. speed=0.1 rad/s, dt=1s -> max_step=0.1 rad/joint.
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=0.1)
+        self._patch_clock(driver, [0, 1_000_000_000])
+        driver.prime()
+        target = np.array([1.0, -1.0, 0.05, -0.05, 0.0, 1.0], dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args_list[-1].kwargs
+        # +1.0 -> +0.1 (clipped), -1.0 -> -0.1 (clipped), +/- 0.05 stay (within budget),
+        # 0.0 stays 0, +1.0 -> +0.1 (clipped).
+        expected = np.array([0.1, -0.1, 0.05, -0.05, 0.0, 0.1], dtype=np.float64)
+        np.testing.assert_allclose(kwargs["angles"], expected)
+
+    def test_resume_resets_limiter(self, arm_mock: mock.MagicMock) -> None:
+        # After resume the limiter must re-seed from the measured pose -- the arm may have
+        # decelerated under halt and drifted away from where the previous _last_commanded_position
+        # was set. We swap the measured pose between the second seed and the resume to prove the
+        # post-resume write reads the current measurement, not the cached one.
+        first_measured = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        second_measured = np.full(LITE6_ARM_DOF, 0.7, dtype=np.float64)
+        arm_mock.get_joint_states.return_value = (
+            0,
+            (list(first_measured) + [0.0], [0.0] * 7, [0.0] * 7),
+        )
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=1.0)
+        self._patch_clock(driver, [0, 1_000_000_000, 2_000_000_000])
+        driver.prime()
+        # Seed at zeros.
+        driver.write_joint_positions(
+            JointPositions(header=TimestampHeader.from_system_time(), positions=np.zeros(LITE6_ARM_DOF))
+        )
+        # Halt + resume: limiter should drop its cached seed.
+        driver.halt()
+        arm_mock.get_joint_states.return_value = (
+            0,
+            (list(second_measured) + [0.0], [0.0] * 7, [0.0] * 7),
+        )
+        driver.resume()
+        target = np.full(LITE6_ARM_DOF, 1.5, dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args_list[-1].kwargs
+        # Post-resume write is treated as a fresh seed, so it sends the new measured pose.
+        np.testing.assert_allclose(kwargs["angles"], second_measured)
+
+    def test_velocity_to_position_transition_resets_limiter(self, arm_mock: mock.MagicMock) -> None:
+        # An intervening VELOCITY phase moves the arm away from _last_commanded_position. The
+        # next position write must re-seed from measured rather than continuing from the stale
+        # cache, so swapping the mock's measured pose between the two position writes proves the
+        # second write reads the new measurement.
+        first_measured = np.zeros(LITE6_ARM_DOF, dtype=np.float64)
+        second_measured = np.full(LITE6_ARM_DOF, 0.4, dtype=np.float64)
+        arm_mock.get_joint_states.return_value = (
+            0,
+            (list(first_measured) + [0.0], [0.0] * 7, [0.0] * 7),
+        )
+        driver = self._make_driver(arm_mock, speed_limit_rad_s=1.0)
+        self._patch_clock(driver, [0, 1_000_000_000, 2_000_000_000])
+        driver.prime()
+        driver.write_joint_positions(
+            JointPositions(header=TimestampHeader.from_system_time(), positions=np.zeros(LITE6_ARM_DOF))
+        )
+        driver.write_joint_velocities(
+            JointVelocities(header=TimestampHeader.from_system_time(), velocities=np.zeros(LITE6_ARM_DOF))
+        )
+        arm_mock.get_joint_states.return_value = (
+            0,
+            (list(second_measured) + [0.0], [0.0] * 7, [0.0] * 7),
+        )
+        target = np.full(LITE6_ARM_DOF, 1.0, dtype=np.float64)
+        driver.write_joint_positions(JointPositions(header=TimestampHeader.from_system_time(), positions=target))
+        kwargs = arm_mock.set_servo_angle_j.call_args_list[-1].kwargs
+        np.testing.assert_allclose(kwargs["angles"], second_measured)
 
 
 class TestWriteEECallsParallelGripper:

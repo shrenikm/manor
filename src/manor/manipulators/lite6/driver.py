@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import time
 from typing import Self, override
 
 import attr
@@ -82,22 +83,19 @@ class Lite6DriverConfig:
     driver itself; this config covers behaviour the operator may want to dial per-policy without
     rebuilding the stack.
 
-    joint_speed_limit_rad_s caps the per-joint speed the xarm SDK uses to interpolate position
-    commands in mode 1 (set_servo_angle_j). The SDK clamps the requested value to
-    [_min_joint_speed, pi] so any value above pi is silently floored to pi; values <=0 are
-    rejected at construction time.
-
-    joint_acc_limit_rad_s2 caps the per-joint acceleration the xarm SDK uses for the same
-    interpolation. Without it the SDK reuses _last_joint_acc, which defaults to the firmware
-    ceiling (20 rad/s^2) and produces visibly jerky motion on small position deltas. Clamped by
-    the SDK to [_min_joint_acc, 20]; values <=0 rejected at construction time.
-
-    Both fields required (no default) -- every hardware run must declare them in the YAML so the
-    operator has consciously chosen values matched to the policy.
+    joint_speed_limit_rad_s caps the per-joint speed enforced client-side in
+    write_joint_positions. The xarm SDK accepts a speed= argument on set_servo_angle_j and
+    forwards it to the firmware as mvvelo, but the controller treats it as reserved (ignored)
+    for mode 1 streaming -- documented in the SDK and verified empirically (the arm sprints
+    toward whatever target the streaming call sets, bounded only by the global joint_speed_limit
+    upper bound near pi rad/s, which is enough to trip a 'Not Ready' fault on far-away IK
+    solutions). The driver instead clamps each new commanded position so it advances by at most
+    joint_speed_limit_rad_s * dt from the previously commanded position. Required (no default)
+    -- every hardware run must declare it in the YAML so the operator has consciously chosen a
+    value matched to the policy.
     """
 
     joint_speed_limit_rad_s: float = attr.field(validator=attr.validators.gt(0.0))
-    joint_acc_limit_rad_s2: float = attr.field(validator=attr.validators.gt(0.0))
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
@@ -123,6 +121,13 @@ class Lite6Driver(IManipulatorDriver):
     # the heartbeat-poll inside switch_mode), so per-tick switching is infeasible -- caching is what
     # makes mixed-shape policies tolerable.
     _current_mode: XArmMode | None = attr.field(init=False, default=None)
+    # Client-side rate limiter for write_joint_positions. The xarm SDK's per-call speed= argument
+    # is ignored by the firmware for set_servo_angle_j (mode 1 streaming), so we have to clamp the
+    # advancement of the commanded position ourselves. _last_commanded_position holds the position
+    # we last sent the firmware (None until the first write after prime / resume / unprime), and
+    # _last_command_time_ns holds the monotonic timestamp of that send so we can compute dt.
+    _last_commanded_position: np.ndarray | None = attr.field(init=False, default=None)
+    _last_command_time_ns: int | None = attr.field(init=False, default=None)
     _logger: ManorLogger = attr.field(init=False)
 
     @_arm.default
@@ -159,6 +164,7 @@ class Lite6Driver(IManipulatorDriver):
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
         self._current_mode = XArmMode.POSITION
+        self._reset_position_limiter()
 
     @override
     def unprime(self) -> None:
@@ -171,6 +177,7 @@ class Lite6Driver(IManipulatorDriver):
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
         self._current_mode = XArmMode.POSITION
+        self._reset_position_limiter()
 
     def _ensure_mode(self, target: XArmMode) -> None:
         # Sticky-mode gate for the streaming write paths. switch_mode goes through STOP -> set_mode
@@ -178,7 +185,11 @@ class Lite6Driver(IManipulatorDriver):
         # flight motion, so we only call it on transitions. Mid-motion switches are safe (the
         # embedded set_state(STOP) decelerates cleanly, no faults), characterised on hardware on
         # 2026-05-04. _current_mode is None only before prime(); a write before prime is a usage
-        # error -- raise rather than silently driving a not-ready arm.
+        # error -- raise rather than silently driving a not-ready arm. Any actual mode change
+        # also resets the position limiter -- the previously commanded streaming target is stale
+        # if motion went through a different mode in between (e.g. a VELOCITY phase moved the arm
+        # away from _last_commanded_position), so we re-seed from the measured pose on the next
+        # joint-position write.
         if self._current_mode is None:
             raise Lite6DriverError("write call issued before prime(); the arm has no operating mode set")
         if self._current_mode is target:
@@ -188,6 +199,7 @@ class Lite6Driver(IManipulatorDriver):
         except XArmCallError as exc:
             raise Lite6DriverError(str(exc)) from exc
         self._current_mode = target
+        self._reset_position_limiter()
 
     @override
     def halt(self) -> None:
@@ -199,8 +211,12 @@ class Lite6Driver(IManipulatorDriver):
     @override
     def resume(self) -> None:
         # Inverse of halt: re-arm the controller for motion. set_state(READY) is idempotent on the
-        # firmware side when state is already READY, so spurious resume calls are harmless.
+        # firmware side when state is already READY, so spurious resume calls are harmless. Also
+        # reset the position limiter -- if the arm decelerated under halt the firmware's actual
+        # pose may have drifted away from _last_commanded_position, and re-seeding from measured on
+        # the next write avoids a snap when streaming resumes.
         self._call(self._arm.set_state(state=XArmState.READY), "set_state(ready)")
+        self._reset_position_limiter()
 
     @override
     def read_joint_positions(self) -> JointPositions:
@@ -232,21 +248,50 @@ class Lite6Driver(IManipulatorDriver):
     def write_joint_positions(self, joint_positions: JointPositions) -> None:
         # set_servo_angle_j requires mode SERVO_POSITION (mode 1). Switch lazily on the first
         # joint-position write after prime / a velocity write; subsequent same-shape writes are a
-        # cheap cache hit. speed / mvacc are the per-joint speed and acceleration limits the xarm
-        # SDK uses to interpolate to the target -- without speed the SDK falls back to
-        # _last_joint_speed (defaulting to its uncapped ceiling of pi rad/s) and without mvacc to
-        # _last_joint_acc (defaulting to the firmware ceiling of 20 rad/s^2), both of which jerk
-        # the arm at full speed/accel even for tiny moves.
+        # cheap cache hit. The commanded angles are clamped client-side via
+        # _compute_rate_limited_target so each call advances by at most
+        # joint_speed_limit_rad_s * dt from the previously commanded position; the SDK's own
+        # speed= argument is reserved/ignored by the firmware for this call so we don't pass it.
         self._ensure_mode(XArmMode.SERVO_POSITION)
+        target = joint_positions.positions.astype(np.float64)
+        commanded = self._compute_rate_limited_target(target)
         self._call(
             self._arm.set_servo_angle_j(
-                angles=joint_positions.positions.astype(np.float64).tolist(),
-                speed=self.config.joint_speed_limit_rad_s,
-                mvacc=self.config.joint_acc_limit_rad_s2,
+                angles=commanded.tolist(),
                 is_radian=True,
             ),
             "set_servo_angle_j",
         )
+
+    def _compute_rate_limited_target(self, target: np.ndarray) -> np.ndarray:
+        # On the first call after prime / unprime / resume the limiter has no history, so we seed
+        # _last_commanded_position from the arm's measured pose and emit it as the commanded
+        # value. That makes the first SDK call a no-op write (commanded == measured) which aligns
+        # the streaming target with where the arm actually is; subsequent calls then advance
+        # toward the policy target at the configured speed.
+        now_ns = self._now_ns()
+        if self._last_commanded_position is None or self._last_command_time_ns is None:
+            measured, _ = self._read_joint_state()
+            self._last_commanded_position = measured
+            self._last_command_time_ns = now_ns
+            return measured
+        dt_s = (now_ns - self._last_command_time_ns) / 1e9
+        max_step = self.config.joint_speed_limit_rad_s * dt_s
+        delta = target - self._last_commanded_position
+        commanded = self._last_commanded_position + np.clip(delta, -max_step, max_step)
+        self._last_commanded_position = commanded
+        self._last_command_time_ns = now_ns
+        return commanded
+
+    def _now_ns(self) -> int:
+        # Indirection point so unit tests can patch the limiter's clock per-instance without
+        # mutating the global time module (which would break TimestampHeader.from_system_time
+        # and any other monotonic_ns reader running in the same process).
+        return time.monotonic_ns()
+
+    def _reset_position_limiter(self) -> None:
+        self._last_commanded_position = None
+        self._last_command_time_ns = None
 
     @override
     def write_joint_velocities(self, joint_velocities: JointVelocities) -> None:

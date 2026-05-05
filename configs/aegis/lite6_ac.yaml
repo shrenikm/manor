@@ -32,8 +32,7 @@ talos_config:
   hardware_backend_config:
     minimum_watchdog_frequency_hz: 3.0
     lite6_driver_config:
-      joint_speed_limit_rad_s: 0.01
-      joint_acc_limit_rad_s2: 2.0
+      joint_speed_limit_rad_s: 0.5
   stale_command_watchdog_config:
     publish_frequency_hz: 100.0
 

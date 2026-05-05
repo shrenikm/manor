@@ -30,11 +30,9 @@ from manor.manipulators.manipulator_driver import IManipulatorDriver
 _NUM_DOF = 6
 _NUM_EE_DOFS = 2
 
-# Sentinel speed / accel limits for backend-construction fixtures. The watchdog tests don't
-# exercise the driver write paths, but Lite6DriverConfig is a required field on
-# HardwareManipulatorBackendConfig.
+# Sentinel speed limit for backend-construction fixtures. The watchdog tests don't exercise the
+# driver write paths, but Lite6DriverConfig is a required field on HardwareManipulatorBackendConfig.
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
-_TEST_JOINT_ACC_LIMIT_RAD_S2 = 2.0
 
 
 @attr.define
@@ -117,10 +115,7 @@ def backend(fake_driver: _FakeDriver) -> HardwareManipulatorBackend:
         driver=fake_driver,
         config=HardwareManipulatorBackendConfig(
             minimum_watchdog_frequency_hz=1.0 / 0.3,
-            lite6_driver_config=Lite6DriverConfig(
-                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
-                joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
-            ),
+            lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
         ),
     )
 
@@ -334,22 +329,18 @@ class TestHardwareManipulatorBackendConfig:
         with pytest.raises(ValueError):
             HardwareManipulatorBackendConfig(
                 minimum_watchdog_frequency_hz=0.0,
-                lite6_driver_config=Lite6DriverConfig(
-                    joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
-                    joint_acc_limit_rad_s2=_TEST_JOINT_ACC_LIMIT_RAD_S2,
-                ),
+                lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
             )
 
     def test_from_yaml_dict(self) -> None:
         config = HardwareManipulatorBackendConfig.from_yaml_dict(
             {
                 "minimum_watchdog_frequency_hz": 2.0,
-                "lite6_driver_config": {"joint_speed_limit_rad_s": 0.5, "joint_acc_limit_rad_s2": 1.5},
+                "lite6_driver_config": {"joint_speed_limit_rad_s": 0.5},
             }
         )
         assert config.minimum_watchdog_frequency_hz == 2.0
         assert config.lite6_driver_config.joint_speed_limit_rad_s == 0.5
-        assert config.lite6_driver_config.joint_acc_limit_rad_s2 == 1.5
 
     def test_from_yaml_dict_missing_field_raises(self) -> None:
         from manor.common.exceptions import AegisConfigError
