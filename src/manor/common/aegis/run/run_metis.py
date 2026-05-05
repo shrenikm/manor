@@ -64,10 +64,7 @@ def run_metis(
     builder.AddSystem(LcmInterfaceSystem(lcm))
 
     policy = MetisPolicyManager.from_config(metis_config.policy_config, manipulator_model=manipulator_model)
-    _LOGGER.info(
-        f"metis: policy={type(policy).__name__} (config={type(metis_config.policy_config).__name__}), "
-        f"publish_frequency={metis_config.publish_frequency_hz:.3f} Hz"
-    )
+    _LOGGER.info(f"metis: policy={type(policy).__name__}, publish_frequency={metis_config.publish_frequency_hz:.3f} Hz")
     metis = builder.AddSystem(Metis(policy=policy, publish_frequency=metis_config.publish_frequency_hz))
     metis.set_name(MetisConfig.SYSTEM_NAME)
 
