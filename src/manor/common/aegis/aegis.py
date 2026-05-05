@@ -532,7 +532,10 @@ def _build_backends(
             raise InvalidDefinitionError(
                 f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
             )
-        driver = Lite6Driver(model=config.manipulator_model)
+        driver = Lite6Driver(
+            model=config.manipulator_model,
+            config=config.talos_config.hardware_backend_config.lite6_driver_config,
+        )
         manipulator_backend = HardwareManipulatorBackend(
             driver=driver, config=config.talos_config.hardware_backend_config
         )

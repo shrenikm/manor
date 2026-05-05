@@ -39,6 +39,7 @@ from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.logging_utils import ManorLogger
+from manor.manipulators.lite6.driver import Lite6DriverConfig
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 
 
@@ -54,9 +55,17 @@ class HardwareManipulatorBackendConfig:
     is 1 / minimum_watchdog_frequency_hz seconds. Required (no default)
     -- every hardware run must declare it in the YAML so the operator
     has consciously chosen a value matched to the policy's publish rate.
+
+    lite6_driver_config carries Lite6-specific tuning knobs (joint speed
+    limit, etc.). It lives here -- rather than at a peer level -- because
+    aegis.py constructs the driver inside the same code path that builds
+    this backend, so colocating their configs keeps the YAML compact.
+    Hardware mode is currently Lite6-only; when a second hardware target
+    lands this nests under a per-driver discriminator.
     """
 
     minimum_watchdog_frequency_hz: float = attr.field(validator=attr.validators.gt(0.0))
+    lite6_driver_config: Lite6DriverConfig = attr.field(factory=Lite6DriverConfig)
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:

@@ -44,7 +44,10 @@ from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
+from manor.common.logging_utils import ManorLogger
 from manor.manipulators.manipulator_model import IManipulatorModel
+
+_LOGGER = ManorLogger("run_metis")
 
 
 def run_metis(
@@ -61,6 +64,10 @@ def run_metis(
     builder.AddSystem(LcmInterfaceSystem(lcm))
 
     policy = MetisPolicyManager.from_config(metis_config.policy_config, manipulator_model=manipulator_model)
+    _LOGGER.info(
+        f"metis: policy={type(policy).__name__} (config={type(metis_config.policy_config).__name__}), "
+        f"publish_frequency={metis_config.publish_frequency_hz:.3f} Hz"
+    )
     metis = builder.AddSystem(Metis(policy=policy, publish_frequency=metis_config.publish_frequency_hz))
     metis.set_name(MetisConfig.SYSTEM_NAME)
 

@@ -46,9 +46,12 @@ from manor.common.aegis.talos.stale_command_watchdog import (
 from manor.common.aegis.talos.talos import Talos, TalosConfig, TalosPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.proprioception import Proprioception
+from manor.common.logging_utils import ManorLogger
 from manor.manipulators.lite6.driver import Lite6Driver
 from manor.manipulators.lite6.model import Lite6Model
 from manor.manipulators.manipulator_model import IManipulatorModel
+
+_LOGGER = ManorLogger("run_kylos")
 
 
 def run_kylos(
@@ -70,9 +73,17 @@ def run_kylos(
         raise ValueError(
             f"kylos hardware mode currently supports only Lite6Model; got {type(manipulator_model).__name__}"
         )
-    driver = Lite6Driver(model=manipulator_model)
+    driver = Lite6Driver(
+        model=manipulator_model,
+        config=talos_config.hardware_backend_config.lite6_driver_config,
+    )
     backend = HardwareManipulatorBackend(driver=driver, config=talos_config.hardware_backend_config)
     controller = KyberControllerManager.from_config(kyber_config.controller_config, manipulator_model=manipulator_model)
+    _LOGGER.info(
+        f"kylos: controller={type(controller).__name__} (config={type(kyber_config.controller_config).__name__}), "
+        f"driver={type(driver).__name__} ({manipulator_model.__class__.__name__}), "
+        f"joint_speed_limit={driver.config.joint_speed_limit_rad_s:.3f} rad/s"
+    )
 
     builder = DiagramBuilder()
     builder.AddSystem(LcmInterfaceSystem(lcm))

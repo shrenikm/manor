@@ -43,10 +43,11 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import IO, Annotated, Optional
 
 import attr
 import click
@@ -56,6 +57,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.patch_stdout import patch_stdout
 
 from manor.common.aegis.aegis import AegisConfig, compose_aegis_yaml_dict
 from manor.common.aegis.mode import AegisMode
@@ -396,33 +398,73 @@ def _build_state(config_path: Path, mode_override: Optional[AegisMode]) -> _CliS
     return _CliState(config_path=resolved, config=parsed, raw_config=raw, mode_override=mode_override)
 
 
-def _spawn_block(state: _CliState, block: AegisBlock) -> None:
+def _spawn_block(state: _CliState, block: AegisBlock, *, pipe_output: bool = False) -> None:
     """
-    Spawn one block as a subprocess, write its PID file, and pause
-    briefly so the child's startup output (Drake's Meshcat URL
-    banner, etc.) lands on the TTY before control returns to the
-    caller. Caller is responsible for verifying the block is
+    Spawn one block as a subprocess and write its PID file. When ``pipe_output`` is True (the REPL
+    case) the child's stdout/stderr is captured and pumped through a daemon thread so prompt_toolkit
+    can interleave it with the prompt cleanly via patch_stdout; otherwise (standalone CLI case) the
+    child inherits the parent's TTY directly. Caller is responsible for verifying the block is
     applicable to the current mode and not already running.
     """
-    payload = json.dumps(state.raw_config).encode("utf-8")
-    proc = subprocess.Popen(
-        [sys.executable, "-m", _BLOCK_RUN_MODULE[block]],
-        stdin=subprocess.PIPE,
-        # Detach from the supervisor's stdout/stderr so the REPL
-        # doesn't get spammed with the child's logs; the child can
-        # still write to its own descriptors.
-        stdout=None,
-        stderr=None,
-    )
-    assert proc.stdin is not None
-    proc.stdin.write(payload)
-    proc.stdin.close()
+    payload_text = json.dumps(state.raw_config)
+    if pipe_output:
+        # text=True + bufsize=1 = line-buffered text mode so the pump thread sees each log line as
+        # the child emits it (binary mode is fully buffered, which would queue lines until the
+        # child exits). stderr=STDOUT folds the two streams so we keep ordering and only need one
+        # pump thread per child.
+        proc = subprocess.Popen(
+            [sys.executable, "-m", _BLOCK_RUN_MODULE[block]],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write(payload_text)
+        proc.stdin.close()
+        threading.Thread(
+            target=_pump_child_output,
+            args=(proc.stdout, block.value),
+            daemon=True,
+        ).start()
+    else:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", _BLOCK_RUN_MODULE[block]],
+            stdin=subprocess.PIPE,
+            stdout=None,
+            stderr=None,
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(payload_text.encode("utf-8"))
+        proc.stdin.close()
     _write_pid(block, proc.pid)
     _echo_success(f"started {block.value} (pid {proc.pid})")
-    # Same TTY race as ``_kill_impl``'s wait, in the opposite
-    # direction: let the child print its startup output before the
-    # REPL redraws its prompt.
-    time.sleep(_RUN_SETTLE_S)
+    # patch_stdout in the REPL handles the prompt-vs-child-output race for us, so the settle is
+    # only needed in the standalone path where the parent's shell prompt would otherwise race the
+    # child's startup banner.
+    if not pipe_output:
+        time.sleep(_RUN_SETTLE_S)
+
+
+def _pump_child_output(pipe: IO[str], label: str) -> None:
+    """
+    Drain ``pipe`` line-by-line, prefixing each line with the block label so the REPL operator can
+    tell which child emitted it. Runs in a daemon thread so it dies with the supervisor; print()
+    goes through prompt_toolkit's patch_stdout which is responsible for redrawing the prompt
+    cleanly around the new output.
+    """
+    try:
+        for line in iter(pipe.readline, ""):
+            print(f"[{label}] {line}", end="", flush=True)
+    except (OSError, ValueError):
+        # pipe closed mid-read (e.g. child SIGKILL'd); nothing to recover, just let the thread end.
+        pass
+    finally:
+        try:
+            pipe.close()
+        except OSError:
+            pass
 
 
 # --- impl functions ---------------------------------------------------------
@@ -435,11 +477,12 @@ def _spawn_block(state: _CliState, block: AegisBlock) -> None:
 # truth) and forward to the impls.
 
 
-def _run_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
+def _run_impl(state: _CliState, block: Optional[AegisBlock], *, pipe_output: bool = False) -> None:
     """
-    Spawn ``block`` (or every applicable block, if ``block is None``)
-    using ``state``'s config + mode. Refuses to start a block that
-    isn't part of the configured mode, or one that's already running.
+    Spawn ``block`` (or every applicable block, if ``block is None``) using ``state``'s config +
+    mode. Refuses to start a block that isn't part of the configured mode, or one that's already
+    running. ``pipe_output`` is forwarded to ``_spawn_block`` -- True for the REPL caller (so child
+    output can be patched into the prompt cleanly), False for the standalone CLI caller.
     """
     allowed = _MODE_BLOCKS[state.config.mode]
     if block is None:
@@ -453,7 +496,7 @@ def _run_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
             if existing is not None:
                 _echo_warn(f"{b.value} already running (pid {existing})")
                 continue
-            _spawn_block(state, b)
+            _spawn_block(state, b, pipe_output=pipe_output)
             started += 1
         if started == 0:
             _echo_warn("nothing to start")
@@ -467,7 +510,7 @@ def _run_impl(state: _CliState, block: Optional[AegisBlock]) -> None:
     if (existing := _read_pid(block)) is not None:
         _echo_error(f"{block.value} already running (pid {existing})")
         raise typer.Exit(code=1)
-    _spawn_block(state, block)
+    _spawn_block(state, block, pipe_output=pipe_output)
 
 
 def _kill_impl(block: Optional[AegisBlock]) -> None:
@@ -663,27 +706,30 @@ def repl(
     )
     prompt_text = HTML("<ansicyan><b>aegis &gt;&gt;</b></ansicyan> ")
 
-    # The try/finally guarantees ``_kill_all_running_blocks`` runs on
-    # every exit path (typed 'exit', Ctrl-D, unexpected exception) so
-    # subprocess children don't outlive the supervisor.
+    # The try/finally guarantees ``_kill_all_running_blocks`` runs on every exit path (typed
+    # 'exit', Ctrl-D, unexpected exception) so subprocess children don't outlive the supervisor.
+    # patch_stdout(raw=True) routes any print() / sys.stdout.write that fires while the prompt is
+    # waiting for input through prompt_toolkit's redraw machinery, so child-process log lines
+    # pumped by _pump_child_output land cleanly above the prompt instead of trampling it.
     try:
-        while True:
-            try:
-                line = session.prompt(prompt_text).strip()
-            except EOFError:
-                typer.echo()
-                return
-            except KeyboardInterrupt:
-                # Mirror bash: Ctrl-C clears the line, doesn't exit.
-                continue
-            if not line:
-                continue
-            if line in {"exit", "quit", "q"}:
-                return
-            if line == "help":
-                _print_repl_help()
-                continue
-            state = _dispatch_repl_line(line, state)
+        with patch_stdout(raw=True):
+            while True:
+                try:
+                    line = session.prompt(prompt_text).strip()
+                except EOFError:
+                    typer.echo()
+                    return
+                except KeyboardInterrupt:
+                    # Mirror bash: Ctrl-C clears the line, doesn't exit.
+                    continue
+                if not line:
+                    continue
+                if line in {"exit", "quit", "q"}:
+                    return
+                if line == "help":
+                    _print_repl_help()
+                    continue
+                state = _dispatch_repl_line(line, state)
     finally:
         _kill_all_running_blocks()
 
@@ -836,7 +882,15 @@ def _dispatch_repl_line(line: str, state: _CliState) -> _CliState:
         return state
     try:
         if cmd == "run":
-            _run_impl(state, block)
+            # Silently re-read the YAML so the natural workflow `kill metis -> edit YAML -> run
+            # metis` picks up the edit without a separate `reload` command. A parse error here is
+            # surfaced as an error and the previous state is kept (matches _reload_impl's contract).
+            try:
+                state = _build_state(state.config_path, state.mode_override)
+            except (typer.BadParameter, AegisConfigError) as exc:
+                _echo_error(f"config reload failed: {exc}")
+                return state
+            _run_impl(state, block, pipe_output=True)
         elif cmd == "status":
             _status_impl(state, block)
         else:

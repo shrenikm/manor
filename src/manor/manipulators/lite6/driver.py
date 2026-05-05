@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import contextlib
 import io
-from typing import override
+import math
+from typing import Self, override
 
 import attr
 import numpy as np
 
+from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
@@ -73,6 +75,37 @@ _LITE6_DEFAULT_IP = "192.168.1.178"
 # parallel-gripper URDFs use ~0.008 m for "open"; halfway is fine.
 _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M = 0.004
 
+# Default joint speed limit for set_servo_angle_j(speed=...). The xarm SDK clamps speed to
+# [_min_joint_speed, math.pi] internally (see xarm.x3.xarm.__get_joint_motion_params), so the
+# absolute ceiling is pi rad/s. We default to ~30 % of that (~0.94 rad/s) for safe iteration:
+# unparameterised position commands at the SDK's default speed snap so fast they look like jerks
+# even on small targets. Tune per-policy via Lite6DriverConfig.joint_speed_limit_rad_s once a
+# policy has been validated at the conservative speed.
+_LITE6_DEFAULT_JOINT_SPEED_LIMIT_RAD_S: float = 0.3 * math.pi
+
+
+@attr.frozen
+class Lite6DriverConfig:
+    """
+    Tunable knobs for the Lite6 hardware driver. Identity / connectivity (model, ip) live on the
+    driver itself; this config covers behaviour the operator may want to dial per-policy without
+    rebuilding the stack.
+
+    joint_speed_limit_rad_s caps the per-joint speed the xarm SDK uses to interpolate position
+    commands in mode 1 (set_servo_angle_j). The SDK clamps the requested value to
+    [_min_joint_speed, pi] so any value above pi is silently floored to pi; values <=0 are
+    rejected at construction time.
+    """
+
+    joint_speed_limit_rad_s: float = attr.field(
+        default=_LITE6_DEFAULT_JOINT_SPEED_LIMIT_RAD_S,
+        validator=attr.validators.gt(0.0),
+    )
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        return cls(**parse_attrs_yaml(cls, d, "lite6_driver_config"))
+
 
 @attr.define
 class Lite6Driver(IManipulatorDriver):
@@ -82,6 +115,7 @@ class Lite6Driver(IManipulatorDriver):
     """
 
     model: Lite6Model
+    config: Lite6DriverConfig = attr.field(factory=Lite6DriverConfig)
     ip: str = _LITE6_DEFAULT_IP
     _arm: XArmAPI = attr.field(init=False)
     # Sticky-mode cache. Source of truth for the current operating mode -- the firmware's heartbeat-
@@ -201,11 +235,14 @@ class Lite6Driver(IManipulatorDriver):
     def write_joint_positions(self, joint_positions: JointPositions) -> None:
         # set_servo_angle_j requires mode SERVO_POSITION (mode 1). Switch lazily on the first
         # joint-position write after prime / a velocity write; subsequent same-shape writes are a
-        # cheap cache hit.
+        # cheap cache hit. speed is the per-joint speed limit the xarm SDK uses to interpolate to
+        # the target -- without it the SDK uses _last_joint_speed (defaulting to its uncapped
+        # ceiling of pi rad/s), which jerks the arm at full speed even for tiny moves.
         self._ensure_mode(XArmMode.SERVO_POSITION)
         self._call(
             self._arm.set_servo_angle_j(
                 angles=joint_positions.positions.astype(np.float64).tolist(),
+                speed=self.config.joint_speed_limit_rad_s,
                 is_radian=True,
             ),
             "set_servo_angle_j",
