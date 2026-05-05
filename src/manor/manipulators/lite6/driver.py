@@ -25,13 +25,13 @@ from __future__ import annotations
 
 import contextlib
 import io
-import time
 from typing import Self, override
 
 import attr
 import numpy as np
 
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
+from manor.common.custom_types import JointPositionsVector, JointVelocitiesVector
 from manor.common.definitions.ee_positions import EEPositions
 from manor.common.definitions.ee_velocities import EEVelocities
 from manor.common.definitions.joint_positions import JointPositions
@@ -121,13 +121,13 @@ class Lite6Driver(IManipulatorDriver):
     # the heartbeat-poll inside switch_mode), so per-tick switching is infeasible -- caching is what
     # makes mixed-shape policies tolerable.
     _current_mode: XArmMode | None = attr.field(init=False, default=None)
-    # Client-side rate limiter for write_joint_positions. The xarm SDK's per-call speed= argument
-    # is ignored by the firmware for set_servo_angle_j (mode 1 streaming), so we have to clamp the
-    # advancement of the commanded position ourselves. _last_commanded_position holds the position
-    # we last sent the firmware (None until the first write after prime / resume / unprime), and
-    # _last_command_time_ns holds the monotonic timestamp of that send so we can compute dt.
-    _last_commanded_position: np.ndarray | None = attr.field(init=False, default=None)
-    _last_command_time_ns: int | None = attr.field(init=False, default=None)
+    # Client-side rate limiter state for write_joint_positions. The xarm SDK's per-call speed=
+    # argument is ignored by the firmware for set_servo_angle_j (mode 1 streaming), so we clamp
+    # the advancement of the commanded position ourselves. The previously commanded
+    # (position, timestamp) pair lives inside a single JointPositions -- the header carries the
+    # monotonic_ns we need for dt, the positions field carries the vector we step from. None
+    # until the first write after prime / resume / unprime / a mode change.
+    _last_commanded_joint_positions: JointPositions | None = attr.field(init=False, default=None)
     _logger: ManorLogger = attr.field(init=False)
 
     @_arm.default
@@ -263,35 +263,33 @@ class Lite6Driver(IManipulatorDriver):
             "set_servo_angle_j",
         )
 
-    def _compute_rate_limited_target(self, target: np.ndarray) -> np.ndarray:
-        # On the first call after prime / unprime / resume the limiter has no history, so we seed
-        # _last_commanded_position from the arm's measured pose and emit it as the commanded
-        # value. That makes the first SDK call a no-op write (commanded == measured) which aligns
-        # the streaming target with where the arm actually is; subsequent calls then advance
-        # toward the policy target at the configured speed.
-        now_ns = self._now_ns()
-        if self._last_commanded_position is None or self._last_command_time_ns is None:
+    def _compute_rate_limited_target(self, target: JointPositionsVector) -> JointPositionsVector:
+        # On the first call after prime / unprime / resume / a mode change the limiter has no
+        # history, so we seed it from the arm's measured pose and emit that as the commanded
+        # value. The first SDK call is then a no-op write (commanded == measured) which aligns
+        # the streaming target with where the arm actually is; subsequent calls advance toward
+        # the policy target at the configured speed.
+        now = self._now_timestamp_header()
+        if self._last_commanded_joint_positions is None:
             measured, _ = self._read_joint_state()
-            self._last_commanded_position = measured
-            self._last_command_time_ns = now_ns
+            self._last_commanded_joint_positions = JointPositions(header=now, positions=measured)
             return measured
-        dt_s = (now_ns - self._last_command_time_ns) / 1e9
+        last = self._last_commanded_joint_positions
+        dt_s = (now.monotonic_ns - last.header.monotonic_ns) / 1e9
         max_step = self.config.joint_speed_limit_rad_s * dt_s
-        delta = target - self._last_commanded_position
-        commanded = self._last_commanded_position + np.clip(delta, -max_step, max_step)
-        self._last_commanded_position = commanded
-        self._last_command_time_ns = now_ns
+        delta = target - last.positions
+        commanded = last.positions + np.clip(delta, -max_step, max_step)
+        self._last_commanded_joint_positions = JointPositions(header=now, positions=commanded)
         return commanded
 
-    def _now_ns(self) -> int:
+    def _now_timestamp_header(self) -> TimestampHeader:
         # Indirection point so unit tests can patch the limiter's clock per-instance without
         # mutating the global time module (which would break TimestampHeader.from_system_time
-        # and any other monotonic_ns reader running in the same process).
-        return time.monotonic_ns()
+        # and every other monotonic_ns reader running in the same process).
+        return TimestampHeader.from_system_time()
 
     def _reset_position_limiter(self) -> None:
-        self._last_commanded_position = None
-        self._last_command_time_ns = None
+        self._last_commanded_joint_positions = None
 
     @override
     def write_joint_velocities(self, joint_velocities: JointVelocities) -> None:
@@ -325,7 +323,7 @@ class Lite6Driver(IManipulatorDriver):
             is_open = bool(np.max(ee_velocities.velocities) > 0.0)
             self._send_gripper_command(open_command=is_open)
 
-    def _read_joint_state(self) -> tuple[np.ndarray, np.ndarray]:
+    def _read_joint_state(self) -> tuple[JointPositionsVector, JointVelocitiesVector]:
         ret_code, raw = self._arm.get_joint_states(is_radian=True)
         try:
             check_xarm_call(ret_code, "get_joint_states", arm=self._arm)

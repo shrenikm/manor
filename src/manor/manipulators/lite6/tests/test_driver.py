@@ -393,15 +393,16 @@ class TestRateLimiter:
     """
 
     @staticmethod
-    def _patch_clock(driver: Lite6Driver, timestamps_ns: list[int]) -> None:
+    def _patch_clock(driver: Lite6Driver, monotonic_ns_values: list[int]) -> None:
         """
-        Override driver._now_ns to yield the given timestamps in order. Patching the instance
-        method (rather than the global time module) avoids breaking other code in the process
-        that reads monotonic_ns -- TimestampHeader.from_system_time, in particular, is called
-        every time the test constructs a JointPositions/JointVelocities.
+        Override driver._now_timestamp_header so the rate limiter sees a controlled stream of
+        monotonic timestamps. Each value yields a TimestampHeader with that monotonic_ns and a
+        sentinel system_ns -- the limiter only reads monotonic_ns. Patching the instance method
+        (rather than the global time module or TimestampHeader classmethod) avoids breaking
+        other code in the process that constructs headers via from_system_time.
         """
-        it = iter(timestamps_ns)
-        driver._now_ns = lambda: next(it)  # type: ignore[method-assign]
+        it = iter(monotonic_ns_values)
+        driver._now_timestamp_header = lambda: TimestampHeader(monotonic_ns=next(it), system_ns=0)  # type: ignore[method-assign]
 
     def _make_driver(self, arm_mock: mock.MagicMock, speed_limit_rad_s: float) -> Lite6Driver:
         with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
