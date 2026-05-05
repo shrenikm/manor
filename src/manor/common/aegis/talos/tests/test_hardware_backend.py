@@ -24,10 +24,15 @@ from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.testing_utils import run_manor_tests
+from manor.manipulators.lite6.driver import Lite6DriverConfig
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 
 _NUM_DOF = 6
 _NUM_EE_DOFS = 2
+
+# Sentinel speed limit for backend-construction fixtures. The watchdog tests don't exercise the
+# driver write paths, but Lite6DriverConfig is a required field on HardwareManipulatorBackendConfig.
+_TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
 
 
 @attr.define
@@ -108,7 +113,10 @@ def backend(fake_driver: _FakeDriver) -> HardwareManipulatorBackend:
     # 1 / 0.3s ~= 3.33 Hz -- watchdog trips after ~300 ms of silence.
     return HardwareManipulatorBackend(
         driver=fake_driver,
-        config=HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=1.0 / 0.3),
+        config=HardwareManipulatorBackendConfig(
+            minimum_watchdog_frequency_hz=1.0 / 0.3,
+            lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+        ),
     )
 
 
@@ -312,13 +320,27 @@ class TestHardwareManipulatorBackendConfig:
         with pytest.raises(TypeError):
             HardwareManipulatorBackendConfig()
 
+    def test_lite6_driver_config_is_required(self) -> None:
+        # Same contract as minimum_watchdog_frequency_hz: required field, no factory default.
+        with pytest.raises(TypeError):
+            HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0)
+
     def test_rejects_non_positive_minimum_watchdog_frequency_hz(self) -> None:
         with pytest.raises(ValueError):
-            HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=0.0)
+            HardwareManipulatorBackendConfig(
+                minimum_watchdog_frequency_hz=0.0,
+                lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+            )
 
     def test_from_yaml_dict(self) -> None:
-        config = HardwareManipulatorBackendConfig.from_yaml_dict({"minimum_watchdog_frequency_hz": 2.0})
+        config = HardwareManipulatorBackendConfig.from_yaml_dict(
+            {
+                "minimum_watchdog_frequency_hz": 2.0,
+                "lite6_driver_config": {"joint_speed_limit_rad_s": 0.5},
+            }
+        )
         assert config.minimum_watchdog_frequency_hz == 2.0
+        assert config.lite6_driver_config.joint_speed_limit_rad_s == 0.5
 
     def test_from_yaml_dict_missing_field_raises(self) -> None:
         from manor.common.exceptions import AegisConfigError

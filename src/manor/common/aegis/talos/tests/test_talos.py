@@ -28,7 +28,7 @@ from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.lite6.driver import Lite6Driver
+from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
@@ -141,10 +141,14 @@ class TestManipulatorBackendProtocolCompliance:
         assert isinstance(backend, ManipulatorBackend)
 
     def test_hardware_backend_satisfies_protocol(self) -> None:
-        driver = Lite6Driver(model=_make_lite6_model())
+        driver_config = Lite6DriverConfig(joint_speed_limit_rad_s=1.0)
+        driver = Lite6Driver(model=_make_lite6_model(), config=driver_config)
         backend = HardwareManipulatorBackend(
             driver=driver,
-            config=HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0),
+            config=HardwareManipulatorBackendConfig(
+                minimum_watchdog_frequency_hz=3.0,
+                lite6_driver_config=driver_config,
+            ),
         )
         assert isinstance(backend, ManipulatorBackend)
 

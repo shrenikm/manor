@@ -29,9 +29,13 @@ from manor.common.exceptions import Lite6DriverError
 from manor.common.testing_utils import run_manor_tests
 from manor.manipulators.lite6 import driver as driver_module
 from manor.manipulators.lite6 import xarm_helpers as xarm_helpers_module
-from manor.manipulators.lite6.driver import Lite6Driver
+from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
+
+# Sentinel speed limit for the driver-construction fixtures. Required field on Lite6DriverConfig
+# (no default), so tests have to declare one; the value isn't asserted on, the SDK call is mocked.
+_TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
 
 
 def _make_arm_mock(positions: np.ndarray | None = None, velocities: np.ndarray | None = None) -> mock.MagicMock:
@@ -87,13 +91,19 @@ def parallel_driver(arm_mock: mock.MagicMock):
     on the mock instead of trying to reach the real robot.
     """
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
-        yield Lite6Driver(model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL))
+        yield Lite6Driver(
+            model=Lite6Model(variant=Lite6Variant.PARALLEL_GRIPPER_NORMAL),
+            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+        )
 
 
 @pytest.fixture
 def vacuum_driver(arm_mock: mock.MagicMock):
     with mock.patch.object(driver_module, "XArmAPI", return_value=arm_mock):
-        yield Lite6Driver(model=Lite6Model(variant=Lite6Variant.VACUUM_GRIPPER))
+        yield Lite6Driver(
+            model=Lite6Model(variant=Lite6Variant.VACUUM_GRIPPER),
+            config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
+        )
 
 
 @pytest.fixture(autouse=True)

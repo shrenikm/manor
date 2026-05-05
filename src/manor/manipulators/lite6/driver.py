@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import math
 from typing import Self, override
 
 import attr
@@ -75,14 +74,6 @@ _LITE6_DEFAULT_IP = "192.168.1.178"
 # parallel-gripper URDFs use ~0.008 m for "open"; halfway is fine.
 _LITE6_PARALLEL_GRIPPER_OPEN_THRESHOLD_M = 0.004
 
-# Default joint speed limit for set_servo_angle_j(speed=...). The xarm SDK clamps speed to
-# [_min_joint_speed, math.pi] internally (see xarm.x3.xarm.__get_joint_motion_params), so the
-# absolute ceiling is pi rad/s. We default to ~30 % of that (~0.94 rad/s) for safe iteration:
-# unparameterised position commands at the SDK's default speed snap so fast they look like jerks
-# even on small targets. Tune per-policy via Lite6DriverConfig.joint_speed_limit_rad_s once a
-# policy has been validated at the conservative speed.
-_LITE6_DEFAULT_JOINT_SPEED_LIMIT_RAD_S: float = 0.3 * math.pi
-
 
 @attr.frozen
 class Lite6DriverConfig:
@@ -94,13 +85,11 @@ class Lite6DriverConfig:
     joint_speed_limit_rad_s caps the per-joint speed the xarm SDK uses to interpolate position
     commands in mode 1 (set_servo_angle_j). The SDK clamps the requested value to
     [_min_joint_speed, pi] so any value above pi is silently floored to pi; values <=0 are
-    rejected at construction time.
+    rejected at construction time. Required (no default) -- every hardware run must declare it
+    in the YAML so the operator has consciously chosen a value matched to the policy.
     """
 
-    joint_speed_limit_rad_s: float = attr.field(
-        default=_LITE6_DEFAULT_JOINT_SPEED_LIMIT_RAD_S,
-        validator=attr.validators.gt(0.0),
-    )
+    joint_speed_limit_rad_s: float = attr.field(validator=attr.validators.gt(0.0))
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
@@ -115,7 +104,7 @@ class Lite6Driver(IManipulatorDriver):
     """
 
     model: Lite6Model
-    config: Lite6DriverConfig = attr.field(factory=Lite6DriverConfig)
+    config: Lite6DriverConfig
     ip: str = _LITE6_DEFAULT_IP
     _arm: XArmAPI = attr.field(init=False)
     # Sticky-mode cache. Source of truth for the current operating mode -- the firmware's heartbeat-

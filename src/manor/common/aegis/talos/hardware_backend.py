@@ -65,7 +65,7 @@ class HardwareManipulatorBackendConfig:
     """
 
     minimum_watchdog_frequency_hz: float = attr.field(validator=attr.validators.gt(0.0))
-    lite6_driver_config: Lite6DriverConfig = attr.field(factory=Lite6DriverConfig)
+    lite6_driver_config: Lite6DriverConfig
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
