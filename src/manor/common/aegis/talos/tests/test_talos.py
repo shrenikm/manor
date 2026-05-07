@@ -224,6 +224,30 @@ class TestSimManipulatorBackend:
         # The model's EE DOF count is 1 (parallel gripper opening width).
         assert ee_state.ee_positions.positions.shape == (1,)
 
+    def test_start_snaps_plant_to_prime_plant_positions(self) -> None:
+        # Mirror of HardwareManipulatorBackend.start: in sim there's no streaming controller to
+        # ramp toward the target, so start snaps the plant context to the model's PRIME plant
+        # positions vector. Verifies the model lookup goes through manipulator_model and the call
+        # routes to gaia.set_joint_positions with that exact vector.
+        model = _make_lite6_model()
+        gaia = mock.MagicMock(spec=Gaia)
+        gaia.manipulator_model = model
+        backend = SimManipulatorBackend(gaia=gaia)
+        backend.start()
+        gaia.set_joint_positions.assert_called_once()
+        called_with = gaia.set_joint_positions.call_args.args[0]
+        np.testing.assert_array_equal(called_with, model.get_prime_plant_positions())
+
+    def test_stop_snaps_plant_to_rest_plant_positions(self) -> None:
+        model = _make_lite6_model()
+        gaia = mock.MagicMock(spec=Gaia)
+        gaia.manipulator_model = model
+        backend = SimManipulatorBackend(gaia=gaia)
+        backend.stop()
+        gaia.set_joint_positions.assert_called_once()
+        called_with = gaia.set_joint_positions.call_args.args[0]
+        np.testing.assert_array_equal(called_with, model.get_rest_plant_positions())
+
 
 if __name__ == "__main__":
     run_manor_tests()

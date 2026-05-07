@@ -267,13 +267,13 @@ def prime(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
 
 def unprime(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
     """
-    Inverse of prime: move the arm back to Lite6JointConfiguration.ZERO and flip the controller to STOP.
+    Inverse of prime: move the arm back to Lite6JointConfiguration.REST and flip the controller to STOP.
     Does NOT call motion_enable(False) or disconnect -- motors stay energized so the next prime skips the
     brake-release / encoder-relock latency, and the TCP session stays open so we skip the re-handshake.
     Use the lite6_cli disconnect command for full teardown (stop + motor disable + session release) when
     you're done with the session.
 
-    The move-to-ZERO step is wrapped in try/except so a wedged controller (e.g. recovering from a fault
+    The move-to-REST step is wrapped in try/except so a wedged controller (e.g. recovering from a fault
     that the operating command triggered) doesn't block the set_state(STOP) we still want to issue.
 
     Always switches back to mode 0 first because the move uses set_servo_angle with built-in trajectory
@@ -282,7 +282,7 @@ def unprime(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
     """
     try:
         switch_mode(arm, mode=XArmMode.POSITION, log_fn=log_fn)
-        move_to_configuration(arm, Lite6JointConfiguration.ZERO, log_fn=log_fn)
+        move_to_configuration(arm, Lite6JointConfiguration.REST, log_fn=log_fn)
     except Exception as exc:
-        log_fn(f"warning: move-to-{Lite6JointConfiguration.ZERO.name} during unprime failed: {exc}")
+        log_fn(f"warning: move-to-{Lite6JointConfiguration.REST.name} during unprime failed: {exc}")
     arm.set_state(state=XArmState.STOP)

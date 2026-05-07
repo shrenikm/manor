@@ -21,10 +21,12 @@ from manor.common.custom_types import (
     EEPositionsVector,
     EEVelocitiesVector,
     FilePath,
+    JointPositionsVector,
     PlantEEPositionsVector,
     PlantEEVelocitiesVector,
 )
 from manor.common.model_utils import ROBOT_MODELS_DRAKE_URDF_DIRNAME, get_robot_models_directory_path
+from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguration
 from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
@@ -261,6 +263,23 @@ class Lite6Model(IManipulatorModel):
                 f"({LITE6_PARALLEL_GRIPPER_PLANT_DOF},); got {plant_ee_velocities.shape}"
             )
         return np.array([float(plant_ee_velocities[0] - plant_ee_velocities[1])], dtype=np.float64)
+
+    @override
+    def get_prime_plant_positions(self) -> JointPositionsVector:
+        return self._plant_positions_at(Lite6JointConfiguration.PRIME)
+
+    @override
+    def get_rest_plant_positions(self) -> JointPositionsVector:
+        return self._plant_positions_at(Lite6JointConfiguration.REST)
+
+    def _plant_positions_at(self, configuration: Lite6JointConfiguration) -> JointPositionsVector:
+        # Arm joints come from the named configuration; the EE block is the URDF q neutral state
+        # (zeros). For the parallel-gripper variants the two prismatic fingers at q=0 sit at the
+        # URDF link-origin offset, which is the variant's "closed" width -- a reasonable default
+        # to start in. Vacuum variants have no actuated EE joints, so the EE block is empty.
+        arm_q = configuration.get_joint_positions_vector()
+        ee_q = np.zeros(self.get_num_positions() - LITE6_ARM_DOF, dtype=np.float64)
+        return np.concatenate([arm_q, ee_q])
 
     @override
     def get_default_sim_pid_gains(self) -> PIDGains:

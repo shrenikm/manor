@@ -228,18 +228,18 @@ class TestHaltResume:
 
 
 class TestUnprime:
-    def test_unprime_switches_to_position_moves_to_zero_and_stops(
+    def test_unprime_switches_to_position_moves_to_rest_and_stops(
         self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock
     ) -> None:
         # The arm-mock's set_mode side-effect mirrors firmware: arm.mode flips to whatever was last
-        # requested. unprime requests mode 0 (POSITION) before moving to ZERO; we just verify the
+        # requested. unprime requests mode 0 (POSITION) before moving to REST; we just verify the
         # call sequence on the mock.
         parallel_driver.unprime()
 
         # Mode 0 should have been requested (the switch_mode call inside unprime).
         modes_requested = [call.kwargs["mode"] for call in arm_mock.set_mode.call_args_list]
         assert 0 in modes_requested
-        # set_servo_angle is the move-to-ZERO trajectory.
+        # set_servo_angle is the move-to-REST trajectory.
         arm_mock.set_servo_angle.assert_called_once()
         # The final SDK call is set_state(STOP) (state=4).
         last_state_call = arm_mock.set_state.call_args_list[-1]
@@ -410,7 +410,7 @@ class TestStickyMode:
 
     def test_unprime_resets_cache_to_position(self, parallel_driver: Lite6Driver, arm_mock: mock.MagicMock) -> None:
         # After write_joint_velocities flips us to VELOCITY, unprime takes us back through
-        # POSITION (the move-to-ZERO needs mode 0). The cache must follow so a subsequent prime+
+        # POSITION (the move-to-REST needs mode 0). The cache must follow so a subsequent prime+
         # write doesn't think it's still in VELOCITY and skip a needed switch.
         parallel_driver.prime()
         velocities = np.zeros(LITE6_ARM_DOF, dtype=np.float64)

@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from manor.common.testing_utils import run_manor_tests
+from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguration
 from manor.manipulators.lite6.model import (
     LITE6_ARM_DOF,
     LITE6_NP_PARALLEL_GRIPPER_CLOSED_WIDTH_M,
@@ -252,6 +253,50 @@ class TestLite6ModelEEPositionLimits:
         lower, upper = m.get_ee_position_limits()
         assert lower.shape == upper.shape
         assert np.all(lower <= upper)
+
+
+class TestLite6ModelPrimeAndRestPlantPositions:
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_prime_plant_positions_have_plant_size(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        assert m.get_prime_plant_positions().shape == (m.get_num_positions(),)
+
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_rest_plant_positions_have_plant_size(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        assert m.get_rest_plant_positions().shape == (m.get_num_positions(),)
+
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_prime_arm_block_matches_lite6_joint_configuration(self, variant: Lite6Variant) -> None:
+        m = _model(variant)
+        np.testing.assert_allclose(
+            m.get_prime_plant_positions()[:LITE6_ARM_DOF],
+            Lite6JointConfiguration.PRIME.get_joint_positions_vector(),
+        )
+
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_rest_arm_block_matches_lite6_joint_configuration(self, variant: Lite6Variant) -> None:
+        # REST happens to be all-zero on the Lite6, but the test asserts via the configuration's
+        # own vector so the property remains true if the rest pose is ever retuned.
+        m = _model(variant)
+        np.testing.assert_allclose(
+            m.get_rest_plant_positions()[:LITE6_ARM_DOF],
+            Lite6JointConfiguration.REST.get_joint_positions_vector(),
+        )
+
+    @pytest.mark.parametrize("variant", list(Lite6Variant))
+    def test_ee_block_is_all_zeros(self, variant: Lite6Variant) -> None:
+        # Vacuum: 0-length EE block (no actuated joints). Parallel: 2-length, both at the URDF q
+        # neutral state which is the variant's "closed" width.
+        m = _model(variant)
+        np.testing.assert_array_equal(
+            m.get_prime_plant_positions()[LITE6_ARM_DOF:],
+            np.zeros(m.get_num_positions() - LITE6_ARM_DOF, dtype=np.float64),
+        )
+        np.testing.assert_array_equal(
+            m.get_rest_plant_positions()[LITE6_ARM_DOF:],
+            np.zeros(m.get_num_positions() - LITE6_ARM_DOF, dtype=np.float64),
+        )
 
 
 if __name__ == "__main__":

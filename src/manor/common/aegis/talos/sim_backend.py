@@ -46,11 +46,18 @@ class SimManipulatorBackend:
     config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
 
     def start(self) -> None:
-        # Gaia's lifecycle is managed by its owner; nothing to do per-run.
-        return
+        # Mirror HardwareManipulatorBackend.start, which drives the real arm to PRIME via the
+        # driver's prime sequence. In sim there's no streaming controller to ramp toward a target,
+        # so we snap the plant context directly to the manipulator's PRIME plant positions; the
+        # diagram begins ticking from that pose. Keeps sim and hardware starting states aligned
+        # so policies see the same initial proprioception in both modes.
+        self.gaia.set_joint_positions(self.gaia.manipulator_model.get_prime_plant_positions())
 
     def stop(self) -> None:
-        return
+        # Symmetric counterpart to start: snap the plant to REST so the sim's final pose matches
+        # what unprime leaves the real arm at. The diagram is tearing down anyway, so this is
+        # purely state hygiene -- but the symmetry keeps the lifecycle obvious.
+        self.gaia.set_joint_positions(self.gaia.manipulator_model.get_rest_plant_positions())
 
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         joint_command = joint_ee_command.joint_command

@@ -148,10 +148,10 @@ once we're done characterising mode 1.
 8. If the caller's `mode` isn't 0, switch to it now via
    `STOP / set_mode(mode) / READY`.
 
-**`unprime`** — return to ZERO and halt, but stay energized:
+**`unprime`** — return to REST and halt, but stay energized:
 
 1. `STOP / set_mode(0) / READY` (always; idempotent if we're already there).
-2. `set_servo_angle(angle=ZERO, wait=True)`.
+2. `set_servo_angle(angle=REST, wait=True)`.
 3. `set_state(STOP)`.
 
 Critically does NOT call `motion_enable(False)` or `disconnect()` —

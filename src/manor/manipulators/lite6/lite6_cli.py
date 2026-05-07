@@ -327,24 +327,24 @@ def cmd_connect(
     typer.echo("connected (motors energized, mode 0, READY).")
 
 
-@app.command("zero")
-def cmd_zero(
+@app.command("rest")
+def cmd_rest(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Move the arm to the ZERO joint configuration in mode 0 (POSITION). Mirrors prime's shape -- the
+    Move the arm to the REST joint configuration in mode 0 (POSITION). Mirrors prime's shape -- the
     only difference is the target pose -- and like connect, clears latched faults first so the
     operator can recover a faulted arm with a single command. Leaves the arm energized in mode 0 /
-    READY at ZERO; use disconnect afterward for full teardown.
+    READY at REST; use disconnect afterward for full teardown.
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
     _clear_latched_faults(arm)
     typer.echo("running connect sequence...")
     connect(arm, log_fn=_cli_log)
-    typer.echo(f"moving to {Lite6JointConfiguration.ZERO.name} pose...")
-    move_to_configuration(arm, Lite6JointConfiguration.ZERO, log_fn=_cli_log)
-    typer.echo(f"at {Lite6JointConfiguration.ZERO.name} (motors energized, mode 0, READY).")
+    typer.echo(f"moving to {Lite6JointConfiguration.REST.name} pose...")
+    move_to_configuration(arm, Lite6JointConfiguration.REST, log_fn=_cli_log)
+    typer.echo(f"at {Lite6JointConfiguration.REST.name} (motors energized, mode 0, READY).")
 
 
 @app.command("disconnect")

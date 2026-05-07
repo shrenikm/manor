@@ -16,6 +16,7 @@ from manor.common.custom_types import (
     EEPositionsVector,
     EEVelocitiesVector,
     FilePath,
+    JointPositionsVector,
     PlantEEPositionsVector,
     PlantEEVelocitiesVector,
 )
@@ -184,6 +185,34 @@ class IManipulatorModel(abc.ABC):
         velocities vector. Same fallback rules as
         plant_positions_to_ee_positions for EE variants without
         actuated plant joints.
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_prime_plant_positions(self) -> JointPositionsVector:
+        """
+        Full plant positions vector (size get_num_positions()) at the manipulator's PRIME pose --
+        arm joints at a known-clear operational start configuration, EE block at neutral.
+
+        HardwareManipulatorBackend.start() drives the arm to PRIME via the driver's blocking
+        prime sequence; SimManipulatorBackend.start() snaps the plant context to this same
+        vector so sim and hardware share the same starting state at the moment the diagram begins
+        ticking. The arm-side values are manipulator-specific (defined per-family); the EE-side
+        block is the URDF q layout at the variant's neutral state (closed gripper for parallel
+        variants, length-0 array for vacuum).
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_rest_plant_positions(self) -> JointPositionsVector:
+        """
+        Full plant positions vector (size get_num_positions()) at the manipulator's REST pose --
+        the parked configuration the arm returns to before motors are disabled. Symmetric
+        counterpart to get_prime_plant_positions for the unprime / stop path:
+        HardwareManipulatorBackend.stop() drives the arm here via the driver's unprime sequence,
+        SimManipulatorBackend.stop() snaps the plant context to this vector. The actual joint
+        values are manipulator-specific (all-zero on the Lite6; potentially non-zero on arms
+        whose mechanism needs a particular pose to be safely powered down).
         """
         ...
 

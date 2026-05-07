@@ -168,7 +168,7 @@ class Lite6Driver(IManipulatorDriver):
 
     @override
     def unprime(self) -> None:
-        # Inverse of prime: switch back to mode 0, move to ZERO, set_state(STOP). Does NOT call
+        # Inverse of prime: switch back to mode 0, move to REST, set_state(STOP). Does NOT call
         # motion_enable(False), does NOT disconnect the TCP session, and does NOT null self._arm --
         # the watchdog / aegis-shutdown paths may re-prime on the same driver instance. xarm_unprime
         # always finishes by setting mode POSITION, so reset the cache to match.

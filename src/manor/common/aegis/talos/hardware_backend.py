@@ -10,7 +10,7 @@ Lifecycle ownership splits along two axes:
 
 * Kyber lifecycle (start / stop) drives prime / unprime. start() runs
   the full bring-up sequence and moves to PRIME; stop() reverses it
-  and parks at ZERO. This binds prime/unprime to the kylos process
+  and parks at REST. This binds prime/unprime to the kylos process
   itself -- spinning kylos up means the arm is ready, spinning it
   down means the arm goes home and powers down.
 * Metis lifecycle (action stream presence) drives halt / resume. If
@@ -19,7 +19,7 @@ Lifecycle ownership splits along two axes:
   energization are preserved, the arm just refuses commands. When a
   fresh action arrives again the backend calls driver.resume() and
   command flow restarts from wherever the arm currently is. No move
-  to ZERO, no mode reset; restarting Metis just resumes where you
+  to REST, no mode reset; restarting Metis just resumes where you
   left off.
 """
 
@@ -103,9 +103,9 @@ class HardwareManipulatorBackend:
         self.driver.prime()
 
     def stop(self) -> None:
-        # Kyber-lifecycle hook: tear down the arm (move to ZERO, set_state STOP, no disconnect).
+        # Kyber-lifecycle hook: tear down the arm (move to REST, set_state STOP, no disconnect).
         # If the watchdog had already halted the arm, unprime is still safe -- the cli helpers'
-        # switch_mode + move-to-ZERO no-op cleanly when the arm is already there.
+        # switch_mode + move-to-REST no-op cleanly when the arm is already there.
         self.driver.unprime()
 
     def pet_watchdog(self, header: TimestampHeader) -> None:
