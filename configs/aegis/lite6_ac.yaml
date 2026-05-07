@@ -1,4 +1,4 @@
-mode: hardware
+mode: sim
 
 manipulator_model:
   type: lite6
@@ -28,7 +28,8 @@ helios_config:
 
 talos_config:
   publish_frequency_hz: 100.0
-  sim_backend_config: {}
+  sim_backend_config:
+    minimum_watchdog_frequency_hz: 3.0
   hardware_backend_config:
     minimum_watchdog_frequency_hz: 3.0
     lite6_driver_config:

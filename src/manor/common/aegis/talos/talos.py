@@ -64,19 +64,19 @@ class TalosConfig:
 
     sim_backend_config and hardware_backend_config parametrise the
     per-mode manipulator backends. stale_command_watchdog_config
-    parametrises the hardware-only StaleCommandWatchdog LeafSystem
-    (consumed by run_kylos; ignored in sim mode). SYSTEM_NAME is the
-    name applied to the Talos LeafSystem in the diagram.
+    parametrises the StaleCommandWatchdog LeafSystem consumed by both
+    run_kylos and run_gylos. SYSTEM_NAME is the name applied to the
+    Talos LeafSystem in the diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "talos"
 
     publish_frequency_hz: float = 200.0
-    sim_backend_config: SimManipulatorBackendConfig = attr.field(factory=SimManipulatorBackendConfig)
-    # HardwareManipulatorBackendConfig.minimum_watchdog_frequency_hz has no default, so this field
-    # is required (kw_only keeps it after the defaulted fields above without breaking attrs's
-    # default-ordering rule). Every aegis YAML must declare hardware_backend_config with the
-    # watchdog frequency the operator has consciously chosen for the policy on the wire.
+    # Both backend configs have a required minimum_watchdog_frequency_hz field with no default,
+    # so they're kw_only and required. Every aegis YAML must declare the backend block for the
+    # mode it runs in -- but we don't gate per-mode here, the supervisor enforces presence at
+    # the YAML layer.
+    sim_backend_config: SimManipulatorBackendConfig = attr.field(kw_only=True)
     hardware_backend_config: HardwareManipulatorBackendConfig = attr.field(kw_only=True)
     stale_command_watchdog_config: StaleCommandWatchdogConfig = attr.field(factory=StaleCommandWatchdogConfig)
 

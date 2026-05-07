@@ -469,6 +469,20 @@ class Gaia:
         self._require_finalized()
         self.latest_ee_velocity_command = ee_velocities
 
+    def clear_command_latches(self) -> None:
+        """
+        Drop every latched joint / EE command. After this call _DesiredStateSource falls back to
+        its default of "hold measured pose with zero desired velocity" until a fresh command is
+        applied. Used by SimManipulatorBackend.halt to bring the plant to rest when the action
+        stream goes stale -- without this the most recent stashed velocity (or position) would
+        keep driving the simulated controller indefinitely.
+        """
+        self._require_finalized()
+        self.latest_position_command = None
+        self.latest_velocity_command = None
+        self.latest_ee_position_command = None
+        self.latest_ee_velocity_command = None
+
     def read_joint_state(self) -> JointState:
         """
         Read positions + velocities directly from the live plant context.

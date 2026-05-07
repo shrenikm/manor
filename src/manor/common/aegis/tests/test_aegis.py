@@ -38,6 +38,7 @@ from manor.common.aegis.metis.metis import MetisConfig
 from manor.common.aegis.metis.policies.constant_policies import ConstantJointVelocitiesPolicyConfig
 from manor.common.aegis.mode import AegisMode
 from manor.common.aegis.talos.hardware_backend import HardwareManipulatorBackendConfig
+from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import TalosConfig
 from manor.common.exceptions import AegisConfigError
 from manor.common.testing_utils import run_manor_tests
@@ -74,6 +75,7 @@ def _fast_config(mode: AegisMode) -> AegisConfig:
         helios_config=HeliosConfig(publish_rgb_frequency_hz=10.0, publish_depth_frequency_hz=10.0),
         talos_config=TalosConfig(
             publish_frequency_hz=20.0,
+            sim_backend_config=SimManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0),
             hardware_backend_config=HardwareManipulatorBackendConfig(
                 minimum_watchdog_frequency_hz=3.0,
                 lite6_driver_config=Lite6DriverConfig(joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S),
@@ -156,10 +158,11 @@ def _full_yaml_dict(mode: str = "sim") -> dict:
         "environment_config": {},
         "helios_config": {},
         "talos_config": {
+            "sim_backend_config": {"minimum_watchdog_frequency_hz": 3.0},
             "hardware_backend_config": {
                 "minimum_watchdog_frequency_hz": 3.0,
                 "lite6_driver_config": {"joint_speed_limit_rad_s": _TEST_JOINT_SPEED_LIMIT_RAD_S},
-            }
+            },
         },
         "gaia_advancer_config": {},
         "gaia_config": {},

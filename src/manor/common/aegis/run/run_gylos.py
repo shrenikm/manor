@@ -55,6 +55,11 @@ from manor.common.aegis.kyber.controllers.controller_manager import KyberControl
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.aegis.run.run_utils import advance_until_signal
 from manor.common.aegis.talos.sim_backend import SimManipulatorBackend
+from manor.common.aegis.talos.stale_command_watchdog import (
+    StaleCommandWatchdog,
+    StaleCommandWatchdogConfig,
+    StaleCommandWatchdogPorts,
+)
 from manor.common.aegis.talos.talos import Talos, TalosConfig, TalosPorts
 from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
@@ -135,6 +140,21 @@ def run_gylos(
         kyber.GetInputPort(KyberPorts.INPUT_ACTION),
     )
 
+    # Stale-command watchdog: same role as in run_kylos. Without it the action_subscriber's
+    # latched message keeps driving Kyber after Metis dies, which in sim manifests as the arm
+    # continuing to track a stale velocity (or position) command indefinitely.
+    watchdog = builder.AddSystem(
+        StaleCommandWatchdog(
+            backend=manipulator_backend,
+            publish_frequency_hz=talos_config.stale_command_watchdog_config.publish_frequency_hz,
+        )
+    )
+    watchdog.set_name(StaleCommandWatchdogConfig.SYSTEM_NAME)
+    builder.Connect(
+        action_subscriber.GetOutputPort(AegisAdapterPorts.DEFINITION_OUTPUT),
+        watchdog.GetInputPort(StaleCommandWatchdogPorts.INPUT_ACTION),
+    )
+
     # Talos's proprioception drives Kyber directly (no LCM hop) and
     # is also published on LCM so the metis process can subscribe.
     builder.Connect(
@@ -192,6 +212,10 @@ def run_gylos(
     diagram = builder.Build()
     diagram.set_name("aegis_gylos_process")
 
+    # Snap the plant to PRIME before the diagram starts ticking -- mirrors
+    # HardwareManipulatorBackend.start, which drives the real arm to PRIME via the driver's prime
+    # sequence. The pre-warm AdvanceTo below then runs against the primed initial state.
+    manipulator_backend.start()
     simulator = Simulator(diagram)
     # Pre-warm: pay first-AdvanceTo costs (cache allocations,
     # integrator initial-step probing, meshcat geometry upload)
@@ -210,6 +234,7 @@ def run_gylos(
     try:
         advance_until_signal(simulator)
     finally:
+        manipulator_backend.stop()
         # Force the Drake Meshcat C++ destructor to run synchronously
         # here -- closing the listening socket -- so the next gylos
         # launch can re-bind port 7000. Without this, Python only

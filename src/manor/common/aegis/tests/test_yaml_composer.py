@@ -68,10 +68,11 @@ def aegis_yaml_workspace(tmp_path: Path) -> Path:
         "environment_config": {},
         "helios_config": {},
         "talos_config": {
+            "sim_backend_config": {"minimum_watchdog_frequency_hz": 3.0},
             "hardware_backend_config": {
                 "minimum_watchdog_frequency_hz": 3.0,
                 "lite6_driver_config": {"joint_speed_limit_rad_s": 1.0},
-            }
+            },
         },
         "metis_config": {
             "publish_frequency_hz": 10.0,
