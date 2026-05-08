@@ -4,8 +4,10 @@ from manor.common.path_utils import (
     create_directory_if_not_exists,
     create_temporary_directory,
     create_temporary_file,
+    get_project_root,
     list_directories_in_path,
     list_files_in_path,
+    resolve_under_project_root,
 )
 from manor.common.testing_utils import run_manor_tests
 
@@ -95,6 +97,28 @@ def test_create_directory_if_not_exists() -> None:
 
         # Should be able to call it again, even if the directory already exists.
         create_directory_if_not_exists(dirpath=dirpath)
+
+
+def test_get_project_root_returns_directory_with_pyproject() -> None:
+    root = get_project_root()
+    assert os.path.isdir(root)
+    assert os.path.isfile(os.path.join(root, "pyproject.toml"))
+
+
+def test_get_project_root_is_stable_across_calls() -> None:
+    # Cached after first computation; same string both times.
+    assert get_project_root() == get_project_root()
+
+
+def test_resolve_under_project_root_passes_absolute_paths() -> None:
+    abs_path = "/tmp/somewhere/file.yaml"
+    assert resolve_under_project_root(abs_path) == abs_path
+
+
+def test_resolve_under_project_root_joins_relative_paths() -> None:
+    relative = "configs/something/file.yaml"
+    resolved = resolve_under_project_root(relative)
+    assert resolved == os.path.normpath(os.path.join(get_project_root(), relative))
 
 
 if __name__ == "__main__":

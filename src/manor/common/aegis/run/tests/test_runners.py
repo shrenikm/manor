@@ -35,8 +35,11 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.testing_utils import run_manor_tests
 
 
+from manor.common.path_utils import get_project_root
+
+
 def _repo_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
+    return get_project_root()
 
 
 def _bundled_config(

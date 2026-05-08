@@ -18,7 +18,6 @@ matching YAML will fail this layer rather than at run-time.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -34,11 +33,12 @@ from manor.common.aegis.aegis import (
 from manor.common.aegis.kyber.controllers.controller_manager import KyberControllerType
 from manor.common.aegis.metis.policies.policy_manager import MetisPolicyType
 from manor.common.exceptions import AegisConfigError
+from manor.common.path_utils import get_project_root
 from manor.common.testing_utils import run_manor_tests
 
 
 def _repo_root() -> Path:
-    return Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..")))
+    return Path(get_project_root())
 
 
 def _bundled_aegis_dir() -> Path:

@@ -1,11 +1,13 @@
 """
-Abstract base for per-manipulator variant enums plus a registry mapping
-``ManipulatorType`` to its concrete variant class.
+Abstract base for per-manipulator variant enums plus the cross-manipulator registries that map a
+``ManipulatorType`` to its concrete variant enum class and its concrete ``IManipulatorModel``
+class.
 
-Each manipulator package defines a concrete subclass enumerating its
-trims and registers it via the ``register_manipulator_variant`` decorator.
-The registry lets cross-manipulator code (CLIs, config loaders) discover
-"all variants for this manipulator" without hardcoding the class name.
+Each manipulator package defines a concrete variant subclass enumerating its trims and registers
+it via ``register_manipulator_variant``; it also registers its model class via
+``register_manipulator_model``. The registries let cross-manipulator code (CLIs, config loaders,
+the aegis YAML parser) construct a model for a ``(type, variant)`` pair without hardcoding the
+manipulator family in every dispatch site.
 """
 
 from __future__ import annotations
@@ -13,10 +15,13 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Callable
 from enum import StrEnum
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from manor.common.exceptions import UnknownManipulatorTypeError, VariantAlreadyRegisteredError
 from manor.manipulators.manipulator_type import ManipulatorType
+
+if TYPE_CHECKING:
+    from manor.manipulators.manipulator_model import IManipulatorModel
 
 
 class IManipulatorVariant(StrEnum):
@@ -33,11 +38,13 @@ class IManipulatorVariant(StrEnum):
 
 
 _VARIANT_REGISTRY: dict[ManipulatorType, type[IManipulatorVariant]] = {}
+_MODEL_REGISTRY: dict[ManipulatorType, type["IManipulatorModel"]] = {}
 
 # Bound TypeVar so the decorator preserves the concrete class type
 # (rather than collapsing it to ``type[IManipulatorVariant]``, which
 # would hide member access from type checkers like pyright).
 _VariantT = TypeVar("_VariantT", bound=IManipulatorVariant)
+_ModelT = TypeVar("_ModelT", bound="IManipulatorModel")
 
 
 def register_manipulator_variant(
@@ -60,6 +67,28 @@ def register_manipulator_variant(
     return _register
 
 
+def register_manipulator_model(
+    manipulator_type: ManipulatorType,
+) -> Callable[[type[_ModelT]], type[_ModelT]]:
+    """
+    Class decorator that registers a concrete ``IManipulatorModel`` subclass for a given
+    ``ManipulatorType``. The decorated class must accept a single ``variant`` keyword argument
+    of the corresponding variant enum type. Used by ``build_manipulator_model`` so any
+    cross-manipulator code can construct a model from a ``(type, variant)`` pair without
+    hardcoding the family-to-model dispatch in every callsite.
+    """
+
+    def _register(cls: type[_ModelT]) -> type[_ModelT]:
+        if manipulator_type in _MODEL_REGISTRY:
+            raise VariantAlreadyRegisteredError(
+                f"Model class already registered for {manipulator_type!r}: {_MODEL_REGISTRY[manipulator_type].__name__}"
+            )
+        _MODEL_REGISTRY[manipulator_type] = cls
+        return cls
+
+    return _register
+
+
 def get_variant_class(manipulator_type: ManipulatorType) -> type[IManipulatorVariant]:
     """
     Return the concrete ``IManipulatorVariant`` subclass registered for
@@ -74,6 +103,31 @@ def get_variant_class(manipulator_type: ManipulatorType) -> type[IManipulatorVar
             "Ensure the matching manipulator package is imported."
         )
     return _VARIANT_REGISTRY[manipulator_type]
+
+
+def get_model_class(manipulator_type: ManipulatorType) -> type["IManipulatorModel"]:
+    """
+    Return the concrete ``IManipulatorModel`` subclass registered for ``manipulator_type``.
+    Raises ``UnknownManipulatorTypeError`` if no model class is registered.
+    """
+
+    if manipulator_type not in _MODEL_REGISTRY:
+        raise UnknownManipulatorTypeError(
+            f"No model class registered for {manipulator_type!r}. Ensure the matching manipulator package is imported."
+        )
+    return _MODEL_REGISTRY[manipulator_type]
+
+
+def build_manipulator_model(
+    manipulator_type: ManipulatorType,
+    variant: IManipulatorVariant,
+) -> "IManipulatorModel":
+    """
+    Construct an ``IManipulatorModel`` for a ``(type, variant)`` pair via the registered model
+    class. The variant must match the registered variant class for the given type; otherwise
+    a TypeError will surface from the model's constructor.
+    """
+    return get_model_class(manipulator_type)(variant=variant)
 
 
 def get_registered_manipulator_types() -> tuple[ManipulatorType, ...]:

@@ -1,9 +1,10 @@
 """
 JointChoreographerPolicy: drives a manipulator through a YAML-configured sequence of per-joint
 "sections", each running a parameterised control signal (step or sine) on a single joint while
-the others hold zero velocity. Mirrors the deprecated Lite6 choreographer that lived in
-analysis/pliant_analysis -- recreated here as a Metis policy so it runs through the standard
-metis -> kyber -> talos pipeline.
+the others hold zero velocity. Recreated as a Metis policy so it runs through the standard
+metis -> kyber -> talos pipeline -- the same aegis runner drives both sim (gylos) and hardware
+(kylos), which is the point: the policy exists to compare commanded vs observed joint response
+on identical waypoints across the two transports.
 
 Section state machine, per (joint, section) pair:
 
@@ -12,29 +13,32 @@ Section state machine, per (joint, section) pair:
   start_joint_positions (the pose the active phase should begin from). Advances to ACTIVE once
   measured positions are within an absolute tolerance of the start pose.
 * ACTIVE      -- emit the section's control_signal on the configured joint for active_time
-  seconds; other joints hold zero velocity.
+  seconds; other joints hold zero velocity. Per-tick target / observed velocities are recorded
+  for the active joint.
 * END_DELAY   -- emit zero velocities for end_time_delay seconds, then move to the next section
   (or next joint, or done).
 
-When done the policy keeps emitting zero velocities so the diagram can keep ticking. Callers
-that want to know "is this finished" can read is_done(); the analysis script in analysis/ uses
-it to stop recording.
+When the last section's END_DELAY completes the policy flips is_done(), saves one figure per
+joint to disk (target vs observed velocity per section), and from there on emits zero
+velocities so the diagram can keep ticking.
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar, Self
 
 import attr
 import numpy as np
 import yaml
+from matplotlib.figure import Figure
 
 from manor.common.aegis.metis.policies.policy_manager import MetisPolicyConfigBase, MetisPolicyType
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.control.signals import ControlSignal, SineControlSignal, StepControlSignal
-from manor.common.custom_types import FilePath, JointPositionsVector, JointVelocitiesVector
+from manor.common.custom_types import DirPath, FilePath, JointPositionsVector, JointVelocitiesVector
 from manor.common.definitions.action import Action
 from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_velocities import JointVelocities
@@ -42,6 +46,7 @@ from manor.common.definitions.observation import Observation
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import AegisConfigError
 from manor.common.logging_utils import ManorLogger
+from manor.common.path_utils import create_directory_if_not_exists, get_project_root, resolve_under_project_root
 
 # Tolerance for the P-controller pre-active "are we at start_joint_positions yet?" check, in
 # radians per joint. Matches the deprecated choreographer's atol=0.01.
@@ -50,6 +55,16 @@ _PRE_ACTIVE_POSITION_TOLERANCE_RAD = 0.01
 # P gain used during the PRE_ACTIVE phase to drive the arm toward start_joint_positions. Matches
 # the deprecated choreographer's hard-coded 0.5.
 _PRE_ACTIVE_KP = 0.5
+
+# Subdirectory under the project root where per-run plot output directories are created. The
+# project's .gitignore already excludes results/ so these intermediate artifacts don't leak into
+# the working tree.
+_PLOT_RESULTS_SUBDIR = "results/choreographer"
+
+# Maximum number of sections per joint that the plot grid can lay out. Beyond 9 the layout would
+# either become unreadable or need pagination -- we don't have a use case for that yet, so cap
+# loud rather than silently truncating.
+_MAX_PLOTTED_SECTIONS_PER_JOINT = 9
 
 
 def _parse_control_signal(raw: object, context: str) -> ControlSignal:
@@ -151,7 +166,7 @@ class JointChoreographerPolicyConfig(MetisPolicyConfigBase):
         containing a joint_index plus N sectionN sub-blocks; each section has start/end time
         delays, an active time, a start_joint_positions vector, and a control_signal block.
         """
-        resolved = _resolve_choreographer_yaml_filepath(yaml_filepath)
+        resolved = resolve_under_project_root(yaml_filepath)
         if not os.path.exists(resolved):
             raise AegisConfigError(f"choreographer YAML not found: {resolved!r}")
         with open(resolved, "r") as fp:
@@ -222,11 +237,54 @@ def _parse_choreography_yaml_dict(raw: dict, num_arm_dof: int | None) -> tuple[J
     return tuple(parsed)
 
 
+def _default_plot_output_dir() -> DirPath:
+    """
+    Compute a fresh timestamped directory under results/choreographer for one policy run. The
+    factory runs at policy construction time so each aegis run gets its own folder; back-to-back
+    runs at the same wall-clock second collide, which is fine -- we'd rather overwrite than
+    silently nest.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(get_project_root(), _PLOT_RESULTS_SUBDIR, timestamp)
+
+
+def _subplots_grid_for_num_sections(num_sections: int) -> tuple[int, int]:
+    """
+    Pick a (rows, cols) layout for num_sections subplots that keeps each panel readable. Tuned by
+    eye for the choreographer plot; raises if asked to handle more than the supported max.
+    """
+    if not 1 <= num_sections <= _MAX_PLOTTED_SECTIONS_PER_JOINT:
+        raise ValueError(f"unsupported number of sections for plotting: {num_sections}")
+    return {
+        1: (1, 1),
+        2: (1, 2),
+        3: (1, 3),
+        4: (2, 2),
+        5: (2, 3),
+        6: (2, 3),
+        7: (3, 3),
+        8: (3, 3),
+        9: (3, 3),
+    }[num_sections]
+
+
 class _SectionStatus(Enum):
     START_DELAY = auto()
     PRE_ACTIVE = auto()
     ACTIVE = auto()
     END_DELAY = auto()
+
+    def is_start_delay(self) -> bool:
+        return self is _SectionStatus.START_DELAY
+
+    def is_pre_active(self) -> bool:
+        return self is _SectionStatus.PRE_ACTIVE
+
+    def is_active(self) -> bool:
+        return self is _SectionStatus.ACTIVE
+
+    def is_end_delay(self) -> bool:
+        return self is _SectionStatus.END_DELAY
 
 
 @attr.define
@@ -240,6 +298,7 @@ class JointChoreographerPolicy:
     joint_choreographed_sections: tuple[JointChoreographedSections, ...]
     num_arm_dof: int
     _logger: ManorLogger = attr.field(init=False)
+    _plot_output_dir: DirPath = attr.field(init=False, factory=_default_plot_output_dir)
 
     _current_joint_idx: int = attr.field(init=False, default=0)
     _current_section_idx: int = attr.field(init=False, default=0)
@@ -248,6 +307,14 @@ class JointChoreographerPolicy:
     _section_active_start_time_s: float | None = attr.field(init=False, default=None)
     _section_end_wait_time_s: float | None = attr.field(init=False, default=None)
     _done: bool = attr.field(init=False, default=False)
+
+    # Per-section recordings of section-relative time, target velocity, and observed velocity for
+    # the active joint. Keyed by (choreography index in joint_choreographed_sections, section
+    # index). Populated only during the ACTIVE phase; consumed by _save_plots when the policy
+    # finishes. Lists rather than ndarrays because we don't know the section length up front.
+    _section_times_map: dict[tuple[int, int], list[float]] = attr.field(init=False, factory=dict)
+    _section_target_velocities_map: dict[tuple[int, int], list[float]] = attr.field(init=False, factory=dict)
+    _section_observed_velocities_map: dict[tuple[int, int], list[float]] = attr.field(init=False, factory=dict)
 
     @_logger.default
     def _initialize_logger(self) -> ManorLogger:
@@ -267,6 +334,7 @@ class JointChoreographerPolicy:
         header = TimestampHeader.from_system_time()
         now_s = header.system_ns * 1e-9
         velocities = self._compute_velocities(observation=observation, now_s=now_s)
+        self._record_if_active(observation=observation, now_s=now_s, velocities=velocities)
         return Action(
             header=header,
             joint_command=JointCommand(
@@ -274,6 +342,33 @@ class JointChoreographerPolicy:
                 joint_velocities=JointVelocities(header=header, velocities=velocities),
             ),
         )
+
+    def _record_if_active(
+        self,
+        observation: Observation,
+        now_s: float,
+        velocities: JointVelocitiesVector,
+    ) -> None:
+        """
+        Stash a (section-relative time, target velocity, observed velocity) sample for the active
+        joint when the policy is in the ACTIVE phase. Other phases are bookkeeping; their data
+        isn't useful for the per-section comparison plot. Section-relative time uses
+        _section_active_start_time_s so the per-section x-axes start at zero on the plot.
+        """
+        if not self._status.is_active() or self._section_active_start_time_s is None:
+            return
+        if observation.proprioception is None:
+            return
+        observed = observation.proprioception.joint_state.joint_velocities.velocities
+        if observed.size == 0:
+            return
+        jcs = self.joint_choreographed_sections[self._current_joint_idx]
+        joint_index = jcs.joint_index
+        key = (self._current_joint_idx, self._current_section_idx)
+        section_t_s = now_s - self._section_active_start_time_s
+        self._section_times_map.setdefault(key, []).append(section_t_s)
+        self._section_target_velocities_map.setdefault(key, []).append(float(velocities[joint_index]))
+        self._section_observed_velocities_map.setdefault(key, []).append(float(observed[joint_index]))
 
     def _compute_velocities(self, observation: Observation, now_s: float) -> JointVelocitiesVector:
         if self._done:
@@ -385,6 +480,7 @@ class JointChoreographerPolicy:
             return
         self._done = True
         self._logger.info("choreographer: all sections complete")
+        self._save_plots()
 
     @staticmethod
     def _extract_arm_positions(observation: Observation) -> JointPositionsVector | None:
@@ -395,25 +491,49 @@ class JointChoreographerPolicy:
             return None
         return np.asarray(positions, dtype=np.float64).copy()
 
+    def _save_plots(self) -> None:
+        """
+        Render one figure per choreographed joint with target vs observed velocity per section,
+        and write each as a PNG under _plot_output_dir. Uses matplotlib's Figure interface
+        directly (not pyplot) so this is safe to call from the metis publish thread without
+        touching pyplot's global state or trying to start a GUI backend.
+        """
+        if not self._section_times_map:
+            self._logger.info("choreographer: no ACTIVE-phase samples recorded, skipping plot output")
+            return
+        create_directory_if_not_exists(self._plot_output_dir)
+        for joint_idx, jcs in enumerate(self.joint_choreographed_sections):
+            section_keys = sorted(k for k in self._section_times_map if k[0] == joint_idx)
+            if not section_keys:
+                continue
+            fig = self._build_joint_figure(joint_index=jcs.joint_index, section_keys=section_keys)
+            output_path = os.path.join(self._plot_output_dir, f"joint_{jcs.joint_index + 1}.png")
+            fig.savefig(output_path)
+            self._logger.info(f"choreographer: wrote {output_path}")
 
-def _project_root() -> FilePath:
-    here = os.path.abspath(os.path.dirname(__file__))
-    return os.path.abspath(os.path.join(here, "..", "..", "..", "..", "..", ".."))
-
-
-def _resolve_choreographer_yaml_filepath(yaml_filepath: FilePath) -> FilePath:
-    """
-    Absolute paths pass through; relative paths resolve against the project root so a YAML can
-    write ``configs/choreographer/lite6.yaml`` and have it work regardless of the working
-    directory the runner / analysis script started from.
-    """
-    if os.path.isabs(yaml_filepath):
-        return yaml_filepath
-    return os.path.normpath(os.path.join(_project_root(), yaml_filepath))
-
-
-# Default path to the bundled choreographer config under configs/choreographer/. Used by the
-# analysis runner so the standard "run choreographer + plot" invocation needs no arguments.
-DEFAULT_LITE6_CHOREOGRAPHER_YAML_FILEPATH: FilePath = os.path.join(
-    _project_root(), "configs", "choreographer", "lite6.yaml"
-)
+    def _build_joint_figure(self, joint_index: int, section_keys: list[tuple[int, int]]) -> Figure:
+        nrows, ncols = _subplots_grid_for_num_sections(num_sections=len(section_keys))
+        fig = Figure()
+        fig.suptitle(f"Choreographer Analysis Plots - Joint {joint_index + 1}")
+        axes = fig.subplots(nrows=nrows, ncols=ncols)
+        # subplots returns a single Axes when (1, 1), a 1D array when one of nrows/ncols is 1, and
+        # a 2D array otherwise. Flatten to a uniform list so the indexing below stays simple.
+        if nrows == 1 and ncols == 1:
+            axes_list = [axes]
+        elif nrows == 1 or ncols == 1:
+            axes_list = list(axes)
+        else:
+            axes_list = [ax for axes_row in axes for ax in axes_row]
+        for plot_idx, key in enumerate(section_keys):
+            ax = axes_list[plot_idx]
+            t = np.asarray(self._section_times_map[key], dtype=np.float64)
+            tv = np.asarray(self._section_target_velocities_map[key], dtype=np.float64)
+            ov = np.asarray(self._section_observed_velocities_map[key], dtype=np.float64)
+            ax.set_title(f"Section {key[1] + 1}/{len(section_keys)}")
+            ax.plot(t, tv, color="blue", label="Target velocity")
+            ax.plot(t, ov, color="orange", label="Observed velocity")
+            ax.set_xlabel("t (sec)")
+            ax.set_ylabel("qdot (rad/s)")
+            ax.legend(loc="best")
+        fig.tight_layout()
+        return fig

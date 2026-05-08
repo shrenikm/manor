@@ -10,6 +10,42 @@ from typing import Generator, List, Optional
 
 from manor.common.custom_types import DirPath, FilePath
 
+_PROJECT_ROOT_MARKER = "pyproject.toml"
+
+
+def get_project_root() -> DirPath:
+    """
+    Walk up from this file to find the project root -- the directory containing the project's
+    pyproject.toml. Cached after first computation; safe to call from any module without
+    worrying about cwd. Raises FileNotFoundError if the marker can't be found (i.e. the package
+    has been installed somewhere that doesn't sit under a checkout, which would only happen for
+    weird wheel installs we don't support today).
+    """
+    return _PROJECT_ROOT
+
+
+def resolve_under_project_root(path: FilePath) -> FilePath:
+    """
+    Absolute paths pass through unchanged; relative paths resolve against the project root so a
+    YAML / config can write ``configs/foo/bar.yaml`` and the lookup will work regardless of the
+    cwd the runner started from.
+    """
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(get_project_root(), path))
+
+
+def _find_project_root() -> DirPath:
+    current = os.path.dirname(os.path.abspath(__file__))
+    while current != os.path.dirname(current):
+        if os.path.exists(os.path.join(current, _PROJECT_ROOT_MARKER)):
+            return current
+        current = os.path.dirname(current)
+    raise FileNotFoundError(f"Could not find project root (no {_PROJECT_ROOT_MARKER} found above {__file__!r})")
+
+
+_PROJECT_ROOT: DirPath = _find_project_root()
+
 
 @contextmanager
 def create_temporary_directory(

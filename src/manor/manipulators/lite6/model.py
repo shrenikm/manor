@@ -30,6 +30,7 @@ from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguratio
 from manor.manipulators.lite6.variant import Lite6Variant
 from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
+from manor.manipulators.manipulator_variant import register_manipulator_model
 
 LITE6_ARM_DOF = 6
 # Number of EE joints in the Drake plant (URDF) for the parallel
@@ -131,6 +132,7 @@ _VARIANT_TO_NUM_EE_DOFS: dict[Lite6Variant, int] = {
 }
 
 
+@register_manipulator_model(ManipulatorType.LITE6)
 @attr.frozen
 class Lite6Model(IManipulatorModel):
     """

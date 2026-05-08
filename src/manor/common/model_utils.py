@@ -9,6 +9,7 @@ from pydrake.multibody.tree import ModelInstanceIndex
 from pydrake.systems.all import RigidTransform
 
 from manor.common.custom_types import DirPath, FilePath, PositionsVector
+from manor.common.path_utils import get_project_root
 
 MODELS_DIRNAME = "models"
 ENVIRONMENT_MODELS_DIRNAME = "environment"
@@ -17,19 +18,7 @@ ROBOT_MODELS_DIRNAME = "robot_models"
 ROBOT_MODELS_DRAKE_URDF_DIRNAME = "drake_urdf"
 
 
-def _find_project_root() -> str:
-    """
-    Walk up from this file to find the project root (directory containing pyproject.toml).
-    """
-    current = os.path.dirname(os.path.abspath(__file__))
-    while current != os.path.dirname(current):
-        if os.path.exists(os.path.join(current, "pyproject.toml")):
-            return current
-        current = os.path.dirname(current)
-    raise RuntimeError("Could not find project root (no pyproject.toml found)")
-
-
-_PROJECT_ROOT = _find_project_root()
+_PROJECT_ROOT = get_project_root()
 
 
 class ObjectModelType(StrEnum):

@@ -20,28 +20,14 @@ import shutil
 import sys
 from pathlib import Path
 
+from manor.common.path_utils import get_project_root
+
 _LCM_SPY_BIN = "lcm-spy"
 _MANOR_JAR_RELATIVE = Path("build") / "java" / "manor_lcmtypes.jar"
 
 
-def _find_repo_root() -> Path:
-    """
-    Walk up from this file until a directory containing ``pyproject.toml``
-    is found. Editable installs leave ``__file__`` pointing at the source
-    tree, so this resolves to the manor repo root.
-    """
-    here = Path(__file__).resolve()
-    for candidate in (here, *here.parents):
-        if (candidate / "pyproject.toml").is_file():
-            return candidate
-    raise RuntimeError(
-        "Could not locate the manor repo root from "
-        f"{here!s}. manor_lcm_spy requires an editable install (uv pip install --no-cache-dir -e .)."
-    )
-
-
 def main() -> int:
-    repo_root = _find_repo_root()
+    repo_root = Path(get_project_root())
     manor_jar = repo_root / _MANOR_JAR_RELATIVE
     if not manor_jar.is_file():
         print(f"manor_lcmtypes.jar not found at:\n    {manor_jar}", file=sys.stderr)

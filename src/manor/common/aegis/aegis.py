@@ -66,7 +66,7 @@ from manor.manipulators.lite6.driver import Lite6Driver
 from manor.manipulators.lite6.model import Lite6Model
 from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
-from manor.manipulators.manipulator_variant import get_variant_class
+from manor.manipulators.manipulator_variant import build_manipulator_model, get_variant_class
 
 # Discriminated reference to a specific manipulator + variant; lives
 # inside the ``manipulator_model:`` YAML block. Kept inline because
@@ -249,9 +249,7 @@ def _parse_manipulator_model(value: object, context: str) -> IManipulatorModel:
             f"expected one of {[v.value for v in variant_cls]}"
         ) from e
 
-    if manipulator_type is ManipulatorType.LITE6:
-        return Lite6Model(variant=variant)
-    raise AegisConfigError(f"No model factory wired in for manipulator {manipulator_type!r}")
+    return build_manipulator_model(manipulator_type=manipulator_type, variant=variant)
 
 
 @attr.frozen
