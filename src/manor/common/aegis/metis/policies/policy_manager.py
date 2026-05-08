@@ -50,6 +50,8 @@ class MetisPolicyType(StrEnum):
     CONSTANT_CARTESIAN_POSE = "constant_cartesian_pose"
     CIRCLE_EE_VELOCITY = "circle_ee_velocity"
     GRIPPER_OPEN_CLOSE = "gripper_open_close"
+    SIMPLE_PICK_AND_PLACE = "simple_pick_and_place"
+    JOINT_CHOREOGRAPHER = "joint_choreographer"
 
 
 @runtime_checkable
@@ -138,6 +140,14 @@ class MetisPolicyManager:
             GripperOpenClosePolicyConfig,
         )
         from manor.common.aegis.metis.policies.identity_policy import IdentityPolicy, IdentityPolicyConfig
+        from manor.common.aegis.metis.policies.joint_choreographer_policy import (
+            JointChoreographerPolicy,
+            JointChoreographerPolicyConfig,
+        )
+        from manor.common.aegis.metis.policies.simple_pick_and_place_policy import (
+            SimplePickAndPlacePolicy,
+            SimplePickAndPlacePolicyConfig,
+        )
 
         if isinstance(config, IdentityPolicyConfig):
             return IdentityPolicy(num_joints=config.num_joints)
@@ -156,6 +166,15 @@ class MetisPolicyManager:
                     "fully-open / fully-closed setpoints; pass it to MetisPolicyManager.from_config"
                 )
             return GripperOpenClosePolicy.from_config(config=config, manipulator_model=manipulator_model)
+        if isinstance(config, SimplePickAndPlacePolicyConfig):
+            if manipulator_model is None:
+                raise AegisConfigError(
+                    "SimplePickAndPlacePolicy requires manipulator_model to size the gripper "
+                    "EE-positions vector; pass it to MetisPolicyManager.from_config"
+                )
+            return SimplePickAndPlacePolicy.from_config(config=config, manipulator_model=manipulator_model)
+        if isinstance(config, JointChoreographerPolicyConfig):
+            return JointChoreographerPolicy.from_config(config)
         raise AegisConfigError(f"Unknown policy config type: {type(config).__name__}")
 
     @classmethod
@@ -177,6 +196,8 @@ class MetisPolicyManager:
         )
         from manor.common.aegis.metis.policies.gripper_open_close_policy import GripperOpenClosePolicyConfig
         from manor.common.aegis.metis.policies.identity_policy import IdentityPolicyConfig
+        from manor.common.aegis.metis.policies.joint_choreographer_policy import JointChoreographerPolicyConfig
+        from manor.common.aegis.metis.policies.simple_pick_and_place_policy import SimplePickAndPlacePolicyConfig
 
         if not isinstance(raw, dict):
             raise AegisConfigError(f"policy_config must be a mapping; got {type(raw).__name__}")
@@ -204,4 +225,8 @@ class MetisPolicyManager:
             return CircleEEVelocityPolicyConfig.from_yaml_dict(body)
         if policy_type is MetisPolicyType.GRIPPER_OPEN_CLOSE:
             return GripperOpenClosePolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.SIMPLE_PICK_AND_PLACE:
+            return SimplePickAndPlacePolicyConfig.from_yaml_dict(body)
+        if policy_type is MetisPolicyType.JOINT_CHOREOGRAPHER:
+            return JointChoreographerPolicyConfig.from_yaml_dict(body)
         raise AegisConfigError(f"No config parser registered for policy type {policy_type!r}")

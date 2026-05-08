@@ -1,0 +1,2 @@
+num_arm_dof: 6
+yaml_filepath: configs/choreographer/lite6.yaml

@@ -1,0 +1,8 @@
+pick_position: [0.20, 0.0, 0.0254]
+place_position: [0.17, -0.12, 0.0508]
+end_position: [0.12, 0.0, 0.0254]
+approach_height: 0.05
+open_width: 0.008
+closed_width: 0.0
+move_duration_seconds: 3.0
+gripper_settle_seconds: 1.0

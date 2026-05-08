@@ -1,12 +1,17 @@
-Next up: complete hardware integration.
+# Final part of the refactor
 
-We know that the stuff in lite6_cli is able to effectively operate the robot. Next is to make sure that the things in lite6 driver aligns with this.
-
-Specifically:
-
-- Please make sure that the stuff in the driver aligns with the stuff in the cli (that we know works). But please note that the things in the cli is very hacky atm so please clean up, consolidate logic, etc and then port into the driver to ensure that things are working. We use the cli as the base because I have validated that everything works as expected on actual hardware, although the code quality is a bit suspect.
-- Make sure that we are able to prime and unprime the robot. So when the driver is constructed (as part of talos or kylos), it must prime. When the policy is stopped, it must unprime
-- For the unpriming thinng let's also combine this with safety:
-  - I want some safety integrated into the robot so that running stuff on the real robot is safe
-  - I want it designed so that if metis is stopped or the frequency of commands out of metis is too low, the robot will automatically stop moving and unprime. For the lite6 this means switching the mode, unpriming (which means going back to zero position) and waiting there (doesn't nee to disconnect). This must happen either if Metis suddenly has a lapse in commands or it is outright killed while a policy is running. We don't want a rogue policy sending commands. Ideally this is based on the timestamp of the commands for the staleness of commands and for the thing where metis is killed, maybe we can still use the same staleness in timestmap logic as it's clean. Let's make a plan for how to tackle this.
-  - Obvioulsy if aegis as a whole is also stopped, we must unprime. Again no reason to disconnect
+Ok now for the final part of the deep refactor, completely getting rid of old code! To do this we need to create parallel functionality with the new system
+  1. There is a simple_pick_and_place.py file in algorithms. Let's get rid of algorithms, and this simple pick and place now becomes a Metis policy! So make sure we do the same thing
+  (I think it was hardcoded positions of joints to pick up hardcoded blocks in sim if I remember correctly) but just through a policy, sending eef or joint commands I'll let you figure
+  it out
+  2. In analysis we have the choreographer. So I still want this analysis script here but the choreographer can become another metis policy. We alerady have a yaml fo the choreographer
+  so we can pull all of tha tinto the yaml fo the new choreographer policy. But I think we're making plots etc somewhere for the choreographer, I want all of that code still in
+  analysis. Feelf ree to clean things up, align it ith our current codebase, etc
+  3. In inspection/ we can remove the check gripper control, as we already have a policy for that. For visualizing the pliant diagram, we can remove that as well. Later on if we need
+  to we can crate this functionality for Aegis. Butt I want to keep visualize manipulator. I don't remember how it works, but please preserve the functionality but using the new stuff
+  if we need to
+  4. We can get rid of the deprecated_lite6/ directory now I think. No need to preserve anything there, just make sure that all the usages are also updated, etc or even removed if not
+  relevant/needed
+  5. IN common/ I think we can get rid of everything in pliant/ as we now have Aegis. In definitions/ we have control_definitions.py that we can get rid of. Again make sure that all
+  usages are updated/purged. Stuff in control/ is good and useful I think
+  6. In general remove other old code, update their references, etc
