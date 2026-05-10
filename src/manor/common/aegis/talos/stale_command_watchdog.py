@@ -20,7 +20,7 @@ the kylos process and is shared across LeafSystems by reference, not by Drake po
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import ClassVar, Self
+from typing import ClassVar, Protocol, Self, runtime_checkable
 
 import attr
 from pydrake.common.value import AbstractValue
@@ -28,6 +28,18 @@ from pydrake.systems.framework import Context, EventStatus, LeafSystem, State
 
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
+from manor.common.definitions.timestamp_header import TimestampHeader
+
+
+@runtime_checkable
+class WatchdogPettable(Protocol):
+    """
+    Minimal interface a backend exposes to be driven by StaleCommandWatchdog. Kept local to this
+    module so the watchdog stays decoupled from any concrete backend class, and so the broader
+    ManipulatorBackend protocol does not need to grow a method that sim mode never implements.
+    """
+
+    def pet_watchdog(self, header: TimestampHeader) -> None: ...
 
 
 class StaleCommandWatchdogPorts(StrEnum):
@@ -68,7 +80,7 @@ class StaleCommandWatchdog(LeafSystem):
     freshest header before the staleness threshold elapses.
     """
 
-    def __init__(self, backend, publish_frequency_hz: float) -> None:
+    def __init__(self, backend: WatchdogPettable, publish_frequency_hz: float) -> None:
         super().__init__()
         if publish_frequency_hz <= 0.0:
             raise ValueError(f"publish_frequency_hz must be positive, got {publish_frequency_hz}")

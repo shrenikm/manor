@@ -60,7 +60,7 @@ class ManorLogger:
     _logger: logging.Logger = attr.ib(init=False)
 
     @_logger.default
-    def _initialzie_logger(self) -> logging.Logger:
+    def _initialize_logger(self) -> logging.Logger:
         logging.basicConfig(
             format="[%(asctime)s][%(name)s][%(levelname)s] %(message)s",
             datefmt="%m/%d/%Y %I:%M:%S %p",
