@@ -1,23 +1,18 @@
 """
 Simulation ManipulatorBackend.
 
-Closes over a ``Gaia`` instance: forwards Talos's outgoing
-JointEECommand into the simulation, and reads the simulation's
-joint + EE state back. Gaia is *not* advanced from here -- that's
-the ``GaiaAdvancer`` LeafSystem's job.
+Closes over a Gaia instance: forwards Talos's outgoing JointEECommand into the simulation, and reads
+the simulation's joint + EE state back. Gaia is *not* advanced from here -- that's the GaiaAdvancer
+LeafSystem's job.
 
-Lifecycle ownership splits along two axes, mirroring the hardware
-backend:
+Lifecycle ownership splits along two axes, mirroring the hardware backend:
 
-* Kyber lifecycle (start / stop) drives "prime / unprime" by snapping
-  the plant context to PRIME on start and to REST on stop, so sim and
-  hardware share the same starting/ending state.
-* Metis lifecycle (action stream presence) drives halt / resume. If the
-  action stream goes stale the backend halts the simulated arm by
-  clearing Gaia's command latches (the inner controller falls back to
-  "hold measured pose with zero desired velocity") and rejects further
-  send_joint_ee_command calls until a fresh action header arrives via
-  pet_watchdog, which auto-resumes.
+* Kyber lifecycle (start / stop) drives "prime / unprime" by snapping the plant context to PRIME on
+  start and to REST on stop, so sim and hardware share the same starting/ending state.
+* Metis lifecycle (action stream presence) drives halt / resume. If the action stream goes stale the
+  backend halts the simulated arm by clearing Gaia's command latches (the inner controller falls back
+  to "hold measured pose with zero desired velocity") and rejects further send_joint_ee_command calls
+  until a fresh action header arrives via pet_watchdog, which auto-resumes.
 """
 
 from __future__ import annotations
@@ -63,7 +58,7 @@ class SimManipulatorBackendConfig:
 @attr.define
 class SimManipulatorBackend:
     """
-    ManipulatorBackend that drives a shared ``Gaia``.
+    ManipulatorBackend that drives a shared Gaia.
     """
 
     gaia: Gaia
@@ -84,35 +79,49 @@ class SimManipulatorBackend:
         return ManorLogger(self.__class__.__name__)
 
     def start(self) -> None:
-        # Kyber-lifecycle hook: mirror HardwareManipulatorBackend.start. In sim there's no
-        # streaming controller to ramp toward the target, so we snap the plant context directly
-        # to the manipulator's PRIME plant positions vector; the diagram begins ticking from that
-        # pose. Reset watchdog state so a relaunched gylos always starts from a known-clean
-        # baseline.
+        # Kyber-lifecycle hook: mirror HardwareManipulatorBackend.start. In sim there's no streaming
+        # controller to ramp toward the target, so we snap the plant context directly to the
+        # manipulator's PRIME plant positions vector; the diagram begins ticking from that pose. Reset
+        # watchdog state so a relaunched gylos always starts from a known-clean baseline.
         self._latest_action_monotonic_ns = 0
         self._stopped = False
         self.gaia.set_joint_positions(self.gaia.manipulator_model.get_prime_plant_positions())
 
     def stop(self) -> None:
-        # Symmetric counterpart to start: snap the plant to REST so the sim's final pose matches
-        # what unprime leaves the real arm at. The diagram is tearing down anyway, so this is
-        # purely state hygiene -- but the symmetry keeps the lifecycle obvious.
+        # Symmetric counterpart to start: snap the plant to REST so the sim's final pose matches what
+        # unprime leaves the real arm at. The diagram is tearing down anyway, so this is purely state
+        # hygiene -- but the symmetry keeps the lifecycle obvious.
         self.gaia.set_joint_positions(self.gaia.manipulator_model.get_rest_plant_positions())
+
+    def _is_action_stale(self) -> bool:
+        # Startup grace: if we've never seen a real action header, don't park. The first Metis publish
+        # will set _latest_action_monotonic_ns; only after that point can the watchdog trip.
+        if self._latest_action_monotonic_ns == 0:
+            return False
+        threshold_ns = int(1e9 / self.config.minimum_watchdog_frequency_hz)
+        return (time.monotonic_ns() - self._latest_action_monotonic_ns) > threshold_ns
+
+    def halt(self) -> None:
+        # Stop the simulated arm by clearing Gaia's command latches. Without this, the most recently
+        # stashed velocity (or position) would keep driving the inner controller indefinitely;
+        # clearing falls _DesiredStateSource back to its "hold measured pose with zero desired
+        # velocity" default. Pose / EE state are otherwise preserved.
+        self.gaia.clear_command_latches()
 
     def pet_watchdog(self, header: TimestampHeader) -> None:
         """
         Reset the staleness timer with the latest upstream-action header. Called by
         StaleCommandWatchdog on every periodic tick. Two side effects:
 
-        * Strictly-newer header advances _latest_action_monotonic_ns so _is_action_stale stays
-          False until at least one threshold-window passes without a fresh tick.
+        * Strictly-newer header advances _latest_action_monotonic_ns so _is_action_stale stays False
+          until at least one threshold-window passes without a fresh tick.
         * If the watchdog had previously halted the arm and we now see a strictly-newer header,
-          auto-resume: clear the halted flag so subsequent send_joint_ee_command calls flow
-          through again. This makes a Metis restart "just work" without operator intervention.
+          auto-resume: clear the halted flag so subsequent send_joint_ee_command calls flow through
+          again. This makes a Metis restart "just work" without operator intervention.
         """
-        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the
-        # last received message, so the watchdog hands us the same header tick after tick when
-        # Metis is paused; if we treated each call as "fresh" the timer could never trip.
+        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the last
+        # received message, so the watchdog hands us the same header tick after tick when Metis is
+        # paused; if we treated each call as "fresh" the timer could never trip.
         if header.monotonic_ns <= self._latest_action_monotonic_ns:
             return
         self._latest_action_monotonic_ns = int(header.monotonic_ns)
@@ -120,26 +129,19 @@ class SimManipulatorBackend:
             self._logger.info("fresh action stream detected after halt -- resuming sim arm motion")
             self._stopped = False
 
-    def halt(self) -> None:
-        # Stop the simulated arm by clearing Gaia's command latches. Without this, the most
-        # recently stashed velocity (or position) would keep driving the inner controller
-        # indefinitely; clearing falls _DesiredStateSource back to its "hold measured pose with
-        # zero desired velocity" default. Pose / EE state are otherwise preserved.
-        self.gaia.clear_command_latches()
-
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         if self._stopped:
             return
-        # Startup gate: if no real action has ever made it through, the JointEECommand on the wire
-        # is the default-constructed one. Forwarding that to gaia stashes a zero-shape command --
-        # harmless in practice, but we drop the send anyway so behaviour matches hardware (which
-        # would crash the xarm SDK on the empty payload).
+        # Startup gate: if no real action has ever made it through, the JointEECommand on the wire is
+        # the default-constructed one. Forwarding that to gaia stashes a zero-shape command --
+        # harmless in practice, but we drop the send anyway so behaviour matches hardware (which would
+        # crash the xarm SDK on the empty payload).
         if self._latest_action_monotonic_ns == 0:
             return
         if self._is_action_stale():
             # Trip the watchdog: log, halt the arm (clear gaia latches -- pose preserved), mark
-            # _stopped so subsequent commands are dropped until pet_watchdog sees a fresh header
-            # and auto-resumes.
+            # _stopped so subsequent commands are dropped until pet_watchdog sees a fresh header and
+            # auto-resumes.
             stale_age_s = (time.monotonic_ns() - self._latest_action_monotonic_ns) * 1e-9
             threshold_s = 1.0 / self.config.minimum_watchdog_frequency_hz
             self._logger.warning(
@@ -184,12 +186,3 @@ class SimManipulatorBackend:
                 velocities=np.zeros(num_ee_dofs, dtype=np.float64),
             ),
         )
-
-    def _is_action_stale(self) -> bool:
-        # Startup grace: if we've never seen a real action header, don't park. The first Metis
-        # publish will set _latest_action_monotonic_ns; only after that point can the watchdog
-        # trip.
-        if self._latest_action_monotonic_ns == 0:
-            return False
-        threshold_ns = int(1e9 / self.config.minimum_watchdog_frequency_hz)
-        return (time.monotonic_ns() - self._latest_action_monotonic_ns) > threshold_ns

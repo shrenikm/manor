@@ -2,11 +2,9 @@
 Tests for the generic LCM <-> aegis-definition adapters.
 
 Coverage:
-    - ``from_lcm_type`` builds a Drake Diagram with the expected single
-      port for any DefinitionBase subclass (parametrized over a sample of
-      definition types covering scalars, optionals, variants, and images).
-    - End-to-end round trip through publisher -> memq LCM -> subscriber
-      reproduces the input message.
+    - from_lcm_type builds a Drake Diagram with the expected single port for any DefinitionBase subclass
+      (parametrized over a sample of definition types covering scalars, optionals, variants, and images).
+    - End-to-end round trip through publisher -> memq LCM -> subscriber reproduces the input message.
 """
 
 from __future__ import annotations
@@ -27,9 +25,9 @@ from manor.common.aegis.aegis_adapters import (
 )
 from manor.common.aegis.aegis_utils import AegisChannel
 from manor.common.definitions.action import Action
-from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.joint_command import JointCommand
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
@@ -89,9 +87,8 @@ class _ConstantSource(LeafSystem):
 
 class _FreshHeaderSource(LeafSystem):
     """
-    Like ``_ConstantSource`` but stamps a new TimestampHeader on every
-    output evaluation. Cadence tests use the unique header on each
-    publish to count distinct deliveries on the probe side.
+    Like _ConstantSource but stamps a new TimestampHeader on every output evaluation. Cadence tests use the unique
+    header on each publish to count distinct deliveries on the probe side.
     """
 
     def __init__(self, template: DefinitionBase) -> None:
@@ -255,15 +252,11 @@ class TestAdapterPreservesPayload:
 class TestAdapterPublishCadence:
     def test_publish_period_matches_configured_rate(self) -> None:
         """
-        Frequency sanity check. Wire a publisher adapter at a known rate
-        through a memq channel into a probe ``LcmSubscriberSystem`` and
-        count distinct messages observed across a fixed-duration sweep.
-        The source restamps the header on every evaluation so each
-        publish carries a unique timestamp; the probe samples and we
-        de-duplicate by ``monotonic_ns``. Expected count is roughly
-        ``frequency_hz * duration_sec`` -- a loose floor + ceiling
-        guards against missed publishes (publisher not ticking) and
-        runaway over-publishing (period leakage).
+        Frequency sanity check. Wire a publisher adapter at a known rate through a memq channel into a probe
+        LcmSubscriberSystem and count distinct messages observed across a fixed-duration sweep. The source restamps
+        the header on every evaluation so each publish carries a unique timestamp; the probe samples and we
+        de-duplicate by monotonic_ns. Expected count is roughly frequency_hz * duration_sec -- a loose floor + ceiling
+        guards against missed publishes (publisher not ticking) and runaway over-publishing (period leakage).
         """
         from pydrake.systems.lcm import LcmSubscriberSystem
 

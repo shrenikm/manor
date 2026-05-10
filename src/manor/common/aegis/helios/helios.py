@@ -1,15 +1,13 @@
 """
 Helios LeafSystem: periodic sensor publisher.
 
-Holds a SensorBackend (sim or hardware) and produces RGB + depth image
-messages. Each stream has its own publish frequency: setting either
-frequency to ``0.0`` disables that stream (no output port, no periodic
-event). Both at zero yields a dummy Helios with no outputs at all,
-useful when downstream subsystems don't need camera input but the
-same diagram shape must be preserved.
+Holds a SensorBackend (sim or hardware) and produces RGB + depth image messages. Each stream has its own publish
+frequency: setting either frequency to 0.0 disables that stream (no output port, no periodic event). Both at zero
+yields a dummy Helios with no outputs at all, useful when downstream subsystems don't need camera input but the same
+diagram shape must be preserved.
 
-The backend is a plain Python protocol -- not a Drake system -- so the
-Drake graph shape is identical in sim and on hardware.
+The backend is a plain Python protocol -- not a Drake system -- so the Drake graph shape is identical in sim and on
+hardware.
 """
 
 from __future__ import annotations
@@ -42,8 +40,8 @@ class SensorBackend(Protocol):
     """
     Protocol for a source of raw sensor frames.
 
-    Implementations return freshly stamped messages; Helios is responsible
-    only for the publish cadence and for exposing them as output ports.
+    Implementations return freshly stamped messages; Helios is responsible only for the publish cadence and for
+    exposing them as output ports.
     """
 
     def read_rgb(self) -> RGBImageData: ...
@@ -56,19 +54,14 @@ class HeliosConfig:
     """
     Helios sub-system configuration.
 
-    ``publish_rgb_frequency_hz`` and ``publish_depth_frequency_hz``
-    control the per-stream publish cadence; setting either to ``0.0``
-    disables that stream. Both at zero yields a dummy Helios with no
-    output ports.
+    publish_rgb_frequency_hz and publish_depth_frequency_hz control the per-stream publish cadence; setting either to
+    0.0 disables that stream. Both at zero yields a dummy Helios with no output ports.
 
-    ``sim_backend_config`` and ``hardware_backend_config`` parametrise
-    the per-mode backends; only the matching one is used in any given
-    aegis build.
+    sim_backend_config and hardware_backend_config parametrise the per-mode backends; only the matching one is used in
+    any given aegis build.
 
-    ``SYSTEM_NAME`` is the name applied to the Helios LeafSystem in the
-    diagram; pinning it as a class attribute keeps the name and the rest
-    of the sub-system's parametrisation in one place without making it
-    settable per instance.
+    SYSTEM_NAME is the name applied to the Helios LeafSystem in the diagram; pinning it as a class attribute keeps the
+    name and the rest of the sub-system's parametrisation in one place without making it settable per instance.
     """
 
     SYSTEM_NAME: ClassVar[str] = "helios"
@@ -81,16 +74,15 @@ class HeliosConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``helios_config:`` block of an aegis YAML.
+        Parse the helios_config: block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "helios_config"))
 
 
 class Helios(LeafSystem):
     """
-    Publishes sensor messages, one independent periodic event per
-    enabled stream. ``publish_rgb_frequency_hz`` / ``publish_depth_frequency_hz``
-    of ``0.0`` mean "skip this stream entirely" (no output port).
+    Publishes sensor messages, one independent periodic event per enabled stream. publish_rgb_frequency_hz /
+    publish_depth_frequency_hz of 0.0 mean "skip this stream entirely" (no output port).
     """
 
     def __init__(

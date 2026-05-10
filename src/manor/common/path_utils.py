@@ -29,9 +29,9 @@ def get_project_root() -> DirPath:
 
 def resolve_under_project_root(path: FilePath) -> FilePath:
     """
-    Absolute paths pass through unchanged; relative paths resolve against the project root so a
-    YAML / config can write ``configs/foo/bar.yaml`` and the lookup will work regardless of the
-    cwd the runner started from.
+    Absolute paths pass through unchanged; relative paths resolve against the project root so a YAML
+    / config can write configs/foo/bar.yaml and the lookup will work regardless of the cwd the runner
+    started from.
     """
     if os.path.isabs(path):
         return path

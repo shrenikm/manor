@@ -1,15 +1,11 @@
 """
-Tests for the ``aegis`` CLI / REPL.
+Tests for the aegis CLI / REPL.
 
-The standalone CLI commands (``aegis run`` / ``aegis kill`` /
-``aegis status``) are exercised via click's ``CliRunner``. The REPL
-itself isn't driven from pytest -- instead we test the impl
-functions (``_run_impl`` / ``_status_impl`` / ``_kill_impl``) and
-the parser / state builder it composes, so the REPL's behaviour is
-covered without spinning up prompt_toolkit.
+The standalone CLI commands (aegis run / aegis kill / aegis status) are exercised via click's CliRunner. The REPL
+itself isn't driven from pytest -- instead we test the impl functions (_run_impl / _status_impl / _kill_impl) and the
+parser / state builder it composes, so the REPL's behaviour is covered without spinning up prompt_toolkit.
 
-PID-file state is sandboxed by pointing ``_PID_FILE_DIR`` at a
-``tmp_path`` for each test.
+PID-file state is sandboxed by pointing _PID_FILE_DIR at a tmp_path for each test.
 """
 
 from __future__ import annotations
@@ -190,19 +186,16 @@ class TestStandaloneCli:
         flag: str,
         sandboxed_pid_dir: Path,
     ) -> None:
-        # ``--config`` / ``--mode`` are REPL-only. Outside the REPL
-        # the YAML is the single source of truth; passing override
-        # flags must fail at parse time so users get a clear error
-        # instead of silent fallback.
+        # --config / --mode are REPL-only. Outside the REPL the YAML is the single source of truth; passing override
+        # flags must fail at parse time so users get a clear error instead of silent fallback.
         result = _run_cli([command, flag, "anything"])
         assert result.exit_code != 0
 
 
 class TestConfigResolution:
     """
-    The ``--config`` resolution helper used by ``aegis repl -c ...``.
-    Standalone commands don't accept the flag, but the resolver is
-    still public-ish and worth covering directly.
+    The --config resolution helper used by aegis repl -c .... Standalone commands don't accept the flag, but the
+    resolver is still public-ish and worth covering directly.
     """
 
     def test_bare_filename_resolves_under_configs_dir(self) -> None:
@@ -220,10 +213,8 @@ class TestConfigResolution:
 
 class TestReplPinnedState:
     """
-    The REPL is wired around ``_build_state`` (called once at REPL
-    launch) plus the ``_*_impl`` functions (called per line).
-    Driving prompt_toolkit from pytest is hostile, so we cover the
-    moving parts directly with the pinned state.
+    The REPL is wired around _build_state (called once at REPL launch) plus the _*_impl functions (called per line).
+    Driving prompt_toolkit from pytest is hostile, so we cover the moving parts directly with the pinned state.
     """
 
     def test_build_state_applies_mode_override(self) -> None:
@@ -279,8 +270,7 @@ class TestReplPinnedState:
 
 class TestReplLineParser:
     """
-    The REPL has its own tiny argv parser (``_parse_repl_block_arg``)
-    since it doesn't re-dispatch through click.
+    The REPL has its own tiny argv parser (_parse_repl_block_arg) since it doesn't re-dispatch through click.
     """
 
     def test_no_block_returns_none(self) -> None:
@@ -300,8 +290,7 @@ class TestReplLineParser:
 
 class TestReplHelp:
     """
-    The REPL grew its own help support since it no longer goes
-    through click. ``-h`` / ``--help`` on its own re-prints the
+    The REPL grew its own help support since it no longer goes through click. -h / --help on its own re-prints the
     top-level help; on a command, it prints that command's help.
     """
 
@@ -329,9 +318,8 @@ class TestReplHelp:
         flag: str,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # Per-command help in the REPL should be the same click-rendered
-        # block you get from ``aegis <cmd> -h`` outside the REPL --
-        # not a hand-rolled string.
+        # Per-command help in the REPL should be the same click-rendered block you get from aegis <cmd> -h outside
+        # the REPL -- not a hand-rolled string.
         cli_module._dispatch_repl_line(f"{cmd} {flag}", self._state())
         out = capsys.readouterr().out
         assert f"Usage: aegis {cmd}" in out
@@ -345,8 +333,7 @@ class TestReplHelp:
         flag: str,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # ``reload`` is REPL-only (no click counterpart) so its
-        # per-command help is hand-rolled rather than rendered by
+        # reload is REPL-only (no click counterpart) so its per-command help is hand-rolled rather than rendered by
         # click. Verify the hand-rolled banner shows up.
         state = cli_module._build_state(_bundled_config_path(), mode_override=None)
         cli_module._dispatch_repl_line(f"reload {flag}", state)
@@ -357,8 +344,7 @@ class TestReplHelp:
         self,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # ``run metis -h`` should print run's click help, not try to
-        # spawn.
+        # run metis -h should print run's click help, not try to spawn.
         cli_module._dispatch_repl_line("run metis -h", self._state())
         out = capsys.readouterr().out
         assert "Usage: aegis run" in out
@@ -368,12 +354,9 @@ class TestReplHelp:
 @pytest.fixture
 def aegis_yaml_sandbox(tmp_path: Path) -> Path:
     """
-    Mirror the bundled ``configs/aegis/`` tree into ``tmp_path`` so a
-    test can edit YAMLs (base, policy, controller) without touching
-    the real repo. Returns the path to the copied ``lite6_ac.yaml``;
-    the ``policies/`` and ``controllers/`` subdirs come along beside
-    it so the composer's sibling-directory resolution still finds
-    them.
+    Mirror the bundled configs/aegis/ tree into tmp_path so a test can edit YAMLs (base, policy, controller) without
+    touching the real repo. Returns the path to the copied lite6_ac.yaml; the policies/ and controllers/ subdirs come
+    along beside it so the composer's sibling-directory resolution still finds them.
     """
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
     src_dir = Path(repo_root) / "configs" / "aegis"
@@ -384,11 +367,9 @@ def aegis_yaml_sandbox(tmp_path: Path) -> Path:
 
 class TestReplReload:
     """
-    ``reload`` re-reads the YAML configs from disk inside the REPL
-    so the user can iterate on a policy / controller / sim setting
-    without restarting the REPL. The launch-time ``--mode`` override
-    is preserved across reloads; already-running blocks keep their
-    stale config (with a warning) until they're restarted.
+    reload re-reads the YAML configs from disk inside the REPL so the user can iterate on a policy / controller / sim
+    setting without restarting the REPL. The launch-time --mode override is preserved across reloads; already-running
+    blocks keep their stale config (with a warning) until they're restarted.
     """
 
     def test_reload_picks_up_metis_publish_frequency_change(
@@ -437,9 +418,8 @@ class TestReplReload:
         self,
         aegis_yaml_sandbox: Path,
     ) -> None:
-        # The motivating workflow: edit a policy sub-YAML between two
-        # ``run metis`` invocations and have ``reload`` pick up the
-        # change without restarting the REPL.
+        # The motivating workflow: edit a policy sub-YAML between two run metis invocations and have reload pick up
+        # the change without restarting the REPL.
         from manor.common.aegis.metis.policies.constant_policies import (
             ConstantJointPositionsPolicyConfig,
         )
@@ -466,8 +446,7 @@ class TestReplReload:
         self,
         aegis_yaml_sandbox: Path,
     ) -> None:
-        # A session started with ``--mode hardware`` against a sim
-        # YAML must keep the hardware override after reload --
+        # A session started with --mode hardware against a sim YAML must keep the hardware override after reload --
         # otherwise the user's pinned setting silently regresses.
         with open(aegis_yaml_sandbox, "r") as fp:
             base = yaml.safe_load(fp)
@@ -490,9 +469,8 @@ class TestReplReload:
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # ``reload`` only affects blocks spawned *after* it; we warn
-        # so the user notices when their edit won't take effect on
-        # already-running children.
+        # reload only affects blocks spawned *after* it; we warn so the user notices when their edit won't take
+        # effect on already-running children.
         state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
         monkeypatch.setattr(cli_module, "_process_alive", lambda _pid: True)
         cli_module._write_pid(AegisBlock.METIS, 12345)
@@ -509,8 +487,7 @@ class TestReplReload:
         aegis_yaml_sandbox: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # If the user botches the YAML, ``reload`` keeps the previous
-        # state instead of dropping the user out of the REPL.
+        # If the user botches the YAML, reload keeps the previous state instead of dropping the user out of the REPL.
         state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
         with open(aegis_yaml_sandbox, "r") as fp:
             base = yaml.safe_load(fp)
@@ -528,9 +505,8 @@ class TestReplReload:
         self,
         aegis_yaml_sandbox: Path,
     ) -> None:
-        # The REPL loop relies on the dispatcher's return value to
-        # re-bind its local ``state``. A reload that returned the
-        # old state would silently no-op, so anchor that contract.
+        # The REPL loop relies on the dispatcher's return value to re-bind its local state. A reload that returned
+        # the old state would silently no-op, so anchor that contract.
         state = cli_module._build_state(aegis_yaml_sandbox, mode_override=None)
         with open(aegis_yaml_sandbox, "r") as fp:
             base = yaml.safe_load(fp)

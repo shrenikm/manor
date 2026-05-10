@@ -109,13 +109,25 @@ class GripperOpenClosePolicy:
             num_arm_dof=config.num_arm_dof,
         )
 
+    def _select_ee_positions(self, elapsed_s: float) -> EEPositionsVector:
+        cycle_duration = self.open_hold_seconds + self.close_hold_seconds
+        total_cycle_duration = cycle_duration * self.num_cycles
+        # After the configured number of cycles the policy settles at the closed setpoint and stays
+        # there.
+        if elapsed_s >= total_cycle_duration:
+            return self.closed_positions
+        # Within a cycle, the first open_hold_seconds is "open"; the remainder is "closed".
+        within_cycle = elapsed_s % cycle_duration
+        if within_cycle < self.open_hold_seconds:
+            return self.open_positions
+        return self.closed_positions
+
     def step(self, observation: Observation) -> Action:
         del observation
         header = TimestampHeader.from_system_time()
-        # System-time clock is monotonic enough for the duty-cycle this
-        # policy targets; using observation.header.system_ns would tie
-        # the policy to whatever system the observation came from
-        # (helpful in replay; unhelpful here).
+        # System-time clock is monotonic enough for the duty-cycle this policy targets; using
+        # observation.header.system_ns would tie the policy to whatever system the observation came
+        # from (helpful in replay; unhelpful here).
         now_s = header.system_ns * 1e-9
         if self._start_time_s is None:
             self._start_time_s = now_s
@@ -136,17 +148,3 @@ class GripperOpenClosePolicy:
                 ee_positions=EEPositions(header=header, positions=ee_positions.copy()),
             ),
         )
-
-    def _select_ee_positions(self, elapsed_s: float) -> EEPositionsVector:
-        cycle_duration = self.open_hold_seconds + self.close_hold_seconds
-        total_cycle_duration = cycle_duration * self.num_cycles
-        # After the configured number of cycles the policy settles at
-        # the closed setpoint and stays there.
-        if elapsed_s >= total_cycle_duration:
-            return self.closed_positions
-        # Within a cycle, the first open_hold_seconds is "open"; the
-        # remainder is "closed".
-        within_cycle = elapsed_s % cycle_duration
-        if within_cycle < self.open_hold_seconds:
-            return self.open_positions
-        return self.closed_positions

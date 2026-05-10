@@ -1,6 +1,5 @@
 """
-Tests for Kyber: port shape, controller dispatch, and YAML
-round-tripping for ``KyberConfig``.
+Tests for Kyber: port shape, controller dispatch, and YAML round-tripping for KyberConfig.
 """
 
 from __future__ import annotations
@@ -29,8 +28,8 @@ from manor.common.aegis.kyber.controllers.zero_velocity_controller import (
 )
 from manor.common.aegis.kyber.kyber import Kyber, KyberConfig, KyberPorts
 from manor.common.definitions.action import Action
-from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_command import JointCommand
+from manor.common.definitions.joint_ee_command import JointEECommand
 from manor.common.definitions.joint_positions import JointPositions
 from manor.common.definitions.joint_state import JointState
 from manor.common.definitions.joint_velocities import JointVelocities

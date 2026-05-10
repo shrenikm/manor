@@ -1,21 +1,18 @@
 """
 Kylos-process runner (hardware mode only).
 
-Bundles ``Kyber`` + ``Talos`` (with the hardware manipulator backend)
-in one process. Action arrives over LCM; proprioception is published
-over LCM. Kyber and Talos are wired directly to each other -- no
-intermediate LCM hop on the action -> command -> motor path.
+Bundles Kyber + Talos (with the hardware manipulator backend) in one process. Action arrives over LCM; proprioception
+is published over LCM. Kyber and Talos are wired directly to each other -- no intermediate LCM hop on the
+action -> command -> motor path.
 
-In sim mode the kylos role is fulfilled by the gylos process (see
-``run.run_gylos``); don't launch this runner in sim.
+In sim mode the kylos role is fulfilled by the gylos process (see run.run_gylos); don't launch this runner in sim.
 
 Standalone usage:
 
     python -m manor.common.aegis.run.run_kylos < /tmp/aegis.json
 
-where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
-``manor.common.aegis.run`` package docstring for the one-line
-``yaml.safe_load(...) -> json.dumps(...)`` recipe).
+where /tmp/aegis.json is the YAML re-encoded as JSON (see the manor.common.aegis.run package docstring for the
+one-line yaml.safe_load(...) -> json.dumps(...) recipe).
 """
 
 from __future__ import annotations
@@ -61,14 +58,13 @@ def run_kylos(
     lcm: DrakeLcm | None = None,
 ) -> None:
     """
-    Build the kylos-process diagram (kyber + talos against the real
-    robot driver) and advance forever (until SIGTERM / SIGINT).
+    Build the kylos-process diagram (kyber + talos against the real robot driver) and advance forever (until
+    SIGTERM / SIGINT).
     """
     lcm = lcm if lcm is not None else DrakeLcm()
 
-    # Lite6 is the only manipulator currently driveable on hardware;
-    # additional manipulators will need their own driver factories
-    # plumbed in alongside this branch.
+    # Lite6 is the only manipulator currently driveable on hardware; additional manipulators will need their own driver
+    # factories plumbed in alongside this branch.
     if not isinstance(manipulator_model, Lite6Model):
         raise ValueError(
             f"kylos hardware mode currently supports only Lite6Model; got {type(manipulator_model).__name__}"

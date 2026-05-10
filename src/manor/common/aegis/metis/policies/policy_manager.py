@@ -3,20 +3,18 @@ Metis policy registry and factory.
 
 This module owns the public surface of the Metis policy abstraction:
 
-* ``MetisPolicy`` -- the protocol every policy implementation conforms to.
-* ``MetisPolicyType`` -- the canonical enum used to refer to a policy
-  by name (e.g. from a YAML config) without passing instances around.
-* ``MetisPolicyConfigBase`` -- the parent attrs config every per-policy
-  config inherits from. Each concrete subclass pins ``POLICY_TYPE`` as
-  a ``ClassVar`` so the enum and the config class are coupled at the
-  source.
-* ``MetisPolicyManager`` -- the factory that turns a policy config (or
-  a YAML dict) into a concrete ``MetisPolicy`` instance.
+* MetisPolicy -- the protocol every policy implementation conforms to.
+* MetisPolicyType -- the canonical enum used to refer to a policy by name (e.g. from a YAML config)
+  without passing instances around.
+* MetisPolicyConfigBase -- the parent attrs config every per-policy config inherits from. Each
+  concrete subclass pins POLICY_TYPE as a ClassVar so the enum and the config class are coupled at
+  the source.
+* MetisPolicyManager -- the factory that turns a policy config (or a YAML dict) into a concrete
+  MetisPolicy instance.
 
-Per-policy modules import the protocol / base / enum from here and
-register their own concrete config + policy classes; the manager
-imports them lazily inside its classmethods to keep the import graph
-acyclic.
+Per-policy modules import the protocol / base / enum from here and register their own concrete
+config + policy classes; the manager imports them lazily inside its classmethods to keep the import
+graph acyclic.
 """
 
 from __future__ import annotations
@@ -31,17 +29,16 @@ from manor.common.definitions.observation import Observation
 from manor.common.exceptions import AegisConfigError
 from manor.manipulators.manipulator_model import IManipulatorModel
 
-# Tagged-union discriminator key used in the YAML body of a
-# ``policy_config`` block. Not an attrs field on any per-policy
-# config: the manager strips it before dispatching to the matching
-# subclass's ``from_yaml_dict``.
+# Tagged-union discriminator key used in the YAML body of a policy_config block. Not an attrs field on
+# any per-policy config: the manager strips it before dispatching to the matching subclass's
+# from_yaml_dict.
 _POLICY_TYPE_YAML_KEY = "type"
 
 
 class MetisPolicyType(StrEnum):
     """
-    Canonical names for Metis policies. Used as the ``type`` tag inside
-    the ``policy_config`` block of an aegis YAML.
+    Canonical names for Metis policies. Used as the type tag inside the policy_config block of an
+    aegis YAML.
     """
 
     IDENTITY = "identity"
@@ -59,9 +56,8 @@ class MetisPolicy(Protocol):
     """
     Protocol for an observation-to-action policy.
 
-    Concrete implementations may be purely functional (classical
-    planners, trajopt) or stateful (learned policies with internal
-    recurrence); the ``step`` interface accommodates both.
+    Concrete implementations may be purely functional (classical planners, trajopt) or stateful
+    (learned policies with internal recurrence); the step interface accommodates both.
     """
 
     def step(self, observation: Observation) -> Action: ...
@@ -70,17 +66,14 @@ class MetisPolicy(Protocol):
 @attr.frozen
 class MetisPolicyConfigBase:
     """
-    Base attrs config for a Metis policy. Concrete subclasses must set
-    ``POLICY_TYPE`` to the matching ``MetisPolicyType`` value; that
-    pinning is what lets ``MetisPolicyManager`` round-trip a YAML tag
-    through to a concrete policy without a parallel registry to keep
-    in sync.
+    Base attrs config for a Metis policy. Concrete subclasses must set POLICY_TYPE to the matching
+    MetisPolicyType value; that pinning is what lets MetisPolicyManager round-trip a YAML tag through
+    to a concrete policy without a parallel registry to keep in sync.
 
-    The base also carries a ``from_yaml_dict`` that delegates to the
-    manager. That makes it possible for ``parse_attrs_yaml`` to recurse
-    into a ``policy_config`` field by type alone -- the helper sees
-    ``MetisPolicyConfigBase``, calls its ``from_yaml_dict``, and the
-    manager dispatches to the concrete subclass off the ``type:`` tag.
+    The base also carries a from_yaml_dict that delegates to the manager. That makes it possible for
+    parse_attrs_yaml to recurse into a policy_config field by type alone -- the helper sees
+    MetisPolicyConfigBase, calls its from_yaml_dict, and the manager dispatches to the concrete
+    subclass off the type: tag.
     """
 
     POLICY_TYPE: ClassVar[MetisPolicyType]
@@ -92,22 +85,19 @@ class MetisPolicyConfigBase:
 
 class MetisPolicyManager:
     """
-    Factory that turns a policy config into a ``MetisPolicy`` instance.
+    Factory that turns a policy config into a MetisPolicy instance.
 
-    The manager is the single place that knows about every concrete
-    policy + policy-config pair. Adding a new policy means:
+    The manager is the single place that knows about every concrete policy + policy-config pair.
+    Adding a new policy means:
 
-      1. drop a new module under ``metis/policies/``,
-      2. add an enum value to ``MetisPolicyType``,
-      3. add the dispatch branch in ``from_config`` and
-         ``config_from_yaml_dict``.
+      1. drop a new module under metis/policies/,
+      2. add an enum value to MetisPolicyType,
+      3. add the dispatch branch in from_config and config_from_yaml_dict.
 
-    ``manipulator_model`` is plumbed through alongside the config
-    because some policies need URDF-derived limits / poses (e.g. an
-    open/close policy that wants the EE's full-open and full-closed
-    setpoints from the model). Policies that don't need it ignore the
-    argument; callers that don't have a model handy can pass ``None``
-    only if the policy doesn't require it.
+    manipulator_model is plumbed through alongside the config because some policies need URDF-derived
+    limits / poses (e.g. an open/close policy that wants the EE's full-open and full-closed setpoints
+    from the model). Policies that don't need it ignore the argument; callers that don't have a model
+    handy can pass None only if the policy doesn't require it.
     """
 
     @classmethod
@@ -117,9 +107,8 @@ class MetisPolicyManager:
         manipulator_model: IManipulatorModel | None = None,
     ) -> MetisPolicy:
         """
-        Build a ``MetisPolicy`` from its config. Dispatches off the
-        config's runtime type (which is itself anchored to
-        ``POLICY_TYPE``).
+        Build a MetisPolicy from its config. Dispatches off the config's runtime type (which is itself
+        anchored to POLICY_TYPE).
         """
         from manor.common.aegis.metis.policies.circle_ee_velocity_policy import (
             CircleEEVelocityPolicy,
@@ -180,11 +169,9 @@ class MetisPolicyManager:
     @classmethod
     def config_from_yaml_dict(cls, raw: object) -> MetisPolicyConfigBase:
         """
-        Parse the ``policy_config`` block of an aegis YAML into a
-        concrete ``MetisPolicyConfigBase`` subclass. The block must
-        carry a ``type`` key matching one of the ``MetisPolicyType``
-        values; the rest of the block is forwarded to that subclass's
-        ``from_yaml_dict``.
+        Parse the policy_config block of an aegis YAML into a concrete MetisPolicyConfigBase subclass.
+        The block must carry a type key matching one of the MetisPolicyType values; the rest of the
+        block is forwarded to that subclass's from_yaml_dict.
         """
         from manor.common.aegis.metis.policies.circle_ee_velocity_policy import CircleEEVelocityPolicyConfig
         from manor.common.aegis.metis.policies.constant_cartesian_pose_policy import (

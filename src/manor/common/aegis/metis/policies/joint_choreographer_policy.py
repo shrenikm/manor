@@ -113,84 +113,10 @@ class JointChoreographedSections:
     choreographed_sections: tuple[ChoreographedSection, ...]
 
 
-@attr.frozen
-class JointChoreographerPolicyConfig(MetisPolicyConfigBase):
-    """
-    Config for JointChoreographerPolicy. The YAML schema mirrors the deprecated Lite6
-    choreographer config (jointN_choreography blocks, each with sectionN sub-blocks).
-
-    yaml_filepath, when set, is used by from_yaml_dict to load the choreography from an external
-    file -- this keeps the aegis YAML compact (the choreography itself can run hundreds of lines
-    of section definitions). When unset, joint_choreographed_sections must be inlined directly
-    in the dict that from_yaml_dict consumes.
-    """
-
-    POLICY_TYPE: ClassVar[MetisPolicyType] = MetisPolicyType.JOINT_CHOREOGRAPHER
-
-    num_arm_dof: int
-    joint_choreographed_sections: tuple[JointChoreographedSections, ...]
-
-    @classmethod
-    def from_yaml_dict(cls, d: dict) -> Self:
-        if "yaml_filepath" in d and "joint_choreographed_sections" in d:
-            raise AegisConfigError(
-                "JointChoreographerPolicyConfig: pass exactly one of yaml_filepath or "
-                "joint_choreographed_sections, not both"
-            )
-        if "yaml_filepath" in d:
-            yaml_filepath = d["yaml_filepath"]
-            num_arm_dof_value = d.get("num_arm_dof")
-            if not isinstance(yaml_filepath, str):
-                raise AegisConfigError("JointChoreographerPolicyConfig.yaml_filepath must be a string")
-            if not isinstance(num_arm_dof_value, int):
-                raise AegisConfigError("JointChoreographerPolicyConfig.num_arm_dof must be an int")
-            return cls.from_yaml_filepath(yaml_filepath=yaml_filepath, num_arm_dof=num_arm_dof_value)
-        return cls(
-            **parse_attrs_yaml(
-                cls,
-                d,
-                "JointChoreographerPolicyConfig",
-                custom_parsers={
-                    "joint_choreographed_sections": _parse_inlined_sections,
-                },
-            )
-        )
-
-    @classmethod
-    def from_yaml_filepath(cls, yaml_filepath: FilePath, num_arm_dof: int) -> Self:
-        """
-        Load a JointChoreographerPolicyConfig from a standalone YAML file. Relative paths resolve
-        against the project root so the bundled config can write
-        ``yaml_filepath: configs/choreographer/lite6.yaml`` and have it work regardless of cwd.
-        Format matches the deprecated Lite6 choreographer config: top-level keys are joint blocks
-        containing a joint_index plus N sectionN sub-blocks; each section has start/end time
-        delays, an active time, a start_joint_positions vector, and a control_signal block.
-        """
-        resolved = resolve_under_project_root(yaml_filepath)
-        if not os.path.exists(resolved):
-            raise AegisConfigError(f"choreographer YAML not found: {resolved!r}")
-        with open(resolved, "r") as fp:
-            raw = yaml.safe_load(fp)
-        if not isinstance(raw, dict):
-            raise AegisConfigError(
-                f"choreographer YAML {resolved!r} must be a mapping at the top level; got {type(raw).__name__}"
-            )
-        return cls(
-            num_arm_dof=num_arm_dof,
-            joint_choreographed_sections=_parse_choreography_yaml_dict(raw, num_arm_dof=num_arm_dof),
-        )
-
-
-def _parse_inlined_sections(value: object, context: str) -> tuple[JointChoreographedSections, ...]:
-    if not isinstance(value, dict):
-        raise AegisConfigError(f"{context} must be a mapping; got {type(value).__name__}")
-    return _parse_choreography_yaml_dict(value, num_arm_dof=None)
-
-
 def _parse_choreography_yaml_dict(raw: dict, num_arm_dof: int | None) -> tuple[JointChoreographedSections, ...]:
     """
-    Parse the joint-block-of-section-blocks structure used by the choreographer YAML. num_arm_dof
-    is enforced when supplied so a section can't reference an out-of-range joint or carry a
+    Parse the joint-block-of-section-blocks structure used by the choreographer YAML. num_arm_dof is
+    enforced when supplied so a section can't reference an out-of-range joint or carry a
     start_joint_positions vector of the wrong length.
     """
     parsed: list[JointChoreographedSections] = []
@@ -237,12 +163,85 @@ def _parse_choreography_yaml_dict(raw: dict, num_arm_dof: int | None) -> tuple[J
     return tuple(parsed)
 
 
+def _parse_inlined_sections(value: object, context: str) -> tuple[JointChoreographedSections, ...]:
+    if not isinstance(value, dict):
+        raise AegisConfigError(f"{context} must be a mapping; got {type(value).__name__}")
+    return _parse_choreography_yaml_dict(value, num_arm_dof=None)
+
+
+@attr.frozen
+class JointChoreographerPolicyConfig(MetisPolicyConfigBase):
+    """
+    Config for JointChoreographerPolicy. The YAML schema mirrors the deprecated Lite6 choreographer
+    config (jointN_choreography blocks, each with sectionN sub-blocks).
+
+    yaml_filepath, when set, is used by from_yaml_dict to load the choreography from an external file
+    -- this keeps the aegis YAML compact (the choreography itself can run hundreds of lines of section
+    definitions). When unset, joint_choreographed_sections must be inlined directly in the dict that
+    from_yaml_dict consumes.
+    """
+
+    POLICY_TYPE: ClassVar[MetisPolicyType] = MetisPolicyType.JOINT_CHOREOGRAPHER
+
+    num_arm_dof: int
+    joint_choreographed_sections: tuple[JointChoreographedSections, ...]
+
+    @classmethod
+    def from_yaml_dict(cls, d: dict) -> Self:
+        if "yaml_filepath" in d and "joint_choreographed_sections" in d:
+            raise AegisConfigError(
+                "JointChoreographerPolicyConfig: pass exactly one of yaml_filepath or "
+                "joint_choreographed_sections, not both"
+            )
+        if "yaml_filepath" in d:
+            yaml_filepath = d["yaml_filepath"]
+            num_arm_dof_value = d.get("num_arm_dof")
+            if not isinstance(yaml_filepath, str):
+                raise AegisConfigError("JointChoreographerPolicyConfig.yaml_filepath must be a string")
+            if not isinstance(num_arm_dof_value, int):
+                raise AegisConfigError("JointChoreographerPolicyConfig.num_arm_dof must be an int")
+            return cls.from_yaml_filepath(yaml_filepath=yaml_filepath, num_arm_dof=num_arm_dof_value)
+        return cls(
+            **parse_attrs_yaml(
+                cls,
+                d,
+                "JointChoreographerPolicyConfig",
+                custom_parsers={
+                    "joint_choreographed_sections": _parse_inlined_sections,
+                },
+            )
+        )
+
+    @classmethod
+    def from_yaml_filepath(cls, yaml_filepath: FilePath, num_arm_dof: int) -> Self:
+        """
+        Load a JointChoreographerPolicyConfig from a standalone YAML file. Relative paths resolve
+        against the project root so the bundled config can write
+        yaml_filepath: configs/choreographer/lite6.yaml and have it work regardless of cwd. Format
+        matches the deprecated Lite6 choreographer config: top-level keys are joint blocks containing
+        a joint_index plus N sectionN sub-blocks; each section has start/end time delays, an active
+        time, a start_joint_positions vector, and a control_signal block.
+        """
+        resolved = resolve_under_project_root(yaml_filepath)
+        if not os.path.exists(resolved):
+            raise AegisConfigError(f"choreographer YAML not found: {resolved!r}")
+        with open(resolved, "r") as fp:
+            raw = yaml.safe_load(fp)
+        if not isinstance(raw, dict):
+            raise AegisConfigError(
+                f"choreographer YAML {resolved!r} must be a mapping at the top level; got {type(raw).__name__}"
+            )
+        return cls(
+            num_arm_dof=num_arm_dof,
+            joint_choreographed_sections=_parse_choreography_yaml_dict(raw, num_arm_dof=num_arm_dof),
+        )
+
+
 def _default_plot_output_dir() -> DirPath:
     """
-    Compute a fresh timestamped directory under results/choreographer for one policy run. The
-    factory runs at policy construction time so each aegis run gets its own folder; back-to-back
-    runs at the same wall-clock second collide, which is fine -- we'd rather overwrite than
-    silently nest.
+    Compute a fresh timestamped directory under results/choreographer for one policy run. The factory
+    runs at policy construction time so each aegis run gets its own folder; back-to-back runs at the
+    same system-time second collide, which is fine -- we'd rather overwrite than silently nest.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(get_project_root(), _PLOT_RESULTS_SUBDIR, timestamp)
@@ -326,72 +325,6 @@ class JointChoreographerPolicy:
             joint_choreographed_sections=config.joint_choreographed_sections,
             num_arm_dof=config.num_arm_dof,
         )
-
-    def is_done(self) -> bool:
-        return self._done
-
-    def step(self, observation: Observation) -> Action:
-        header = TimestampHeader.from_system_time()
-        now_s = header.system_ns * 1e-9
-        velocities = self._compute_velocities(observation=observation, now_s=now_s)
-        self._record_if_active(observation=observation, now_s=now_s, velocities=velocities)
-        return Action(
-            header=header,
-            joint_command=JointCommand(
-                header=header,
-                joint_velocities=JointVelocities(header=header, velocities=velocities),
-            ),
-        )
-
-    def _record_if_active(
-        self,
-        observation: Observation,
-        now_s: float,
-        velocities: JointVelocitiesVector,
-    ) -> None:
-        """
-        Stash a (section-relative time, target velocity, observed velocity) sample for the active
-        joint when the policy is in the ACTIVE phase. Other phases are bookkeeping; their data
-        isn't useful for the per-section comparison plot. Section-relative time uses
-        _section_active_start_time_s so the per-section x-axes start at zero on the plot.
-        """
-        if not self._status.is_active() or self._section_active_start_time_s is None:
-            return
-        if observation.proprioception is None:
-            return
-        observed = observation.proprioception.joint_state.joint_velocities.velocities
-        if observed.size == 0:
-            return
-        jcs = self.joint_choreographed_sections[self._current_joint_idx]
-        joint_index = jcs.joint_index
-        key = (self._current_joint_idx, self._current_section_idx)
-        section_t_s = now_s - self._section_active_start_time_s
-        self._section_times_map.setdefault(key, []).append(section_t_s)
-        self._section_target_velocities_map.setdefault(key, []).append(float(velocities[joint_index]))
-        self._section_observed_velocities_map.setdefault(key, []).append(float(observed[joint_index]))
-
-    def _compute_velocities(self, observation: Observation, now_s: float) -> JointVelocitiesVector:
-        if self._done:
-            return np.zeros(self.num_arm_dof, dtype=np.float64)
-        jcs = self.joint_choreographed_sections[self._current_joint_idx]
-        section = jcs.choreographed_sections[self._current_section_idx]
-        joint_index = jcs.joint_index
-        velocities = np.zeros(self.num_arm_dof, dtype=np.float64)
-        if self._status is _SectionStatus.START_DELAY:
-            return self._handle_start_delay(
-                now_s=now_s, section=section, joint_index=joint_index, velocities=velocities
-            )
-        if self._status is _SectionStatus.PRE_ACTIVE:
-            return self._handle_pre_active(
-                observation=observation,
-                now_s=now_s,
-                section=section,
-                joint_index=joint_index,
-                velocities=velocities,
-            )
-        if self._status is _SectionStatus.ACTIVE:
-            return self._handle_active(now_s=now_s, section=section, joint_index=joint_index, velocities=velocities)
-        return self._handle_end_delay(now_s=now_s, section=section, joint_index=joint_index, velocities=velocities)
 
     def _handle_start_delay(
         self,
@@ -537,3 +470,69 @@ class JointChoreographerPolicy:
             ax.legend(loc="best")
         fig.tight_layout()
         return fig
+
+    def _record_if_active(
+        self,
+        observation: Observation,
+        now_s: float,
+        velocities: JointVelocitiesVector,
+    ) -> None:
+        """
+        Stash a (section-relative time, target velocity, observed velocity) sample for the active
+        joint when the policy is in the ACTIVE phase. Other phases are bookkeeping; their data isn't
+        useful for the per-section comparison plot. Section-relative time uses
+        _section_active_start_time_s so the per-section x-axes start at zero on the plot.
+        """
+        if not self._status.is_active() or self._section_active_start_time_s is None:
+            return
+        if observation.proprioception is None:
+            return
+        observed = observation.proprioception.joint_state.joint_velocities.velocities
+        if observed.size == 0:
+            return
+        jcs = self.joint_choreographed_sections[self._current_joint_idx]
+        joint_index = jcs.joint_index
+        key = (self._current_joint_idx, self._current_section_idx)
+        section_t_s = now_s - self._section_active_start_time_s
+        self._section_times_map.setdefault(key, []).append(section_t_s)
+        self._section_target_velocities_map.setdefault(key, []).append(float(velocities[joint_index]))
+        self._section_observed_velocities_map.setdefault(key, []).append(float(observed[joint_index]))
+
+    def _compute_velocities(self, observation: Observation, now_s: float) -> JointVelocitiesVector:
+        if self._done:
+            return np.zeros(self.num_arm_dof, dtype=np.float64)
+        jcs = self.joint_choreographed_sections[self._current_joint_idx]
+        section = jcs.choreographed_sections[self._current_section_idx]
+        joint_index = jcs.joint_index
+        velocities = np.zeros(self.num_arm_dof, dtype=np.float64)
+        if self._status is _SectionStatus.START_DELAY:
+            return self._handle_start_delay(
+                now_s=now_s, section=section, joint_index=joint_index, velocities=velocities
+            )
+        if self._status is _SectionStatus.PRE_ACTIVE:
+            return self._handle_pre_active(
+                observation=observation,
+                now_s=now_s,
+                section=section,
+                joint_index=joint_index,
+                velocities=velocities,
+            )
+        if self._status is _SectionStatus.ACTIVE:
+            return self._handle_active(now_s=now_s, section=section, joint_index=joint_index, velocities=velocities)
+        return self._handle_end_delay(now_s=now_s, section=section, joint_index=joint_index, velocities=velocities)
+
+    def is_done(self) -> bool:
+        return self._done
+
+    def step(self, observation: Observation) -> Action:
+        header = TimestampHeader.from_system_time()
+        now_s = header.system_ns * 1e-9
+        velocities = self._compute_velocities(observation=observation, now_s=now_s)
+        self._record_if_active(observation=observation, now_s=now_s, velocities=velocities)
+        return Action(
+            header=header,
+            joint_command=JointCommand(
+                header=header,
+                joint_velocities=JointVelocities(header=header, velocities=velocities),
+            ),
+        )

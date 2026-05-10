@@ -1,19 +1,14 @@
 """
 Tests for the aegis base / policy / controller YAML composition.
 
-The aegis stack pins per-manipulator base YAMLs (e.g.
-``lite6_ac.yaml``) that name a policy and controller via
-``policy_type`` / ``controller_type``; the matching bodies live in
-``policies/<name>_ac.yaml`` and ``controllers/<name>_ac.yaml``. The
-composer in ``aegis.compose_aegis_yaml_dict`` is the single place
-that resolves the references and refuses to run aegis when a
-sub-YAML is missing or malformed. These tests cover that contract.
+The aegis stack pins per-manipulator base YAMLs (e.g. lite6_ac.yaml) that name a policy and controller via
+policy_type / controller_type; the matching bodies live in policies/<name>_ac.yaml and controllers/<name>_ac.yaml. The
+composer in aegis.compose_aegis_yaml_dict is the single place that resolves the references and refuses to run aegis
+when a sub-YAML is missing or malformed. These tests cover that contract.
 
-The on-disk-coverage tests at the bottom enumerate every member of
-``MetisPolicyType`` / ``KyberControllerType`` and assert that the
-matching sub-YAML exists and parses through the composer + AegisConfig
-parser. New policies / controllers added to the enum without a
-matching YAML will fail this layer rather than at run-time.
+The on-disk-coverage tests at the bottom enumerate every member of MetisPolicyType / KyberControllerType and assert
+that the matching sub-YAML exists and parses through the composer + AegisConfig parser. New policies / controllers
+added to the enum without a matching YAML will fail this layer rather than at run-time.
 """
 
 from __future__ import annotations
@@ -108,9 +103,8 @@ class TestComposerHappyPath:
         assert config.kyber_config.controller_config.CONTROLLER_TYPE is KyberControllerType.PASSTHROUGH
 
     def test_inlined_block_carries_type_tag(self, aegis_yaml_workspace: Path) -> None:
-        # The composer re-injects ``type:`` after stripping it from
-        # the sub-YAML body so the existing manager dispatch path
-        # (which keys off ``type:``) keeps working unchanged.
+        # The composer re-injects type: after stripping it from the sub-YAML body so the existing manager dispatch
+        # path (which keys off type:) keeps working unchanged.
         raw = compose_aegis_yaml_dict(aegis_yaml_workspace)
         assert raw["metis_config"]["policy_config"]["type"] == "constant_joint_positions"
         assert raw["kyber_config"]["controller_config"]["type"] == "passthrough"
@@ -171,8 +165,7 @@ class TestComposerRejections:
             compose_aegis_yaml_dict(aegis_yaml_workspace)
 
     def test_rejects_type_key_inside_policy_yaml(self, aegis_yaml_workspace: Path) -> None:
-        # The type is derived from the filename; embedding ``type:``
-        # in the body would let two sources of truth disagree.
+        # The type is derived from the filename; embedding type: in the body would let two sources of truth disagree.
         sub_path = aegis_yaml_workspace.parent / POLICIES_SUBDIR / f"constant_joint_positions{AEGIS_YAML_SUFFIX}"
         with open(sub_path, "r") as fp:
             body = yaml.safe_load(fp)
@@ -193,8 +186,7 @@ class TestComposerRejections:
             compose_aegis_yaml_dict(aegis_yaml_workspace)
 
     def test_rejects_inlined_policy_config_in_base(self, aegis_yaml_workspace: Path) -> None:
-        # The base must not pre-inline a ``policy_config`` block;
-        # the only legal source for a policy body is its sub-YAML.
+        # The base must not pre-inline a policy_config block; the only legal source for a policy body is its sub-YAML.
         with open(aegis_yaml_workspace, "r") as fp:
             base = yaml.safe_load(fp)
         base["metis_config"]["policy_config"] = {"type": "constant_joint_positions", "positions": [0.0] * 6}
@@ -215,12 +207,9 @@ class TestComposerRejections:
 
 class TestBundledYamlCoverage:
     """
-    Every ``MetisPolicyType`` / ``KyberControllerType`` enum value
-    must have a matching ``<name>_ac.yaml`` on disk under the
-    bundled ``configs/aegis/policies/`` and
-    ``configs/aegis/controllers/`` directories. This is the contract
-    the composer enforces at run-time; this layer asserts it at the
-    repo level so a new enum value without a YAML is caught in CI.
+    Every MetisPolicyType / KyberControllerType enum value must have a matching <name>_ac.yaml on disk under the
+    bundled configs/aegis/policies/ and configs/aegis/controllers/ directories. This is the contract the composer
+    enforces at run-time; this layer asserts it at the repo level so a new enum value without a YAML is caught in CI.
     """
 
     @pytest.mark.parametrize("policy_type", list(MetisPolicyType))
@@ -234,10 +223,8 @@ class TestBundledYamlCoverage:
         assert path.exists(), f"missing controller YAML at {path}"
 
     def test_no_orphan_policy_yamls(self) -> None:
-        # The reverse direction: a YAML in ``policies/`` whose name
-        # doesn't correspond to an enum value would silently never
-        # be referenced. Catch that too so the directory stays a
-        # clean source of truth.
+        # The reverse direction: a YAML in policies/ whose name doesn't correspond to an enum value would silently
+        # never be referenced. Catch that too so the directory stays a clean source of truth.
         valid = {f"{t.value}{AEGIS_YAML_SUFFIX}" for t in MetisPolicyType}
         on_disk = {p.name for p in (_bundled_aegis_dir() / POLICIES_SUBDIR).glob(f"*{AEGIS_YAML_SUFFIX}")}
         assert on_disk == valid, f"policies/ contents drift: extra={on_disk - valid}, missing={valid - on_disk}"
@@ -250,11 +237,9 @@ class TestBundledYamlCoverage:
 
 class TestBundledLite6Composition:
     """
-    The bundled ``lite6_ac.yaml`` itself must compose into a fully
-    parsed ``AegisConfig``. ``test_aegis.py`` already covers the
-    diagram-build smoke test against this YAML; this test isolates
-    the composer step so a sub-YAML format break surfaces before the
-    Drake-heavy build.
+    The bundled lite6_ac.yaml itself must compose into a fully parsed AegisConfig. test_aegis.py already covers the
+    diagram-build smoke test against this YAML; this test isolates the composer step so a sub-YAML format break
+    surfaces before the Drake-heavy build.
     """
 
     def test_bundled_lite6_yaml_composes_and_parses(self) -> None:

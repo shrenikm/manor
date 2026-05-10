@@ -32,8 +32,8 @@ class _CapnpField(StrEnum):
 @attr.frozen
 class RGBImageData(DefinitionBase):
     """
-    A single RGB frame. `data` is the raw pixel bytes when `encoding` is RAW_*,
-    or a compressed image payload (e.g. JPEG/PNG bytes) otherwise.
+    A single RGB frame. data is the raw pixel bytes when encoding is RAW_*, or a compressed image payload
+    (e.g. JPEG/PNG bytes) otherwise.
     """
 
     header: TimestampHeader

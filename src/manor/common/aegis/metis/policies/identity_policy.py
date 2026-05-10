@@ -1,10 +1,9 @@
 """
-``IdentityPolicy``: mirrors the current measured joint positions back
-out as a joint-positions action. Useful as a sanity check when closing
-the loop on a position-tracking controller.
+IdentityPolicy: mirrors the current measured joint positions back out as a joint-positions action.
+Useful as a sanity check when closing the loop on a position-tracking controller.
 
-When the observation lacks proprioception, the policy emits a zeroed
-``JointPositions`` of width ``num_joints``.
+When the observation lacks proprioception, the policy emits a zeroed JointPositions of width
+num_joints.
 """
 
 from __future__ import annotations
@@ -25,8 +24,8 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 @attr.frozen
 class IdentityPolicyConfig(MetisPolicyConfigBase):
     """
-    Config for ``IdentityPolicy``. ``num_joints`` sets the fallback
-    action width when the observation lacks proprioception.
+    Config for IdentityPolicy. num_joints sets the fallback action width when the observation lacks
+    proprioception.
     """
 
     POLICY_TYPE: ClassVar[MetisPolicyType] = MetisPolicyType.IDENTITY

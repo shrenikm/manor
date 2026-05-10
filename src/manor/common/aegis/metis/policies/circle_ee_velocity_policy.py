@@ -89,32 +89,6 @@ class CircleEEVelocityPolicy:
             duration_seconds=config.duration_seconds,
         )
 
-    def step(self, observation: Observation) -> Action:
-        header = TimestampHeader.from_system_time()
-        now_s = header.system_ns * 1e-9
-
-        if self._centre is None:
-            translation = self._extract_translation(observation)
-            if translation is None:
-                # Defer the latch until proprioception is populated.
-                # Until then emit a zero CartesianTwist so the diagram
-                # keeps ticking.
-                return self._make_action(header, np.zeros(3, dtype=np.float64))
-            # Latch the start as the back rim (smallest x) of the
-            # circle so the trace stays at x >= start.x. Centre sits
-            # +radius in x; combined with the anticlockwise-from-+z
-            # direction, the initial tangent is in -y. See module
-            # docstring for the self-collision rationale.
-            self._centre = translation + np.array([self.radius, 0.0, 0.0], dtype=np.float64)
-            self._start_time_s = now_s
-
-        elapsed = now_s - (self._start_time_s if self._start_time_s is not None else now_s)
-        if elapsed >= self.duration_seconds:
-            return self._make_action(header, np.zeros(3, dtype=np.float64))
-
-        linear = self._tangent_velocity(elapsed)
-        return self._make_action(header, linear)
-
     @staticmethod
     def _extract_translation(observation: Observation) -> np.ndarray | None:
         if observation.proprioception is None:
@@ -125,17 +99,14 @@ class CircleEEVelocityPolicy:
         return np.asarray(cartesian_state.cartesian_pose.translation, dtype=np.float64).copy()
 
     def _tangent_velocity(self, elapsed_s: float) -> np.ndarray:
-        # Angular speed sized so the linear speed at the rim equals
-        # velocity_magnitude. Anticlockwise from +z view -> phase
-        # increases with time.
+        # Angular speed sized so the linear speed at the rim equals velocity_magnitude. Anticlockwise
+        # from +z view -> phase increases with time.
         if self.radius <= 0.0:
             return np.zeros(3, dtype=np.float64)
         omega = self.velocity_magnitude / self.radius
-        # Start position = centre + (-radius, 0) corresponds to
-        # phase = pi in the standard CCW-from-+z convention. The
-        # tangent at phase phi is (-sin(phi), cos(phi)); at phi = pi
-        # that's (0, -1) -- the -y initial direction the geometry
-        # requires. Tracking phi(t) = pi + omega * t.
+        # Start position = centre + (-radius, 0) corresponds to phase = pi in the standard CCW-from-+z
+        # convention. The tangent at phase phi is (-sin(phi), cos(phi)); at phi = pi that's (0, -1) --
+        # the -y initial direction the geometry requires. Tracking phi(t) = pi + omega * t.
         phi = np.pi + omega * elapsed_s
         tangent = np.array([-np.sin(phi), np.cos(phi), 0.0], dtype=np.float64)
         return tangent * self.velocity_magnitude
@@ -152,3 +123,27 @@ class CircleEEVelocityPolicy:
                 ),
             ),
         )
+
+    def step(self, observation: Observation) -> Action:
+        header = TimestampHeader.from_system_time()
+        now_s = header.system_ns * 1e-9
+
+        if self._centre is None:
+            translation = self._extract_translation(observation)
+            if translation is None:
+                # Defer the latch until proprioception is populated. Until then emit a zero
+                # CartesianTwist so the diagram keeps ticking.
+                return self._make_action(header, np.zeros(3, dtype=np.float64))
+            # Latch the start as the back rim (smallest x) of the circle so the trace stays at
+            # x >= start.x. Centre sits +radius in x; combined with the anticlockwise-from-+z
+            # direction, the initial tangent is in -y. See module docstring for the self-collision
+            # rationale.
+            self._centre = translation + np.array([self.radius, 0.0, 0.0], dtype=np.float64)
+            self._start_time_s = now_s
+
+        elapsed = now_s - (self._start_time_s if self._start_time_s is not None else now_s)
+        if elapsed >= self.duration_seconds:
+            return self._make_action(header, np.zeros(3, dtype=np.float64))
+
+        linear = self._tangent_velocity(elapsed)
+        return self._make_action(header, linear)

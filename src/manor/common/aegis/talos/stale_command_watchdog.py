@@ -1,25 +1,20 @@
 """
-StaleCommandWatchdog: hardware-only LeafSystem that observes the Action
-stream and pokes HardwareManipulatorBackend.pet_watchdog on
-every periodic tick.
+StaleCommandWatchdog: hardware-only LeafSystem that observes the Action stream and pokes
+HardwareManipulatorBackend.pet_watchdog on every periodic tick.
 
 Architectural rationale:
 
-* Talos's contract is "JointEECommand in, Proprioception out". It must
-  not know about Action -- that's a Metis concept, and routing it
-  through Talos would cross the kyber/talos layer boundary.
-* The staleness detection itself lives on the backend (so the trip
-  decision can be made inside HardwareManipulatorBackend.send_joint_ee_command,
-  which is where the parked-flag short-circuit and driver.unprime call
-  fire). All this LeafSystem does is keep the backend's "latest action
-  stamp" up to date.
-* The watchdog is opt-in: gylos (sim mode) does not instantiate it,
-  because there's no physical robot to park. Only run_kylos wires it
-  into the diagram.
+* Talos's contract is "JointEECommand in, Proprioception out". It must not know about Action -- that's
+  a Metis concept, and routing it through Talos would cross the kyber/talos layer boundary.
+* The staleness detection itself lives on the backend (so the trip decision can be made inside
+  HardwareManipulatorBackend.send_joint_ee_command, which is where the parked-flag short-circuit and
+  driver.unprime call fire). All this LeafSystem does is keep the backend's "latest action stamp" up
+  to date.
+* The watchdog is opt-in: gylos (sim mode) does not instantiate it, because there's no physical robot
+  to park. Only run_kylos wires it into the diagram.
 
-The watchdog holds a direct reference to the backend the same way Talos
-does -- the backend lives in the kylos process and is shared across
-LeafSystems by reference, not by Drake port.
+The watchdog holds a direct reference to the backend the same way Talos does -- the backend lives in
+the kylos process and is shared across LeafSystems by reference, not by Drake port.
 """
 
 from __future__ import annotations

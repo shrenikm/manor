@@ -1,17 +1,13 @@
 """
 Adapters bridging aegis definitions with Drake LCM pub/sub.
 
-Each adapter is a Drake ``Diagram`` that wraps an LCM publisher or
-subscriber together with a small translator ``LeafSystem``. Callers drop
-the adapter into a ``DiagramBuilder`` and connect its single
-definition-typed port directly to a sub-system port, instead of
-hand-wiring the LCM <-> definition bridge each time.
+Each adapter is a Drake Diagram that wraps an LCM publisher or subscriber together with a small translator LeafSystem.
+Callers drop the adapter into a DiagramBuilder and connect its single definition-typed port directly to a sub-system
+port, instead of hand-wiring the LCM <-> definition bridge each time.
 
-Construct adapters via the ``from_lcm_type`` classmethod, which works for
-any ``DefinitionBase`` subclass: pass the definition class itself and the
-adapter discovers both the LCM message class via
-``definition_cls.get_lcm_class()`` and the abstract-port allocator
-template via ``definition_cls.construct_default()``.
+Construct adapters via the from_lcm_type classmethod, which works for any DefinitionBase subclass: pass the definition
+class itself and the adapter discovers both the LCM message class via definition_cls.get_lcm_class() and the
+abstract-port allocator template via definition_cls.construct_default().
 """
 
 from __future__ import annotations
@@ -32,11 +28,9 @@ class AegisAdapterPorts(StrEnum):
     """
     Shared port-name enum for all aegis adapters.
 
-    Subscriber adapters expose ``DEFINITION_OUTPUT``; publisher adapters
-    expose ``DEFINITION_INPUT``. The translator LeafSystems inside the
-    LCM adapter pair use the LCM_* members for their LCM-typed sides.
-    Future non-LCM adapters can add members here rather than introducing
-    parallel enums.
+    Subscriber adapters expose DEFINITION_OUTPUT; publisher adapters expose DEFINITION_INPUT. The translator
+    LeafSystems inside the LCM adapter pair use the LCM_* members for their LCM-typed sides. Future non-LCM adapters
+    can add members here rather than introducing parallel enums.
     """
 
     LCM_INPUT = "lcm_input"
@@ -47,8 +41,7 @@ class AegisAdapterPorts(StrEnum):
 
 class _LcmToDefinitionTranslator(LeafSystem):
     """
-    LeafSystem that converts an LCM message to its aegis definition
-    counterpart via ``definition_cls.from_lcm_message``.
+    LeafSystem that converts an LCM message to its aegis definition counterpart via definition_cls.from_lcm_message.
     """
 
     def __init__(self, definition_cls: type[DefinitionBase]) -> None:
@@ -70,8 +63,7 @@ class _LcmToDefinitionTranslator(LeafSystem):
 
 class _DefinitionToLcmTranslator(LeafSystem):
     """
-    LeafSystem that converts an aegis definition to its LCM counterpart
-    via ``definition.to_lcm_message()``.
+    LeafSystem that converts an aegis definition to its LCM counterpart via definition.to_lcm_message().
     """
 
     def __init__(self, definition_cls: type[DefinitionBase]) -> None:
@@ -93,11 +85,11 @@ class _DefinitionToLcmTranslator(LeafSystem):
 
 class AegisLCMSubscriberAdapter(Diagram):
     """
-    Diagram that subscribes to an aegis LCM channel and exposes the
-    decoded definition on a single abstract output port.
+    Diagram that subscribes to an aegis LCM channel and exposes the decoded definition on a single abstract output
+    port.
 
-    Construct via ``AegisLCMSubscriberAdapter.from_lcm_type(...)``. The
-    output port is named by ``AegisAdapterPorts.DEFINITION_OUTPUT``.
+    Construct via AegisLCMSubscriberAdapter.from_lcm_type(...). The output port is named by
+    AegisAdapterPorts.DEFINITION_OUTPUT.
     """
 
     def __init__(
@@ -131,9 +123,8 @@ class AegisLCMSubscriberAdapter(Diagram):
         )
 
         builder.BuildInto(self)
-        # Channel-qualified name keeps multiple adapter instances in the
-        # same outer diagram uniquely identifiable, which Drake requires
-        # for sibling subsystems.
+        # Channel-qualified name keeps multiple adapter instances in the same outer diagram uniquely identifiable,
+        # which Drake requires for sibling subsystems.
         self.set_name(f"{type(self).__name__}_{channel.name}")
 
     @classmethod
@@ -144,24 +135,21 @@ class AegisLCMSubscriberAdapter(Diagram):
         lcm: DrakeLcm,
     ) -> Self:
         """
-        Construct a subscriber adapter for ``definition_cls``.
+        Construct a subscriber adapter for definition_cls.
 
-        The output port's allocator template is derived internally via
-        ``definition_cls.construct_default()``; the model_value's shape
-        does not constrain what messages can flow through (Drake uses it
-        only for type identity).
+        The output port's allocator template is derived internally via definition_cls.construct_default(); the
+        model_value's shape does not constrain what messages can flow through (Drake uses it only for type identity).
         """
         return cls(definition_cls=definition_cls, channel=channel, lcm=lcm)
 
 
 class AegisLCMPublisherAdapter(Diagram):
     """
-    Diagram that takes an aegis definition on a single abstract input
-    port, encodes it to its LCM counterpart, and publishes it on an aegis
-    LCM channel at the given period.
+    Diagram that takes an aegis definition on a single abstract input port, encodes it to its LCM counterpart, and
+    publishes it on an aegis LCM channel at the given period.
 
-    Construct via ``AegisLCMPublisherAdapter.from_lcm_type(...)``. The
-    input port is named by ``AegisAdapterPorts.DEFINITION_INPUT``.
+    Construct via AegisLCMPublisherAdapter.from_lcm_type(...). The input port is named by
+    AegisAdapterPorts.DEFINITION_INPUT.
     """
 
     def __init__(
@@ -208,10 +196,9 @@ class AegisLCMPublisherAdapter(Diagram):
         publish_period: float,
     ) -> Self:
         """
-        Construct a publisher adapter for ``definition_cls``.
+        Construct a publisher adapter for definition_cls.
 
-        ``publish_period`` is forwarded to the underlying
-        ``LcmPublisherSystem``. The input port's allocator template is
-        derived internally via ``definition_cls.construct_default()``.
+        publish_period is forwarded to the underlying LcmPublisherSystem. The input port's allocator template is
+        derived internally via definition_cls.construct_default().
         """
         return cls(definition_cls=definition_cls, channel=channel, lcm=lcm, publish_period=publish_period)

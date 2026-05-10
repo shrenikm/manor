@@ -82,6 +82,18 @@ class Action(DefinitionBase):
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
+    def __attrs_post_init__(self) -> None:
+        active_arm = [name for name in _ARM_FIELDS if getattr(self, name) is not None]
+        if len(active_arm) != 1:
+            raise InvalidDefinitionError(
+                f"Action requires exactly one arm command ({list(_ARM_FIELDS)}); got {len(active_arm)}: {active_arm}"
+            )
+        active_ee = [name for name in _EE_FIELDS if getattr(self, name) is not None]
+        if len(active_ee) > 1:
+            raise InvalidDefinitionError(
+                f"Action allows at most one ee command ({list(_EE_FIELDS)}); got {len(active_ee)}: {active_ee}"
+            )
+
     @classmethod
     @override
     def get_capnp_schema(cls) -> CapnpStructSchema:
@@ -103,18 +115,6 @@ class Action(DefinitionBase):
             if getattr(self, name) is not None:
                 return name
         return None
-
-    def __attrs_post_init__(self) -> None:
-        active_arm = [name for name in _ARM_FIELDS if getattr(self, name) is not None]
-        if len(active_arm) != 1:
-            raise InvalidDefinitionError(
-                f"Action requires exactly one arm command ({list(_ARM_FIELDS)}); got {len(active_arm)}: {active_arm}"
-            )
-        active_ee = [name for name in _EE_FIELDS if getattr(self, name) is not None]
-        if len(active_ee) > 1:
-            raise InvalidDefinitionError(
-                f"Action allows at most one ee command ({list(_EE_FIELDS)}); got {len(active_ee)}: {active_ee}"
-            )
 
     @override
     def to_capnp_current(self, builder: Any) -> None:

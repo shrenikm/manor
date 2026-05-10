@@ -1,17 +1,14 @@
 """
 Kyber: the low-level controller LeafSystem.
 
-Consumes Action and Proprioception and produces JointEECommand at a
-fixed rate set by ``publish_frequency``. The actual control law lives
-in a ``KyberController`` implementation (mirroring how Metis takes a
-``MetisPolicy``); Kyber is just the periodic harness that pushes inputs
-through it.
+Consumes Action and Proprioception and produces JointEECommand at a fixed rate set by
+publish_frequency. The actual control law lives in a KyberController implementation (mirroring how
+Metis takes a MetisPolicy); Kyber is just the periodic harness that pushes inputs through it.
 
-Kyber owns no Drake plant of its own. Controllers that need a
-``MultibodyPlant`` (diff-IK, joint-space PID with FK lookups, etc.)
-build one inside their own constructor from the ``IManipulatorModel``
-the manager forwards to them. Keeping plant ownership controller-side
-means stub controllers don't pay any plant-construction cost.
+Kyber owns no Drake plant of its own. Controllers that need a MultibodyPlant (diff-IK, joint-space
+PID with FK lookups, etc.) build one inside their own constructor from the IManipulatorModel the
+manager forwards to them. Keeping plant ownership controller-side means stub controllers don't pay
+any plant-construction cost.
 """
 
 from __future__ import annotations
@@ -48,11 +45,10 @@ class KyberConfig:
     """
     Kyber sub-system configuration.
 
-    ``controller_config`` is required: it pins which control law runs
-    on the robot. Defaulting it would silently swap behaviour at the
-    most consequential layer of the stack, so aegis refuses to build
-    without an explicit choice. ``SYSTEM_NAME`` is the name applied to
-    the Kyber LeafSystem in the diagram.
+    controller_config is required: it pins which control law runs on the robot. Defaulting it would
+    silently swap behaviour at the most consequential layer of the stack, so aegis refuses to build
+    without an explicit choice. SYSTEM_NAME is the name applied to the Kyber LeafSystem in the
+    diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "kyber"
@@ -63,15 +59,15 @@ class KyberConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``kyber_config:`` block of an aegis YAML.
+        Parse the kyber_config: block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "kyber_config"))
 
 
 class Kyber(LeafSystem):
     """
-    Low-level controller LeafSystem that runs a ``KyberController`` on
-    (action, proprioception) inputs and publishes a JointEECommand output.
+    Low-level controller LeafSystem that runs a KyberController on (action, proprioception) inputs
+    and publishes a JointEECommand output.
     """
 
     def __init__(self, controller: KyberController, publish_frequency: float) -> None:

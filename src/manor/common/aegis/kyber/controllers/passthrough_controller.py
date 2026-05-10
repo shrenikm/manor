@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import ClassVar, Self
 
 import attr
-import numpy as np
 
 from manor.common.aegis.kyber.controllers.controller_manager import (
     KyberControllerConfigBase,
@@ -22,9 +21,7 @@ from manor.common.aegis.kyber.controllers.controller_manager import (
 )
 from manor.common.aegis.yaml_utils import parse_attrs_yaml
 from manor.common.definitions.action import Action
-from manor.common.definitions.joint_command import JointCommand
 from manor.common.definitions.joint_ee_command import JointEECommand
-from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 

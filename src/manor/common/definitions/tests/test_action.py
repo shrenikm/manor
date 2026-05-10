@@ -25,7 +25,7 @@ from manor.common.definitions.tests.factories import (
     random_timestamp_header,
 )
 from manor.common.exceptions import InvalidDefinitionError
-
+from manor.common.testing_utils import run_manor_tests
 
 _EE_FIELD_OPTIONS: tuple[str | None, ...] = (None, *ACTION_EE_FIELDS)
 
@@ -71,3 +71,7 @@ def test_validator_rejects_two_ee_commands(rng: np.random.Generator) -> None:
             ee_command=ee_cmd,
             ee_trajectory_command=ee_traj_cmd,
         )
+
+
+if __name__ == "__main__":
+    run_manor_tests()

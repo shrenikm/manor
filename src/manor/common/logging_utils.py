@@ -16,9 +16,9 @@ _RATE_LIMIT_INTERVAL_FIELD: Final[str] = "rate_limit_interval_s"
 
 class _RateLimitFilter(logging.Filter):
     """
-    logging.Filter that drops log records carrying a rate_limit_key when
-    another record with the same (logger_name, key) was emitted within
-    rate_limit_interval_s. Records without rate_limit_key pass through.
+    logging.Filter that drops log records carrying a rate_limit_key when another record with the same
+    (logger_name, key) was emitted within rate_limit_interval_s. Records without rate_limit_key pass
+    through.
     """
 
     def __init__(self) -> None:
@@ -40,9 +40,8 @@ class _RateLimitFilter(logging.Filter):
 
     def reset(self) -> None:
         """
-        Clear all throttle state. Tests use this to isolate one test
-        case's throttle ledger from the next; production code should
-        not call it.
+        Clear all throttle state. Tests use this to isolate one test case's throttle ledger from the
+        next; production code should not call it.
         """
         self._last_emit_s.clear()
 
@@ -75,6 +74,10 @@ class ManorLogger:
             _l.addFilter(_RATE_LIMIT_FILTER)
         return _l
 
+    @staticmethod
+    def _throttle_extra(key: str, interval_s: float) -> dict[str, object]:
+        return {_RATE_LIMIT_KEY_FIELD: key, _RATE_LIMIT_INTERVAL_FIELD: interval_s}
+
     def debug(self, message: str) -> None:
         self._logger.debug(message)
 
@@ -103,7 +106,3 @@ class ManorLogger:
 
     def error_throttled(self, message: str, key: str, interval_s: float = _DEFAULT_THROTTLE_INTERVAL_S) -> None:
         self._logger.error(message, extra=self._throttle_extra(key, interval_s))
-
-    @staticmethod
-    def _throttle_extra(key: str, interval_s: float) -> dict[str, object]:
-        return {_RATE_LIMIT_KEY_FIELD: key, _RATE_LIMIT_INTERVAL_FIELD: interval_s}

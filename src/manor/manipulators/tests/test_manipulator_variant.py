@@ -23,8 +23,8 @@ class TestVariantRegistry:
         assert get_variant_class(ManipulatorType.LITE6) is Lite6Variant
 
     def test_unknown_manipulator_type_raises(self) -> None:
-        # Construct a fresh enum member that isn't in the registry by
-        # going through StrEnum's ``_missing_`` path with a bogus value.
+        # Construct a fresh enum member that isn't in the registry by going through StrEnum's _missing_ path
+        # with a bogus value.
         with pytest.raises(UnknownManipulatorTypeError):
             get_variant_class("__unregistered__")  # type: ignore[arg-type]
 
@@ -34,8 +34,8 @@ class TestVariantRegistry:
 
 class TestVariantAlreadyRegistered:
     def test_double_registration_raises(self) -> None:
-        # Re-registering Lite6Variant under the same manipulator type
-        # must fail rather than silently overwriting.
+        # Re-registering Lite6Variant under the same manipulator type must fail rather than silently
+        # overwriting.
         with pytest.raises(VariantAlreadyRegisteredError):
 
             @register_manipulator_variant(ManipulatorType.LITE6)

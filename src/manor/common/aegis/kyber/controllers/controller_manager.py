@@ -1,29 +1,24 @@
 """
 Kyber controller registry and factory.
 
-Mirrors the structure of ``metis/policies/policy_manager.py``:
+Mirrors the structure of metis/policies/policy_manager.py:
 
-* ``KyberController`` -- the protocol every controller implementation
-  conforms to.
-* ``KyberControllerType`` -- the canonical enum used to refer to a
-  controller by name (e.g. from a YAML config) without passing
-  instances around.
-* ``KyberControllerConfigBase`` -- the parent attrs config every
-  per-controller config inherits from. Each concrete subclass pins
-  ``CONTROLLER_TYPE`` as a ``ClassVar`` so the enum and the config class
-  stay coupled at the source.
-* ``KyberControllerManager`` -- the factory that turns a controller
-  config (or a YAML dict) into a concrete ``KyberController`` instance.
+* KyberController -- the protocol every controller implementation conforms to.
+* KyberControllerType -- the canonical enum used to refer to a controller by name (e.g. from a YAML
+  config) without passing instances around.
+* KyberControllerConfigBase -- the parent attrs config every per-controller config inherits from.
+  Each concrete subclass pins CONTROLLER_TYPE as a ClassVar so the enum and the config class stay
+  coupled at the source.
+* KyberControllerManager -- the factory that turns a controller config (or a YAML dict) into a
+  concrete KyberController instance.
 
-The manager takes ``manipulator_model`` alongside the config because
-controllers that need a Drake ``MultibodyPlant`` (diff-IK, joint-space
-PID with FK lookups, etc.) build their own plant from the model
-inside their constructor. Kyber itself owns no plant; that
-responsibility lives with each controller, on a case-by-case basis.
+The manager takes manipulator_model alongside the config because controllers that need a Drake
+MultibodyPlant (diff-IK, joint-space PID with FK lookups, etc.) build their own plant from the
+model inside their constructor. Kyber itself owns no plant; that responsibility lives with each
+controller, on a case-by-case basis.
 
-Per-controller modules import the protocol / base / enum from here
-and the manager imports per-controller modules lazily inside its
-classmethods to keep the import graph acyclic.
+Per-controller modules import the protocol / base / enum from here and the manager imports
+per-controller modules lazily inside its classmethods to keep the import graph acyclic.
 """
 
 from __future__ import annotations
@@ -39,17 +34,16 @@ from manor.common.definitions.proprioception import Proprioception
 from manor.common.exceptions import AegisConfigError
 from manor.manipulators.manipulator_model import IManipulatorModel
 
-# Tagged-union discriminator key used in the YAML body of a
-# ``controller_config`` block. Not an attrs field on any
-# per-controller config: the manager strips it before dispatching to
-# the matching subclass's ``from_yaml_dict``.
+# Tagged-union discriminator key used in the YAML body of a controller_config block. Not an attrs
+# field on any per-controller config: the manager strips it before dispatching to the matching
+# subclass's from_yaml_dict.
 _CONTROLLER_TYPE_YAML_KEY = "type"
 
 
 class KyberControllerType(StrEnum):
     """
-    Canonical names for Kyber controllers. Used as the ``type`` tag
-    inside the ``controller_config`` block of an aegis YAML.
+    Canonical names for Kyber controllers. Used as the type tag inside the controller_config block
+    of an aegis YAML.
     """
 
     ZERO_VELOCITY = "zero_velocity"
@@ -62,9 +56,8 @@ class KyberController(Protocol):
     """
     Protocol for an (action, proprioception) -> joint+ee command controller.
 
-    Concrete implementations may be purely functional (passthrough,
-    zero-velocity stub) or stateful (PID with integrator state, MPC
-    with internal solvers); the ``step`` interface accommodates both.
+    Concrete implementations may be purely functional (passthrough, zero-velocity stub) or stateful
+    (PID with integrator state, MPC with internal solvers); the step interface accommodates both.
     """
 
     def step(self, action: Action, proprioception: Proprioception) -> JointEECommand: ...
@@ -73,18 +66,14 @@ class KyberController(Protocol):
 @attr.frozen
 class KyberControllerConfigBase:
     """
-    Base attrs config for a Kyber controller. Concrete subclasses must
-    set ``CONTROLLER_TYPE`` to the matching ``KyberControllerType``
-    value; that pinning is what lets ``KyberControllerManager``
-    round-trip a YAML tag through to a concrete controller without a
-    parallel registry to keep in sync.
+    Base attrs config for a Kyber controller. Concrete subclasses must set CONTROLLER_TYPE to the
+    matching KyberControllerType value; that pinning is what lets KyberControllerManager round-trip
+    a YAML tag through to a concrete controller without a parallel registry to keep in sync.
 
-    The base also carries a ``from_yaml_dict`` that delegates to the
-    manager. That makes it possible for ``parse_attrs_yaml`` to recurse
-    into a ``controller_config`` field by type alone -- the helper sees
-    ``KyberControllerConfigBase``, calls its ``from_yaml_dict``, and
-    the manager dispatches to the concrete subclass off the ``type:``
-    tag.
+    The base also carries a from_yaml_dict that delegates to the manager. That makes it possible
+    for parse_attrs_yaml to recurse into a controller_config field by type alone -- the helper sees
+    KyberControllerConfigBase, calls its from_yaml_dict, and the manager dispatches to the concrete
+    subclass off the type: tag.
     """
 
     CONTROLLER_TYPE: ClassVar[KyberControllerType]
@@ -96,15 +85,13 @@ class KyberControllerConfigBase:
 
 class KyberControllerManager:
     """
-    Factory that turns a controller config into a ``KyberController``
-    instance. ``manipulator_model`` is plumbed through so controllers
-    that need a Drake plant can build one inside their constructor.
+    Factory that turns a controller config into a KyberController instance. manipulator_model is
+    plumbed through so controllers that need a Drake plant can build one inside their constructor.
 
     Adding a new controller means:
-      1. drop a new module under ``kyber/controllers/``,
-      2. add an enum value to ``KyberControllerType``,
-      3. add the dispatch branch in ``from_config`` and
-         ``config_from_yaml_dict``.
+      1. drop a new module under kyber/controllers/,
+      2. add an enum value to KyberControllerType,
+      3. add the dispatch branch in from_config and config_from_yaml_dict.
     """
 
     @classmethod
@@ -114,9 +101,8 @@ class KyberControllerManager:
         manipulator_model: IManipulatorModel,
     ) -> KyberController:
         """
-        Build a ``KyberController`` from its config. Dispatches off
-        the config's runtime type. ``manipulator_model`` is forwarded
-        to controllers that ask for it (current stubs ignore it).
+        Build a KyberController from its config. Dispatches off the config's runtime type.
+        manipulator_model is forwarded to controllers that ask for it (current stubs ignore it).
         """
         from manor.common.aegis.kyber.controllers.ik_passthrough_controller import (
             IKPassthroughController,
@@ -142,8 +128,8 @@ class KyberControllerManager:
     @classmethod
     def config_from_yaml_dict(cls, raw: object) -> KyberControllerConfigBase:
         """
-        Parse the ``controller_config`` block of an aegis YAML into a
-        concrete ``KyberControllerConfigBase`` subclass.
+        Parse the controller_config block of an aegis YAML into a concrete KyberControllerConfigBase
+        subclass.
         """
         from manor.common.aegis.kyber.controllers.ik_passthrough_controller import IKPassthroughControllerConfig
         from manor.common.aegis.kyber.controllers.passthrough_controller import PassthroughControllerConfig

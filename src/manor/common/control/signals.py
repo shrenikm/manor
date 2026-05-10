@@ -17,7 +17,6 @@ class StepControlSignal:
     delay_time: float
 
     def compute_signal(self, time_step: float) -> float:
-
         if time_step <= self.delay_time:
             return 0.0
         else:
@@ -32,7 +31,6 @@ class SineControlSignal:
     offset: float
 
     def compute_signal(self, time_step: float) -> float:
-
         return self.amplitude * np.sin(2 * np.pi * self.frequency * time_step + self.phase_shift) + self.offset
 
     @classmethod
@@ -42,10 +40,9 @@ class SineControlSignal:
         frequency: float,
     ) -> SineControlSignal:
         """
-        Standard positive signal that starts at 0 and goes up to the given max value.
-        It is equivalent to a regular sine signal of amplitude equal to amplitude / 2. which is also
-        offset by amplitude / 2.
-        In order to start at 0, the phase must be shifted by 3 * np.pi / 2.
+        Standard positive signal that starts at 0 and goes up to the given max value. It is equivalent to a regular
+        sine signal of amplitude equal to amplitude / 2. which is also offset by amplitude / 2. In order to start at
+        0, the phase must be shifted by 3 * np.pi / 2.
         """
         return cls(
             amplitude=0.5 * amplitude,

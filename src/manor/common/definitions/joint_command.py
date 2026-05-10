@@ -40,6 +40,14 @@ class JointCommand(DefinitionBase):
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
+    def __attrs_post_init__(self) -> None:
+        active = [f for f in self._variant_fields() if getattr(self, f.name) is not None]
+        if len(active) != 1:
+            names = [f.name for f in active]
+            raise InvalidDefinitionError(
+                f"JointCommand requires exactly one variant field to be set; got {len(active)}: {names}"
+            )
+
     @classmethod
     @override
     def get_capnp_schema(cls) -> CapnpStructSchema:
@@ -73,13 +81,6 @@ class JointCommand(DefinitionBase):
         field = cls._variant_fields()[tag]
         hint = get_type_hints(cls)[field.name]
         return next(a for a in get_args(hint) if a is not type(None))
-
-    def __attrs_post_init__(self) -> None:
-        active = [f for f in self._variant_fields() if getattr(self, f.name) is not None]
-        if len(active) != 1:
-            raise InvalidDefinitionError(
-                f"JointCommand requires exactly one variant field to be set; got {len(active)}: {[f.name for f in active]}"
-            )
 
     @override
     def to_capnp_current(self, builder: Any) -> None:

@@ -1,23 +1,19 @@
 """
 Helios-process runner (hardware mode only).
 
-In hardware mode helios is its own process: a single ``Helios``
-LeafSystem driving a ``HardwareSensorBackend``, with LCM publishers
-on the RGB / depth channels. There are no inputs.
+In hardware mode helios is its own process: a single Helios LeafSystem driving a HardwareSensorBackend, with LCM
+publishers on the RGB / depth channels. There are no inputs.
 
-In sim mode the helios role is fulfilled by the gylos process
-(see ``run.run_gylos``), because ``SimSensorBackend`` closes over a
-shared in-process ``Gaia`` handle that can't cross a process
-boundary -- so a separate helios process in sim would be a
-passthrough subscriber. Don't launch this runner in sim.
+In sim mode the helios role is fulfilled by the gylos process (see run.run_gylos), because SimSensorBackend closes
+over a shared in-process Gaia handle that can't cross a process boundary -- so a separate helios process in sim would
+be a passthrough subscriber. Don't launch this runner in sim.
 
 Standalone usage:
 
     python -m manor.common.aegis.run.run_helios < /tmp/aegis.json
 
-where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
-``manor.common.aegis.run`` package docstring for the one-line
-``yaml.safe_load(...) -> json.dumps(...)`` recipe).
+where /tmp/aegis.json is the YAML re-encoded as JSON (see the manor.common.aegis.run package docstring for the
+one-line yaml.safe_load(...) -> json.dumps(...) recipe).
 """
 
 from __future__ import annotations
@@ -41,8 +37,7 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 
 def run_helios(helios_config: HeliosConfig, lcm: DrakeLcm | None = None) -> None:
     """
-    Build the helios-process diagram around a hardware sensor backend
-    and advance forever (until SIGTERM / SIGINT).
+    Build the helios-process diagram around a hardware sensor backend and advance forever (until SIGTERM / SIGINT).
     """
     lcm = lcm if lcm is not None else DrakeLcm()
     backend = HardwareSensorBackend(config=helios_config.hardware_backend_config)

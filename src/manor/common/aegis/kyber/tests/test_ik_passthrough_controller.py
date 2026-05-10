@@ -6,7 +6,6 @@ pose -> IK, Cartesian twist -> diff IK, trajectory fallback.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from manor.common.aegis.kyber.controllers.controller_manager import KyberController, KyberControllerType
 from manor.common.aegis.kyber.controllers.ik_passthrough_controller import (

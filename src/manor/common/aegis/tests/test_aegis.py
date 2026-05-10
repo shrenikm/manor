@@ -1,15 +1,12 @@
 """
 Smoke tests for the top-level Aegis diagram builder.
 
-These verify that the graph wires up and ticks in both SIM and HARDWARE
-modes. They do not assert behavioural correctness: the backends are
-stubs and the policy / controller produce zero-velocity actions.
-Success here means the messages flow through the full Helios / Talos /
-Metis / Kyber cycle (including LCM publisher / subscriber adapters)
+These verify that the graph wires up and ticks in both SIM and HARDWARE modes. They do not assert behavioural
+correctness: the backends are stubs and the policy / controller produce zero-velocity actions. Success here means the
+messages flow through the full Helios / Talos / Metis / Kyber cycle (including LCM publisher / subscriber adapters)
 without schema mismatches or algebraic-loop errors.
 
-YAML round-trip coverage lives at the bottom: the bundled
-``configs/aegis/lite6_ac.yaml`` must load cleanly, and a
+YAML round-trip coverage lives at the bottom: the bundled configs/aegis/lite6_ac.yaml must load cleanly, and a
 top-level dict round-trip must produce a buildable diagram.
 """
 

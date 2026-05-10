@@ -1,8 +1,3 @@
-"""
-Tests for Helios: port shape, periodic publish, backend delegation,
-and the per-stream frequency knobs.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -99,9 +94,8 @@ class TestHeliosPublishing:
         assert backend.depth_calls >= 1
 
     def test_independent_stream_rates(self) -> None:
-        # Drive RGB much faster than depth and confirm RGB is polled
-        # more often. A slow CI machine could drift, so use loose
-        # multiples rather than exact ratios.
+        # Drive RGB much faster than depth and confirm RGB is polled more often. A slow CI machine could drift, so use
+        # loose multiples rather than exact ratios.
         backend = _CountingBackend()
         helios = Helios(backend=backend, publish_rgb_frequency_hz=200.0, publish_depth_frequency_hz=20.0)
         context = helios.CreateDefaultContext()

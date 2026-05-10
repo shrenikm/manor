@@ -17,10 +17,9 @@ import numpy as np
 
 _SCHEMA_ROOT = Path(__file__).resolve().parents[1] / "schemas" / "capnp"
 
-# Type of a Cap'n Proto struct schema as returned by `module.SomeStruct` after
-# parsing a .capnp file. This is the object `.new_message()` / `.from_bytes()`
-# are called on. pycapnp exposes the underlying class under a leading underscore,
-# but this is the documented, public way to obtain it.
+# Type of a Cap'n Proto struct schema as returned by module.SomeStruct after parsing a .capnp file. This is the object
+# .new_message() / .from_bytes() are called on. pycapnp exposes the underlying class under a leading underscore, but
+# this is the documented, public way to obtain it.
 type CapnpStructSchema = capnp._StructModule
 
 

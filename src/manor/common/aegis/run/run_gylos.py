@@ -1,9 +1,8 @@
 """
 Gylos-process runner (sim mode).
 
-Bundles every aegis system that needs the simulated world into a
-single process: ``Gaia`` + ``GaiaAdvancer`` + ``Helios`` (sim
-backend) + ``Talos`` (sim backend) + ``Kyber``.
+Bundles every aegis system that needs the simulated world into a single process: Gaia + GaiaAdvancer + Helios (sim
+backend) + Talos (sim backend) + Kyber.
 
 Wiring (kyber/talos run as a tight loop with no LCM hop in between):
 
@@ -18,15 +17,12 @@ Standalone usage:
 
     python -m manor.common.aegis.run.run_gylos < /tmp/aegis.json
 
-where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
-``manor.common.aegis.run`` package docstring for the one-line
-``yaml.safe_load(...) -> json.dumps(...)`` recipe).
+where /tmp/aegis.json is the YAML re-encoded as JSON (see the manor.common.aegis.run package docstring for the
+one-line yaml.safe_load(...) -> json.dumps(...) recipe).
 
-The JSON payload is the full parsed-AegisConfig dict (the same shape
-the YAML produces). gylos just ignores ``metis_config``; everything
-else feeds the diagram. Passing the full dict lets the supervisor
-pre-validate the entire config once and avoids per-block payload
-schemas.
+The JSON payload is the full parsed-AegisConfig dict (the same shape the YAML produces). gylos just ignores
+metis_config; everything else feeds the diagram. Passing the full dict lets the supervisor pre-validate the entire
+config once and avoids per-block payload schemas.
 """
 
 from __future__ import annotations
@@ -67,10 +63,9 @@ from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.manipulators.manipulator_model import IManipulatorModel
 
-# Sim-time seconds to pre-advance the outer simulator (rate=0) before
-# entering the realtime-paced advance loop. Half a second of sim is
-# enough to cover Drake's first-AdvanceTo overhead on a Lite6-sized
-# diagram without the user noticing a startup hitch.
+# Sim-time seconds to pre-advance the outer simulator (rate=0) before entering the realtime-paced advance loop. Half a
+# second of sim is enough to cover Drake's first-AdvanceTo overhead on a Lite6-sized diagram without the user noticing
+# a startup hitch.
 _PREWARM_DURATION_S = 0.5
 
 
@@ -85,9 +80,8 @@ def run_gylos(
     lcm: DrakeLcm | None = None,
 ) -> None:
     """
-    Build the gylos-process diagram, ``Initialize`` its Simulator,
-    and advance forever (until SIGTERM / SIGINT). All sub-configs are
-    required; the supervisor enforces presence at the YAML layer.
+    Build the gylos-process diagram, Initialize its Simulator, and advance forever (until SIGTERM / SIGINT). All
+    sub-configs are required; the supervisor enforces presence at the YAML layer.
     """
     lcm = lcm if lcm is not None else DrakeLcm()
 
@@ -155,8 +149,8 @@ def run_gylos(
         watchdog.GetInputPort(StaleCommandWatchdogPorts.INPUT_ACTION),
     )
 
-    # Talos's proprioception drives Kyber directly (no LCM hop) and
-    # is also published on LCM so the metis process can subscribe.
+    # Talos's proprioception drives Kyber directly (no LCM hop) and is also published on LCM so the metis process can
+    # subscribe.
     builder.Connect(
         talos.GetOutputPort(TalosPorts.OUTPUT_PROPRIOCEPTION),
         kyber.GetInputPort(KyberPorts.INPUT_PROPRIOCEPTION),
@@ -212,42 +206,36 @@ def run_gylos(
     diagram = builder.Build()
     diagram.set_name("aegis_gylos_process")
 
-    # Snap the plant to PRIME before the diagram starts ticking -- mirrors
-    # HardwareManipulatorBackend.start, which drives the real arm to PRIME via the driver's prime
-    # sequence. The pre-warm AdvanceTo below then runs against the primed initial state.
+    # Snap the plant to PRIME before the diagram starts ticking -- mirrors HardwareManipulatorBackend.start, which
+    # drives the real arm to PRIME via the driver's prime sequence. The pre-warm AdvanceTo below then runs against the
+    # primed initial state.
     manipulator_backend.start()
     simulator = Simulator(diagram)
-    # Pre-warm: pay first-AdvanceTo costs (cache allocations,
-    # integrator initial-step probing, meshcat geometry upload)
-    # WITHOUT realtime pacing. Otherwise the outer sim falls behind
-    # for ~10 wall-seconds at startup and downstream publishers look
-    # stuck at 0-1 Hz until it catches up.
+    # Pre-warm: pay first-AdvanceTo costs (cache allocations, integrator initial-step probing, meshcat geometry upload)
+    # WITHOUT realtime pacing. Otherwise the outer sim falls behind for ~10 system-time seconds at startup and
+    # downstream publishers look stuck at 0-1 Hz until it catches up.
     simulator.set_target_realtime_rate(0.0)
     simulator.Initialize()
     simulator.AdvanceTo(_PREWARM_DURATION_S)
 
-    # Now flip on user-configured pacing for the long-running loop.
-    # Outer aegis simulator is the one and only place where wall-clock
-    # pacing is enforced; Gaia's inner simulator runs as fast as
-    # possible (see GaiaConfig.target_realtime_rate docstring).
+    # Now flip on user-configured pacing for the long-running loop. Outer aegis simulator is the one and only place
+    # where system-time pacing is enforced; Gaia's inner simulator runs as fast as possible (see
+    # GaiaConfig.target_realtime_rate docstring).
     simulator.set_target_realtime_rate(gaia_config.target_realtime_rate)
     try:
         advance_until_signal(simulator)
     finally:
         manipulator_backend.stop()
-        # Force the Drake Meshcat C++ destructor to run synchronously
-        # here -- closing the listening socket -- so the next gylos
-        # launch can re-bind port 7000. Without this, Python only
-        # tears down meshcat during interpreter shutdown, by which
-        # point our REPL kill-wait may have given up and started a
-        # fresh gylos that finds port 7000 still held.
+        # Force the Drake Meshcat C++ destructor to run synchronously here -- closing the listening socket -- so the
+        # next gylos launch can re-bind port 7000. Without this, Python only tears down meshcat during interpreter
+        # shutdown, by which point our REPL kill-wait may have given up and started a fresh gylos that finds port 7000
+        # still held.
         gaia.shutdown()
         gc.collect()
 
 
 def _main() -> None:
-    # Lazy import to avoid pulling AegisConfig (and its full dep tree)
-    # into every importer of this module.
+    # Lazy import to avoid pulling AegisConfig (and its full dep tree) into every importer of this module.
     from manor.common.aegis.aegis import AegisConfig
 
     raw = json.loads(sys.stdin.read())

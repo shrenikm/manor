@@ -1,11 +1,9 @@
 """
 Shared utilities for the Aegis sub-systems.
 
-LCM channel names and adapter-internal system-role tags live here so no
-aegis code has to embed those strings as raw literals. Adapter port
-enums are defined alongside the adapter class itself in
-``aegis_adapters.py`` (matching the per-system convention used by
-Kyber / Helios / Talos / Metis).
+LCM channel names and adapter-internal system-role tags live here so no aegis code has to embed those strings as raw
+literals. Adapter port enums are defined alongside the adapter class itself in aegis_adapters.py (matching the
+per-system convention used by Kyber / Helios / Talos / Metis).
 """
 
 from __future__ import annotations
@@ -17,9 +15,8 @@ class AegisChannel(StrEnum):
     """
     Canonical LCM channel names for every aegis message type.
 
-    All aegis pub/sub wiring (sub-system tests, run scripts, the future
-    consolidated builder) should reference these members rather than raw
-    channel-name strings.
+    All aegis pub/sub wiring (sub-system tests, run scripts, the future consolidated builder) should reference these
+    members rather than raw channel-name strings.
     """
 
     PROPRIOCEPTION = "AEGIS_PROPRIOCEPTION"
@@ -32,8 +29,7 @@ class AegisChannel(StrEnum):
 
 class AegisAdapterSystemRole(StrEnum):
     """
-    Role tags used as system names for the leaves inside an adapter
-    diagram, so ``set_name`` calls don't embed raw strings.
+    Role tags used as system names for the leaves inside an adapter diagram, so set_name calls don't embed raw strings.
     """
 
     SUBSCRIBER = "subscriber"

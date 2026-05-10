@@ -1,10 +1,8 @@
 """
 Hardware SensorBackend.
 
-Wraps the real camera SDK (e.g. RealSense / Orbbec). For now the SDK calls
-are mocked so the backend can be constructed and exercised end-to-end;
-``read_rgb`` / ``read_depth`` return empty frames with a fresh system-time
-header.
+Wraps the real camera SDK (e.g. RealSense / Orbbec). For now the SDK calls are mocked so the backend can be
+constructed and exercised end-to-end; read_rgb / read_depth return empty frames with a fresh system-time header.
 """
 
 from __future__ import annotations
@@ -22,8 +20,7 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 @attr.frozen
 class HardwareSensorBackendConfig:
     """
-    Connection info for the real sensor. Populated fields will grow as the
-    hardware driver is swapped in.
+    Connection info for the real sensor. Populated fields will grow as the hardware driver is swapped in.
     """
 
     serial_number: str = ""
@@ -34,8 +31,8 @@ class HardwareSensorBackendConfig:
 
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
-        # ``serial_number`` accepts an empty string (sentinel for "no
-        # device pinned"), which the default ``require_str`` rejects.
+        # serial_number accepts an empty string (sentinel for "no device pinned"), which the default require_str
+        # rejects.
         return cls(
             **parse_attrs_yaml(
                 cls,
@@ -51,8 +48,8 @@ class HardwareSensorBackendConfig:
 @attr.define
 class HardwareSensorBackend:
     """
-    SensorBackend that reads from a real camera. SDK calls are currently
-    stubbed; the ``_device`` handle represents the future SDK object.
+    SensorBackend that reads from a real camera. SDK calls are currently stubbed; the _device handle represents the
+    future SDK object.
     """
 
     config: HardwareSensorBackendConfig = attr.field(factory=HardwareSensorBackendConfig)

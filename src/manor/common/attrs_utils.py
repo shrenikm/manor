@@ -1,14 +1,12 @@
 """
 Reusable attrs field validators for definitions and other attrs classes.
 
-Each function returns a validator callable suitable for the ``validator=`` kwarg
-on ``attr.field(...)``. Validators here focus on a single attribute (shape,
-dtype, value-range constraints). Cross-attribute invariants belong in the
-class's ``__attrs_post_init__``.
+Each function returns a validator callable suitable for the validator= kwarg on attr.field(...).
+Validators here focus on a single attribute (shape, dtype, value-range constraints). Cross-attribute
+invariants belong in the class's __attrs_post_init__.
 
-All validators raise InvalidDefinitionError on failure so that constructor
-failures share a single exception type with the cross-attribute checks in
-__attrs_post_init__.
+All validators raise InvalidDefinitionError on failure so that constructor failures share a single
+exception type with the cross-attribute checks in __attrs_post_init__.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ import attr
 import numpy as np
 
 from manor.common.exceptions import InvalidDefinitionError
-
 
 _QUATERNION_NORM_TOLERANCE: float = 1e-6
 
@@ -94,7 +91,8 @@ def is_2d_array(
             )
         if expected_cols is not None and value.shape[1] != expected_cols:
             raise InvalidDefinitionError(
-                f"{_qualified_name(instance, attribute)} must have exactly {expected_cols} columns; got {value.shape[1]}"
+                f"{_qualified_name(instance, attribute)} must have exactly {expected_cols} columns; "
+                f"got {value.shape[1]}"
             )
 
     return _validate
@@ -127,7 +125,8 @@ def is_unit_quaternion(*, atol: float = _QUATERNION_NORM_TOLERANCE) -> Validator
         norm = float(np.linalg.norm(value))
         if not np.isclose(norm, 1.0, atol=atol):
             raise InvalidDefinitionError(
-                f"{_qualified_name(instance, attribute)} must be a unit quaternion (norm 1, tol {atol}); got norm {norm}"
+                f"{_qualified_name(instance, attribute)} must be a unit quaternion "
+                f"(norm 1, tol {atol}); got norm {norm}"
             )
 
     return _validate

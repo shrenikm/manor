@@ -1,7 +1,3 @@
-"""
-Tests for the Gaia Python class.
-"""
-
 from __future__ import annotations
 
 import numpy as np
@@ -114,13 +110,10 @@ class TestCommandStash:
 
 class TestEEPositionCommandDrivesGripper:
     def test_parallel_gripper_tracks_commanded_width(self) -> None:
-        # Send the published NP open-width command, advance the inner
-        # sim, and verify the plant's EE block is moving toward the
-        # corresponding URDF q. The fingers travel in opposite signs
-        # by URDF axis convention. PID convergence to tight tolerance
-        # can take several simulated seconds, so this is a "fingers
-        # moved toward the target" regression test, not a
-        # controller-tuning test.
+        # Send the published NP open-width command, advance the inner sim, and verify the plant's EE block is moving
+        # toward the corresponding URDF q. The fingers travel in opposite signs by URDF axis convention. PID
+        # convergence to tight tolerance can take several simulated seconds, so this is a "fingers moved toward the
+        # target" regression test, not a controller-tuning test.
         gaia = _make_gaia()
         gaia.apply_ee_position_command(
             EEPositions(
@@ -146,12 +139,10 @@ class TestEEPositionCommandDrivesGripper:
         assert gaia.latest_ee_velocity_command is ee_velocities
 
     def test_parallel_gripper_tracks_commanded_velocity(self) -> None:
-        # Send an EE-velocity command and verify the fingers are
-        # actually moving in opposite signed directions after the inner
-        # sim advances. Velocity-control mode means the desired q stays
-        # at measured (the controller integrates the velocity error),
-        # so a non-zero velocity command should produce non-zero finger
-        # motion away from their initial position.
+        # Send an EE-velocity command and verify the fingers are actually moving in opposite signed directions after
+        # the inner sim advances. Velocity-control mode means the desired q stays at measured (the controller
+        # integrates the velocity error), so a non-zero velocity command should produce non-zero finger motion away
+        # from their initial position.
         gaia = _make_gaia()
         gaia.apply_ee_velocity_command(
             EEVelocities(

@@ -1,6 +1,6 @@
 """
-Tests for Metis: port shape, policy invocation, identity policy,
-and YAML round-tripping for ``MetisConfig``.
+Tests for Metis: port shape, policy invocation, identity policy, and YAML round-tripping for
+MetisConfig.
 """
 
 from __future__ import annotations

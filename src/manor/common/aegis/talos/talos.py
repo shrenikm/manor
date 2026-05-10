@@ -1,6 +1,5 @@
 """
-Talos LeafSystem: sends joint+ee commands to the robot and publishes its
-full proprioception state.
+Talos LeafSystem: sends joint+ee commands to the robot and publishes its full proprioception state.
 
 On each periodic tick Talos:
   1. forwards the latest JointEECommand on its input port to the backend,
@@ -10,13 +9,11 @@ On each periodic tick Talos:
 
 The output port is a zero-order hold of that state.
 
-Talos owns its own ``MultibodyPlant`` (built from ``manipulator_model``)
-for FK; this plant is independent of Gaia's physics plant and of
-Kyber's IK plant -- same URDF, three independent instances.
+Talos owns its own MultibodyPlant (built from manipulator_model) for FK; this plant is independent
+of Gaia's physics plant and of Kyber's IK plant -- same URDF, three independent instances.
 
-The current FK implementation is a stub (identity pose, zero twist);
-once the per-system plant is consulted properly, only
-``_compute_cartesian_pose`` / ``_compute_cartesian_twist`` need to change.
+The current FK implementation is a stub (identity pose, zero twist); once the per-system plant is
+consulted properly, only _compute_cartesian_pose / _compute_cartesian_twist need to change.
 """
 
 from __future__ import annotations
@@ -118,8 +115,8 @@ class ManipulatorBackend(Protocol):
 
 class Talos(LeafSystem):
     """
-    Bridge between the Aegis graph and the manipulator. Consumes
-    JointEECommand, publishes Proprioception.
+    Bridge between the Aegis graph and the manipulator. Consumes JointEECommand, publishes
+    Proprioception.
     """
 
     def __init__(
@@ -164,9 +161,8 @@ class Talos(LeafSystem):
 
     @staticmethod
     def _build_plant(manipulator_model: IManipulatorModel) -> MultibodyPlant:
-        # Talos's plant is FK-only; no scene graph, no env. Gaia and
-        # Kyber each maintain their own independent plants from the
-        # same URDF.
+        # Talos's plant is FK-only; no scene graph, no env. Gaia and Kyber each maintain their own
+        # independent plants from the same URDF.
         plant = MultibodyPlant(time_step=0.0)
         parser = Parser(plant)
         add_robot_models_to_package_map(parser.package_map())
@@ -178,6 +174,45 @@ class Talos(LeafSystem):
 
     def _calc_proprioception_output(self, context: Context, output: AbstractValue) -> None:
         output.set_value(context.get_abstract_state(self._proprioception_state_index).get_value())
+
+    def _sync_plant_context(self, joint_state: JointState) -> None:
+        # The backend may emit a default-empty joint_state during early bring-up before any real read;
+        # in that case skip writing into the plant context (the plant keeps its previous / default q).
+        positions = joint_state.joint_positions.positions
+        velocities = joint_state.joint_velocities.velocities
+        if positions.shape[0] == self.plant.num_positions():
+            self.plant.SetPositions(self._plant_context, positions)
+        if velocities.shape[0] == self.plant.num_velocities():
+            self.plant.SetVelocities(self._plant_context, velocities)
+
+    def _compute_cartesian_pose(self, header: TimestampHeader) -> CartesianPose:
+        pose = self.plant.CalcRelativeTransform(
+            self._plant_context,
+            self._world_frame,
+            self._tip_frame,
+        )
+        translation = np.asarray(pose.translation(), dtype=np.float64).copy()
+        # Drake's RotationMatrix.ToQuaternion returns wxyz order, which matches CartesianPose's
+        # quaternion convention.
+        q = pose.rotation().ToQuaternion()
+        orientation = np.array([q.w(), q.x(), q.y(), q.z()], dtype=np.float64)
+        return CartesianPose(header=header, translation=translation, orientation=orientation)
+
+    def _compute_cartesian_twist(self, header: TimestampHeader) -> CartesianTwist:
+        # Spatial Jacobian J in world * v -> 6-vector [angular; linear].
+        jacobian = self.plant.CalcJacobianSpatialVelocity(
+            self._plant_context,
+            JacobianWrtVariable.kV,
+            self._tip_frame,
+            np.zeros(3),
+            self._world_frame,
+            self._world_frame,
+        )
+        velocities = self.plant.GetVelocities(self._plant_context)
+        spatial = jacobian @ velocities
+        angular = np.asarray(spatial[:3], dtype=np.float64).copy()
+        linear = np.asarray(spatial[3:], dtype=np.float64).copy()
+        return CartesianTwist(header=header, linear=linear, angular=angular)
 
     def _periodic_update(self, context: Context, state: State) -> EventStatus:
         joint_ee_command: JointEECommand = self._joint_ee_command_input.Eval(context)
@@ -201,43 +236,3 @@ class Talos(LeafSystem):
         )
         state.get_mutable_abstract_state(self._proprioception_state_index).set_value(proprioception)
         return EventStatus.Succeeded()
-
-    def _sync_plant_context(self, joint_state: JointState) -> None:
-        # The backend may emit a default-empty joint_state during early
-        # bring-up before any real read; in that case skip writing into
-        # the plant context (the plant keeps its previous / default q).
-        positions = joint_state.joint_positions.positions
-        velocities = joint_state.joint_velocities.velocities
-        if positions.shape[0] == self.plant.num_positions():
-            self.plant.SetPositions(self._plant_context, positions)
-        if velocities.shape[0] == self.plant.num_velocities():
-            self.plant.SetVelocities(self._plant_context, velocities)
-
-    def _compute_cartesian_pose(self, header: TimestampHeader) -> CartesianPose:
-        pose = self.plant.CalcRelativeTransform(
-            self._plant_context,
-            self._world_frame,
-            self._tip_frame,
-        )
-        translation = np.asarray(pose.translation(), dtype=np.float64).copy()
-        # Drake's RotationMatrix.ToQuaternion returns wxyz order, which
-        # matches CartesianPose's quaternion convention.
-        q = pose.rotation().ToQuaternion()
-        orientation = np.array([q.w(), q.x(), q.y(), q.z()], dtype=np.float64)
-        return CartesianPose(header=header, translation=translation, orientation=orientation)
-
-    def _compute_cartesian_twist(self, header: TimestampHeader) -> CartesianTwist:
-        # Spatial Jacobian J in world * v -> 6-vector [angular; linear].
-        jacobian = self.plant.CalcJacobianSpatialVelocity(
-            self._plant_context,
-            JacobianWrtVariable.kV,
-            self._tip_frame,
-            np.zeros(3),
-            self._world_frame,
-            self._world_frame,
-        )
-        velocities = self.plant.GetVelocities(self._plant_context)
-        spatial = jacobian @ velocities
-        angular = np.asarray(spatial[:3], dtype=np.float64).copy()
-        linear = np.asarray(spatial[3:], dtype=np.float64).copy()
-        return CartesianTwist(header=header, linear=linear, angular=angular)

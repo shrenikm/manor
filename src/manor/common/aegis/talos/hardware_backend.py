@@ -103,26 +103,34 @@ class HardwareManipulatorBackend:
         self.driver.prime()
 
     def stop(self) -> None:
-        # Kyber-lifecycle hook: tear down the arm (move to REST, set_state STOP, no disconnect).
-        # If the watchdog had already halted the arm, unprime is still safe -- the cli helpers'
+        # Kyber-lifecycle hook: tear down the arm (move to REST, set_state STOP, no disconnect). If
+        # the watchdog had already halted the arm, unprime is still safe -- the cli helpers'
         # switch_mode + move-to-REST no-op cleanly when the arm is already there.
         self.driver.unprime()
+
+    def _is_action_stale(self) -> bool:
+        # Startup grace: if we've never seen a real action header, don't park. The first Metis publish
+        # will set _latest_action_monotonic_ns; only after that point can the watchdog trip.
+        if self._latest_action_monotonic_ns == 0:
+            return False
+        threshold_ns = int(1e9 / self.config.minimum_watchdog_frequency_hz)
+        return (time.monotonic_ns() - self._latest_action_monotonic_ns) > threshold_ns
 
     def pet_watchdog(self, header: TimestampHeader) -> None:
         """
         Reset the staleness timer with the latest upstream-action header. Called by
         StaleCommandWatchdog on every periodic tick. Two side effects:
 
-        * Strictly-newer header advances _latest_action_monotonic_ns so _is_action_stale stays
-          False until at least one threshold-window passes without a fresh tick.
+        * Strictly-newer header advances _latest_action_monotonic_ns so _is_action_stale stays False
+          until at least one threshold-window passes without a fresh tick.
         * If the watchdog had previously halted the arm and we now see a strictly-newer header,
           auto-resume: call driver.resume() and clear the halted flag so subsequent
           send_joint_ee_command calls flow through again. This makes a Metis restart "just work"
           without operator intervention.
         """
-        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the
-        # last received message, so the watchdog hands us the same header tick after tick when
-        # Metis is paused; if we treated each call as "fresh" the timer could never trip.
+        # Only advance the latest stamp on a strictly-newer header. The LCM subscriber holds the last
+        # received message, so the watchdog hands us the same header tick after tick when Metis is
+        # paused; if we treated each call as "fresh" the timer could never trip.
         if header.monotonic_ns <= self._latest_action_monotonic_ns:
             return
         self._latest_action_monotonic_ns = int(header.monotonic_ns)
@@ -134,17 +142,17 @@ class HardwareManipulatorBackend:
     def send_joint_ee_command(self, joint_ee_command: JointEECommand) -> None:
         if self._stopped:
             return
-        # Startup gate: if no real action has ever made it through, the JointEECommand on the wire
-        # is the default-constructed one (Kyber stamps it but the inner JointCommand still carries
-        # an empty joint_positions array, since JointCommand.construct_default sets joint_positions
-        # to size num_joints=0). Forwarding that to the driver crashes the xarm SDK when it
-        # iterates angs[i]. Drop the send until the watchdog has been pet at least once.
+        # Startup gate: if no real action has ever made it through, the JointEECommand on the wire is
+        # the default-constructed one (Kyber stamps it but the inner JointCommand still carries an
+        # empty joint_positions array, since JointCommand.construct_default sets joint_positions to
+        # size num_joints=0). Forwarding that to the driver crashes the xarm SDK when it iterates
+        # angs[i]. Drop the send until the watchdog has been pet at least once.
         if self._latest_action_monotonic_ns == 0:
             return
         if self._is_action_stale():
-            # Trip the watchdog: log, halt the arm (set_state STOP -- pose / mode / energization
-            # all preserved), mark _stopped so subsequent commands are dropped until pet_watchdog
-            # sees a fresh header and auto-resumes.
+            # Trip the watchdog: log, halt the arm (set_state STOP -- pose / mode / energization all
+            # preserved), mark _stopped so subsequent commands are dropped until pet_watchdog sees a
+            # fresh header and auto-resumes.
             stale_age_s = (time.monotonic_ns() - self._latest_action_monotonic_ns) * 1e-9
             threshold_s = 1.0 / self.config.minimum_watchdog_frequency_hz
             self._logger.warning(
@@ -195,11 +203,3 @@ class HardwareManipulatorBackend:
             ee_positions=positions,
             ee_velocities=velocities,
         )
-
-    def _is_action_stale(self) -> bool:
-        # Startup grace: if we've never seen a real action header, don't park. The first Metis publish
-        # will set _latest_action_monotonic_ns; only after that point can the watchdog trip.
-        if self._latest_action_monotonic_ns == 0:
-            return False
-        threshold_ns = int(1e9 / self.config.minimum_watchdog_frequency_hz)
-        return (time.monotonic_ns() - self._latest_action_monotonic_ns) > threshold_ns

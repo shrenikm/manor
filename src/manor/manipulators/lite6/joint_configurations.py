@@ -19,11 +19,11 @@ class Lite6JointConfiguration(StrEnum):
     """
     Well-known joint-space pose names for the Lite6.
 
-    - REST -- the parked configuration the arm returns to before motors are disabled. Happens to be
-    all-zero on the Lite6, but the concept is generic across manipulator families (other arms may have
-    a non-zero rest pose that protects mechanisms on power-down). The Lite6 sits close to a self-
-    collision boundary at REST on the current fixture, so it shouldn't dwell here during operation;
-    we only pass through it on the way to disabling motors at unprime.
+    - REST -- the parked configuration the arm returns to before motors are disabled. Happens to be all-zero
+    on the Lite6, but the concept is generic across manipulator families (other arms may have a non-zero rest
+    pose that protects mechanisms on power-down). The Lite6 sits close to a self-collision boundary at REST
+    on the current fixture, so it shouldn't dwell here during operation; we only pass through it on the way
+    to disabling motors at unprime.
     - PRIME -- a known-clear operational start pose. prime() moves here at the end of bring-up so any
     subsequent command starts from a safe configuration; mirrored by unprime() returning to REST before
     disabling.

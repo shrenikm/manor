@@ -1,5 +1,5 @@
 """
-Tests for ``Lite6Variant``.
+Tests for Lite6Variant.
 """
 
 from __future__ import annotations

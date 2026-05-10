@@ -58,24 +58,36 @@ DEFAULT_STREAM_HZ = 20.0
 # (heartbeat-cached measured pose) and the commanded target before we exit the convergence-poll loop.
 _SETTLE_TOLERANCE_RAD = 5e-3
 
-# Polling period for the convergence-poll loop in send_joint_positions. arm.angles updates at the
-# heartbeat rate (~5 Hz), so anything finer than ~50 ms is wasted work.
+# Polling period for the convergence-poll loop in send_joint_positions. arm.angles updates at the heartbeat
+# rate (~5 Hz), so anything finer than ~50 ms is wasted work.
 _CONVERGE_POLL_PERIOD_S = 0.05
+
+# After motion_enable(True) the brakes release and the servos lock onto current encoder readings; this takes
+# ~2 s of micro-motion to settle (observed empirically). The cli's manual command also needs this pause before
+# issuing further state changes; the helpers module owns it for the prime path, but manual bypasses prime (no
+# auto-move to PRIME) so we redeclare it here to keep the manual sequence in one place.
+_MOTION_ENABLE_SETTLE_S = 2.0
 
 
 def _cli_log(message: str) -> None:
     """
-    log_fn adapter for the cli: indented typer.echo so helper output blends with the surrounding cli
-    progress lines.
+    log_fn adapter for the cli: indented typer.echo so helper output blends with the surrounding cli progress
+    lines.
     """
     typer.echo(f"  {message}")
 
 
-# After motion_enable(True) the brakes release and the servos lock onto current encoder readings; this
-# takes ~2 s of micro-motion to settle (observed empirically). The cli's manual command also needs this
-# pause before issuing further state changes; the helpers module owns it for the prime path, but manual
-# bypasses prime (no auto-move to PRIME) so we redeclare it here to keep the manual sequence in one place.
-_MOTION_ENABLE_SETTLE_S = 2.0
+def _clear_latched_faults(arm: XArmAPI) -> None:
+    """
+    Clear latched controller faults BEFORE running the connect helper. clean_error first, then clean_warn --
+    the xArm controller refuses warn-clears (returns code=1 'Not Ready') while error_code is non-zero, so a
+    warn-clear-first sequence would raise on a faulted arm and leave the bring-up wedged. This is the
+    user-side counterpart to the latent ordering bug in run_prime_sequence; calling it from the cli's
+    recovery commands lets the operator unwedge an arm without having to drop into the xarm web UI.
+    """
+    _cli_log("clearing latched errors and warnings...")
+    check_xarm_call(arm.clean_error(), "clean_error", arm=arm)
+    check_xarm_call(arm.clean_warn(), "clean_warn", arm=arm)
 
 
 def read_joint_state(arm: XArmAPI) -> tuple[np.ndarray, np.ndarray]:
@@ -290,34 +302,19 @@ def cmd_probe(
     probe(arm)
 
 
-def _clear_latched_faults(arm: XArmAPI) -> None:
-    """
-    Clear latched controller faults BEFORE running the connect helper. clean_error first, then
-    clean_warn -- the xArm controller refuses warn-clears (returns code=1 'Not Ready') while
-    error_code is non-zero, so a warn-clear-first sequence would raise on a faulted arm and leave
-    the bring-up wedged. This is the user-side counterpart to the latent ordering bug in
-    run_prime_sequence; calling it from the cli's recovery commands lets the operator unwedge an
-    arm without having to drop into the xarm web UI.
-    """
-    _cli_log("clearing latched errors and warnings...")
-    check_xarm_call(arm.clean_error(), "clean_error", arm=arm)
-    check_xarm_call(arm.clean_warn(), "clean_warn", arm=arm)
-
-
 @app.command("connect")
 def cmd_connect(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Explicit bring-up: clear latched faults (clean_error + clean_warn), then run the connect
-    sequence (motion_enable(True), settle, set_mode(0), set_state(READY), verify error_code /
-    warn_code are clean with a soft motion_enable-cycle recovery on failure). The arm is left
-    energized in mode 0 / READY without being moved -- inverse of disconnect.
+    Explicit bring-up: clear latched faults (clean_error + clean_warn), then run the connect sequence
+    (motion_enable(True), settle, set_mode(0), set_state(READY), verify error_code / warn_code are clean with
+    a soft motion_enable-cycle recovery on failure). The arm is left energized in mode 0 / READY without
+    being moved -- inverse of disconnect.
 
-    Other commands (stream, send_jp, send_jv, manual) implicitly run the connect sequence inside
-    prime() at the start of every invocation but skip the explicit fault-clear step; this dedicated
-    command is the right one to reach for after a fault that latched in a previous session (e.g.
-    collision, abrupt unprime).
+    Other commands (stream, send_jp, send_jv, manual) implicitly run the connect sequence inside prime() at
+    the start of every invocation but skip the explicit fault-clear step; this dedicated command is the right
+    one to reach for after a fault that latched in a previous session (e.g. collision, abrupt unprime).
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)
@@ -332,10 +329,10 @@ def cmd_rest(
     ip: Annotated[str, _IP_OPTION] = DEFAULT_IP,
 ) -> None:
     """
-    Move the arm to the REST joint configuration in mode 0 (POSITION). Mirrors prime's shape -- the
-    only difference is the target pose -- and like connect, clears latched faults first so the
-    operator can recover a faulted arm with a single command. Leaves the arm energized in mode 0 /
-    READY at REST; use disconnect afterward for full teardown.
+    Move the arm to the REST joint configuration in mode 0 (POSITION). Mirrors prime's shape -- the only
+    difference is the target pose -- and like connect, clears latched faults first so the operator can
+    recover a faulted arm with a single command. Leaves the arm energized in mode 0 / READY at REST; use
+    disconnect afterward for full teardown.
     """
     typer.echo(f"connecting to {ip}...")
     arm = XArmAPI(port=ip, is_radian=True)

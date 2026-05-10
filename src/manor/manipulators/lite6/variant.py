@@ -2,13 +2,12 @@
 Lite6 variant enum.
 
 Three trims are supported in Manor:
-    - VACUUM_GRIPPER           : Lite6 with vacuum gripper end-effector
-    - PARALLEL_GRIPPER_NORMAL  : Lite6 with actuated parallel gripper, normal mounting
-    - PARALLEL_GRIPPER_REVERSE : Lite6 with actuated parallel gripper, reverse mounting
+- VACUUM_GRIPPER: Lite6 with vacuum gripper end-effector
+- PARALLEL_GRIPPER_NORMAL: Lite6 with actuated parallel gripper, normal mounting
+- PARALLEL_GRIPPER_REVERSE: Lite6 with actuated parallel gripper, reverse mounting
 
-Vacuum-only and unactuated parallel-gripper trims that existed in the
-deprecated codebase are intentionally dropped: Manor only targets
-actuated-gripper variants.
+Vacuum-only and unactuated parallel-gripper trims that existed in the deprecated codebase are intentionally
+dropped: Manor only targets actuated-gripper variants.
 """
 
 from __future__ import annotations

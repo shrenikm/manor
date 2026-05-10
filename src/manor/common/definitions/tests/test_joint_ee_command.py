@@ -14,7 +14,7 @@ from manor.common.definitions.tests.factories import (
     JOINT_COMMAND_VARIANT_FIELDS,
     random_joint_ee_command,
 )
-
+from manor.common.testing_utils import run_manor_tests
 
 _EE_FIELD_OPTIONS: tuple[str | None, ...] = (None, *EE_COMMAND_VARIANT_FIELDS)
 
@@ -31,3 +31,7 @@ def test_capnp_roundtrip(rng: np.random.Generator, joint_variant_field: str, ee_
 def test_lcm_roundtrip(rng: np.random.Generator, joint_variant_field: str, ee_variant_field: str | None) -> None:
     original = random_joint_ee_command(rng, joint_variant_field, ee_variant_field)
     assert JointEECommand.from_lcm_message(original.to_lcm_message()) == original
+
+
+if __name__ == "__main__":
+    run_manor_tests()

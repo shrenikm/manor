@@ -1,16 +1,13 @@
 """
-Tests for ``Lite6Driver``.
+Tests for Lite6Driver.
 
-xarm-python-sdk is a hard dependency, but the tests inject a
-``MagicMock`` arm in place of the real ``XArmAPI`` so the read/write
-paths can be exercised against the SDK contract without needing a
-physical robot on the network. Construction is patched at the
-``XArmAPI`` import-site (the helpers module also imports it) so the
-driver's eager arm-construction in ``__init__`` lands on the mock.
+xarm-python-sdk is a hard dependency, but the tests inject a MagicMock arm in place of the real XArmAPI so
+the read/write paths can be exercised against the SDK contract without needing a physical robot on the
+network. Construction is patched at the XArmAPI import-site (the helpers module also imports it) so the
+driver's eager arm-construction in __init__ lands on the mock.
 
-``time.sleep`` is patched out for the prime / unprime paths because the
-shared helpers include a 2 s motion_enable settle that adds dead time
-to every test that exercises bring-up.
+time.sleep is patched out for the prime / unprime paths because the shared helpers include a 2 s
+motion_enable settle that adds dead time to every test that exercises bring-up.
 """
 
 from __future__ import annotations
@@ -33,9 +30,9 @@ from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
 
-# Sentinel speed limit for the driver-construction fixtures. Required field on
-# Lite6DriverConfig (no default), so tests have to declare one. Most tests don't assert on the
-# value (the SDK call is mocked); the rate-limiter tests in TestRateLimiter pick their own.
+# Sentinel speed limit for the driver-construction fixtures. Required field on Lite6DriverConfig (no
+# default), so tests have to declare one. Most tests don't assert on the value (the SDK call is mocked); the
+# rate-limiter tests in TestRateLimiter pick their own.
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
 
 

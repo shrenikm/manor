@@ -1,10 +1,9 @@
 """
 Abstract interface for a manipulator's model description.
 
-A model bundles everything Drake (and downstream code) needs to
-construct a MultibodyPlant for the manipulator and reason about its
-state vector layout: the description file path, key frame names, joint
-counts, and Drake-aligned position / velocity / state counts.
+A model bundles everything Drake (and downstream code) needs to construct a MultibodyPlant for the manipulator
+and reason about its state vector layout: the description file path, key frame names, joint counts, and
+Drake-aligned position / velocity / state counts.
 """
 
 from __future__ import annotations
@@ -26,9 +25,8 @@ from manor.manipulators.manipulator_variant import IManipulatorVariant
 
 class IManipulatorModel(abc.ABC):
     """
-    Abstract description of a manipulator (one variant of one family).
-    Implementations are typically frozen attrs classes parameterized by
-    a concrete ``IManipulatorVariant``.
+    Abstract description of a manipulator (one variant of one family). Implementations are typically frozen
+    attrs classes parameterized by a concrete IManipulatorVariant.
     """
 
     @abc.abstractmethod
@@ -40,190 +38,163 @@ class IManipulatorModel(abc.ABC):
     @abc.abstractmethod
     def get_num_dof(self) -> int:
         """
-        Degrees of freedom of the main arm (excluding any end-effector
-        DOFs). Independent of the variant for a fixed manipulator family.
+        Degrees of freedom of the main arm (excluding any end-effector DOFs). Independent of the variant for a
+        fixed manipulator family.
         """
         ...
 
     @abc.abstractmethod
     def get_num_ee_dofs(self) -> int:
         """
-        Number of end-effector generalized DOFs reported on
-        ``EEPositions`` / ``EEVelocities`` for this variant. Zero for
-        variants without an actuated EE; conventionally 1 for binary
-        on/off vacuum grippers; equal to the gripper's prismatic-joint
-        count for actuated parallel grippers.
+        Number of end-effector generalized DOFs reported on EEPositions / EEVelocities for this variant. Zero
+        for variants without an actuated EE; conventionally 1 for binary on/off vacuum grippers; equal to the
+        gripper's prismatic-joint count for actuated parallel grippers.
         """
         ...
 
     @abc.abstractmethod
     def get_description_filepath(self) -> FilePath:
         """
-        Absolute path to the description file (URDF today; SDF / MJCF
-        later) that Drake's parser loads to build the MultibodyPlant.
+        Absolute path to the description file (URDF today; SDF / MJCF later) that Drake's parser loads to
+        build the MultibodyPlant.
         """
         ...
 
     @abc.abstractmethod
     def get_base_frame_name(self) -> str:
         """
-        Name of the model's base frame (the one that gets welded to the
-        world or to a mounting frame).
+        Name of the model's base frame (the one that gets welded to the world or to a mounting frame).
         """
         ...
 
     @abc.abstractmethod
     def get_fk_ik_frame_name(self) -> str:
         """
-        Name of the frame used as the reference point for forward and
-        inverse kinematics (typically the end-effector tip). FK reads
-        out this frame's pose / spatial velocity; IK / diff-IK / IDC
-        targeting solves for joint positions that place this frame at a
-        desired pose.
+        Name of the frame used as the reference point for forward and inverse kinematics (typically the
+        end-effector tip). FK reads out this frame's pose / spatial velocity; IK / diff-IK / IDC targeting
+        solves for joint positions that place this frame at a desired pose.
         """
         ...
 
     @abc.abstractmethod
     def get_num_positions(self) -> int:
         """
-        Number of generalized positions in the MultibodyPlant for this
-        model (arm DOFs + any actuated EE DOFs). Used for sizing /
-        slicing Drake state vectors.
+        Number of generalized positions in the MultibodyPlant for this model (arm DOFs + any actuated EE
+        DOFs). Used for sizing / slicing Drake state vectors.
         """
         ...
 
     @abc.abstractmethod
     def get_num_velocities(self) -> int:
         """
-        Number of generalized velocities in the MultibodyPlant for this
-        model.
+        Number of generalized velocities in the MultibodyPlant for this model.
         """
         ...
 
     @abc.abstractmethod
     def get_num_states(self) -> int:
         """
-        Total number of MultibodyPlant state entries
-        (``num_positions + num_velocities``).
+        Total number of MultibodyPlant state entries (num_positions + num_velocities).
         """
         ...
 
     @abc.abstractmethod
     def get_ee_position_limits(self) -> tuple[EEPositionsVector, EEPositionsVector]:
         """
-        Per-DOF kinematic limits on the EE positions vector,
-        as ``(lower, upper)`` (each sized to get_num_ee_dofs()).
+        Per-DOF kinematic limits on the EE positions vector, as (lower, upper) (each sized to
+        get_num_ee_dofs()).
 
-        Sourced from the URDF's joint limits where the EE has
-        actuated joints; for EEs whose state is not modelled in the
-        plant (e.g. a binary vacuum), implementations return the
-        convention range that defines the EE-level interface.
+        Sourced from the URDF's joint limits where the EE has actuated joints; for EEs whose state is not
+        modelled in the plant (e.g. a binary vacuum), implementations return the convention range that defines
+        the EE-level interface.
 
-        Higher-level concepts like "open" or "closed" are NOT
-        represented here -- they are policy-side conventions on top
-        of these bounds. This interface stays generic across every
-        end-effector type.
+        Higher-level concepts like "open" or "closed" are NOT represented here -- they are policy-side
+        conventions on top of these bounds. This interface stays generic across every end-effector type.
         """
         ...
 
     @abc.abstractmethod
     def ee_positions_to_plant_positions(self, ee_positions: EEPositionsVector) -> PlantEEPositionsVector:
         """
-        Translate an EE-level positions vector (size get_num_ee_dofs())
-        into the EE block of the plant's generalised-position vector q
-        (size get_num_positions() - get_num_dof()).
+        Translate an EE-level positions vector (size get_num_ee_dofs()) into the EE block of the plant's
+        generalised-position vector q (size get_num_positions() - get_num_dof()).
 
-        The EE-level representation is what the policy / controller
-        layer talks about: e.g. an opening width for a parallel gripper,
-        a binary on/off scalar for a vacuum gripper, finger-joint
-        angles for a dexterous hand. The plant-side block is the
-        URDF-defined layout Drake actually integrates: e.g. the two
-        signed prismatic finger joints of a parallel gripper, or zero
-        actuated joints for a vacuum gripper. Implementations own the
-        URDF-specific encoding (joint signs, gear ratios, mimic links).
+        The EE-level representation is what the policy / controller layer talks about: e.g. an opening width
+        for a parallel gripper, a binary on/off scalar for a vacuum gripper, finger-joint angles for a
+        dexterous hand. The plant-side block is the URDF-defined layout Drake actually integrates: e.g. the
+        two signed prismatic finger joints of a parallel gripper, or zero actuated joints for a vacuum
+        gripper. Implementations own the URDF-specific encoding (joint signs, gear ratios, mimic links).
 
-        Variants whose EE has no actuated joints in the plant return a
-        length-0 array.
+        Variants whose EE has no actuated joints in the plant return a length-0 array.
         """
         ...
 
     @abc.abstractmethod
     def plant_positions_to_ee_positions(self, plant_ee_positions: PlantEEPositionsVector) -> EEPositionsVector:
         """
-        Inverse of ee_positions_to_plant_positions: take the EE block of
-        the plant's q vector and project it back onto the EE-level
-        positions vector (size get_num_ee_dofs()).
+        Inverse of ee_positions_to_plant_positions: take the EE block of the plant's q vector and project it
+        back onto the EE-level positions vector (size get_num_ee_dofs()).
 
-        For EE variants whose state is not represented in the plant
-        (e.g. a binary vacuum gripper, where the URDF has no actuated
-        EE joints), implementations may return a sensible default; the
-        input is ignored in that case.
+        For EE variants whose state is not represented in the plant (e.g. a binary vacuum gripper, where the
+        URDF has no actuated EE joints), implementations may return a sensible default; the input is ignored
+        in that case.
         """
         ...
 
     @abc.abstractmethod
     def ee_velocities_to_plant_velocities(self, ee_velocities: EEVelocitiesVector) -> PlantEEVelocitiesVector:
         """
-        Velocity-side analogue of ee_positions_to_plant_positions:
-        translate an EE-level velocities vector (size get_num_ee_dofs())
-        into the EE block of the plant's generalised-velocity vector v.
+        Velocity-side analogue of ee_positions_to_plant_positions: translate an EE-level velocities vector
+        (size get_num_ee_dofs()) into the EE block of the plant's generalised-velocity vector v.
 
-        Implementations encode the time-derivative of the URDF
-        position-side mapping. Constant offsets that show up in the
-        position mapping (e.g. URDF link origins) drop out of the
-        derivative, so the velocity mapping may be simpler than the
-        position one. Variants whose EE has no actuated joints in the
-        plant return a length-0 array.
+        Implementations encode the time-derivative of the URDF position-side mapping. Constant offsets that
+        show up in the position mapping (e.g. URDF link origins) drop out of the derivative, so the velocity
+        mapping may be simpler than the position one. Variants whose EE has no actuated joints in the plant
+        return a length-0 array.
         """
         ...
 
     @abc.abstractmethod
     def plant_velocities_to_ee_velocities(self, plant_ee_velocities: PlantEEVelocitiesVector) -> EEVelocitiesVector:
         """
-        Inverse of ee_velocities_to_plant_velocities: take the EE block
-        of the plant's v vector and project it back onto the EE-level
-        velocities vector. Same fallback rules as
-        plant_positions_to_ee_positions for EE variants without
-        actuated plant joints.
+        Inverse of ee_velocities_to_plant_velocities: take the EE block of the plant's v vector and project it
+        back onto the EE-level velocities vector. Same fallback rules as plant_positions_to_ee_positions for
+        EE variants without actuated plant joints.
         """
         ...
 
     @abc.abstractmethod
     def get_prime_plant_positions(self) -> JointPositionsVector:
         """
-        Full plant positions vector (size get_num_positions()) at the manipulator's PRIME pose --
-        arm joints at a known-clear operational start configuration, EE block at neutral.
+        Full plant positions vector (size get_num_positions()) at the manipulator's PRIME pose -- arm joints
+        at a known-clear operational start configuration, EE block at neutral.
 
-        HardwareManipulatorBackend.start() drives the arm to PRIME via the driver's blocking
-        prime sequence; SimManipulatorBackend.start() snaps the plant context to this same
-        vector so sim and hardware share the same starting state at the moment the diagram begins
-        ticking. The arm-side values are manipulator-specific (defined per-family); the EE-side
-        block is the URDF q layout at the variant's neutral state (closed gripper for parallel
-        variants, length-0 array for vacuum).
+        HardwareManipulatorBackend.start() drives the arm to PRIME via the driver's blocking prime sequence;
+        SimManipulatorBackend.start() snaps the plant context to this same vector so sim and hardware share
+        the same starting state at the moment the diagram begins ticking. The arm-side values are
+        manipulator-specific (defined per-family); the EE-side block is the URDF q layout at the variant's
+        neutral state (closed gripper for parallel variants, length-0 array for vacuum).
         """
         ...
 
     @abc.abstractmethod
     def get_rest_plant_positions(self) -> JointPositionsVector:
         """
-        Full plant positions vector (size get_num_positions()) at the manipulator's REST pose --
-        the parked configuration the arm returns to before motors are disabled. Symmetric
-        counterpart to get_prime_plant_positions for the unprime / stop path:
-        HardwareManipulatorBackend.stop() drives the arm here via the driver's unprime sequence,
-        SimManipulatorBackend.stop() snaps the plant context to this vector. The actual joint
-        values are manipulator-specific (all-zero on the Lite6; potentially non-zero on arms
-        whose mechanism needs a particular pose to be safely powered down).
+        Full plant positions vector (size get_num_positions()) at the manipulator's REST pose -- the parked
+        configuration the arm returns to before motors are disabled. Symmetric counterpart to
+        get_prime_plant_positions for the unprime / stop path: HardwareManipulatorBackend.stop() drives the
+        arm here via the driver's unprime sequence, SimManipulatorBackend.stop() snaps the plant context to
+        this vector. The actual joint values are manipulator-specific (all-zero on the Lite6; potentially
+        non-zero on arms whose mechanism needs a particular pose to be safely powered down).
         """
         ...
 
     @abc.abstractmethod
     def get_default_sim_pid_gains(self) -> PIDGains:
         """
-        Per-joint PID gains for the in-sim ``InverseDynamicsController``
-        that drives this manipulator's actuation port. Sized to
-        ``get_num_positions()``. Concrete manipulator models tune
-        these against their own inertia / damping / joint scales --
-        no generic default lives here.
+        Per-joint PID gains for the in-sim InverseDynamicsController that drives this manipulator's actuation
+        port. Sized to get_num_positions(). Concrete manipulator models tune these against their own inertia
+        / damping / joint scales -- no generic default lives here.
 
         Sim-only -- on hardware the real controller lives on the robot.
         """

@@ -1,15 +1,12 @@
 """
-``GaiaAdvancer``: sim-mode-only LeafSystem that drives a ``Gaia`` forward.
+GaiaAdvancer: sim-mode-only LeafSystem that drives a Gaia forward.
 
-The aegis backends call into a shared ``Gaia`` instance to read sensor
-frames and joint state, but Gaia's clock is otherwise idle -- nothing
-in those calls advances physics. ``GaiaAdvancer`` plugs that gap: at a
-fixed period it calls ``gaia.advance_to(context.get_time())``, keeping
-Gaia's simulated clock in step with the outer aegis diagram clock.
+The aegis backends call into a shared Gaia instance to read sensor frames and joint state, but Gaia's clock is
+otherwise idle -- nothing in those calls advances physics. GaiaAdvancer plugs that gap: at a fixed period it calls
+gaia.advance_to(context.get_time()), keeping Gaia's simulated clock in step with the outer aegis diagram clock.
 
-It has no input or output ports; it's pure side-effect. The default
-period (~500 Hz) is fast relative to camera + policy rates so sensor
-reads land on a freshly stepped Gaia state.
+It has no input or output ports; it's pure side-effect. The default period (~500 Hz) is fast relative to camera +
+policy rates so sensor reads land on a freshly stepped Gaia state.
 """
 
 from __future__ import annotations
@@ -28,10 +25,8 @@ _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ = 500.0
 @attr.frozen
 class GaiaAdvancerConfig:
     """
-    ``GaiaAdvancer`` configuration. ``advance_frequency_hz`` is the
-    cadence at which the diagram clock is forwarded into
-    ``Gaia.advance_to``. ``SYSTEM_NAME`` is the name applied to the
-    GaiaAdvancer LeafSystem in the diagram.
+    GaiaAdvancer configuration. advance_frequency_hz is the cadence at which the diagram clock is forwarded into
+    Gaia.advance_to. SYSTEM_NAME is the name applied to the GaiaAdvancer LeafSystem in the diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "gaia_advancer"
@@ -41,14 +36,14 @@ class GaiaAdvancerConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``gaia_advancer_config:`` block of an aegis YAML.
+        Parse the gaia_advancer_config: block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "gaia_advancer_config"))
 
 
 class GaiaAdvancer(LeafSystem):
     """
-    LeafSystem that advances a ``Gaia`` on a fixed-period event.
+    LeafSystem that advances a Gaia on a fixed-period event.
     """
 
     def __init__(self, gaia: Gaia, advance_frequency_hz: float = _DEFAULT_GAIA_ADVANCE_FREQUENCY_HZ) -> None:

@@ -29,8 +29,8 @@ class UnknownManipulatorTypeError(ManipulatorError):
 
 class VariantAlreadyRegisteredError(ManipulatorError):
     """
-    Raised when ``register_variant_for`` is called for a manipulator type
-    that already has a variant class registered.
+    Raised when register_variant_for is called for a manipulator type that already has a variant
+    class registered.
     """
 
     pass

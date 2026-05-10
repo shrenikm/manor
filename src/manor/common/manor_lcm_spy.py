@@ -1,16 +1,13 @@
 """
-Console-script entry point for ``lcm-spy`` with the manor LCM type bindings
-on the Java classpath.
+Console-script entry point for lcm-spy with the manor LCM type bindings on the Java classpath.
 
-The required jar (``build/java/manor_lcmtypes.jar``) is produced by
-``scripts/compile_messages.py``, which runs automatically on
-``uv pip install --no-cache-dir -e .``. If it's missing, either reinstall
-the package or run the compile script directly.
+The required jar (build/java/manor_lcmtypes.jar) is produced by scripts/compile_messages.py, which
+runs automatically on uv pip install --no-cache-dir -e .. If it's missing, either reinstall the
+package or run the compile script directly.
 
-This module exists so the ``manor_lcm_spy`` command can be exposed via
-``[project.scripts]`` in ``pyproject.toml``; it relies on an editable
-install so ``__file__`` resolves under the manor repo and the jar can be
-located by walking up to the repo root.
+This module exists so the manor_lcm_spy command can be exposed via [project.scripts] in
+pyproject.toml; it relies on an editable install so __file__ resolves under the manor repo and the
+jar can be located by walking up to the repo root.
 """
 
 from __future__ import annotations
@@ -40,8 +37,8 @@ def main() -> int:
         print(f"{_LCM_SPY_BIN} not found on PATH. Activate the manor conda environment first.", file=sys.stderr)
         return 1
 
-    # lcm-spy's wrapper script appends $CLASSPATH to its internal classpath,
-    # so we just have to export our jar before exec'ing.
+    # lcm-spy's wrapper script appends $CLASSPATH to its internal classpath, so we just have to
+    # export our jar before exec'ing.
     existing_classpath = os.environ.get("CLASSPATH", "")
     new_classpath = f"{manor_jar}{os.pathsep}{existing_classpath}" if existing_classpath else str(manor_jar)
     env = {**os.environ, "CLASSPATH": new_classpath}

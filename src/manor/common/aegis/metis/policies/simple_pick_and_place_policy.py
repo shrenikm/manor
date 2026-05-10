@@ -174,19 +174,9 @@ class SimplePickAndPlacePolicy:
             _Waypoint(translation=config.end_position, open_gripper=True, duration_seconds=move),
         )
 
-    def step(self, observation: Observation) -> Action:
-        del observation
-        header = TimestampHeader.from_system_time()
-        now_s = header.system_ns * 1e-9
-        if self._start_time_s is None:
-            self._start_time_s = now_s
-        elapsed = now_s - self._start_time_s
-        waypoint = self._select_waypoint(elapsed)
-        return self._make_action(header, waypoint)
-
     def _select_waypoint(self, elapsed_s: float) -> _Waypoint:
-        # Walk the cumulative dwell timeline. After the last waypoint's window the policy parks
-        # at the final waypoint forever -- no error / wraparound, just a pose hold.
+        # Walk the cumulative dwell timeline. After the last waypoint's window the policy parks at the
+        # final waypoint forever -- no error / wraparound, just a pose hold.
         cumulative = 0.0
         for wp in self.waypoints:
             cumulative += wp.duration_seconds
@@ -211,3 +201,13 @@ class SimplePickAndPlacePolicy:
                 ee_positions=EEPositions(header=header, positions=ee_positions.copy()),
             ),
         )
+
+    def step(self, observation: Observation) -> Action:
+        del observation
+        header = TimestampHeader.from_system_time()
+        now_s = header.system_ns * 1e-9
+        if self._start_time_s is None:
+            self._start_time_s = now_s
+        elapsed = now_s - self._start_time_s
+        waypoint = self._select_waypoint(elapsed)
+        return self._make_action(header, waypoint)

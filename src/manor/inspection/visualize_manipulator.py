@@ -1,14 +1,13 @@
 """
 Standalone manipulator visualizer.
 
-Loads any manipulator (selected by ``ManipulatorType`` + variant) into a Drake plant, attaches
-JointSliders so the user can drag joints around in meshcat, and renders body frames if
-requested. Useful for poking at URDFs, eyeballing reachable workspace, and capturing screenshots
-of named poses.
+Loads any manipulator (selected by ManipulatorType + variant) into a Drake plant, attaches JointSliders so the user can
+drag joints around in meshcat, and renders body frames if requested. Useful for poking at URDFs, eyeballing reachable
+workspace, and capturing screenshots of named poses.
 
-The manipulator family is resolved through the manipulator registry, so this script picks up new
-manipulators automatically as long as they register their variant + model classes via the
-``register_manipulator_variant`` / ``register_manipulator_model`` decorators in their package.
+The manipulator family is resolved through the manipulator registry, so this script picks up new manipulators
+automatically as long as they register their variant + model classes via the register_manipulator_variant /
+register_manipulator_model decorators in their package.
 """
 
 from __future__ import annotations
@@ -48,21 +47,21 @@ _DEMO_CUBE_Z_M = 0.0254 / 2.0
 
 def _import_all_manipulator_packages() -> None:
     """
-    Walk the ``manor.manipulators`` namespace and import each top-level manipulator subpackage's
-    ``model`` module. Each model module is where the variant + model registry decorators run, so
-    importing it is what makes a manipulator family discoverable to the registry. Without this
-    a fresh interpreter only sees the manipulators that some other module has already imported.
+    Walk the manor.manipulators namespace and import each top-level manipulator subpackage's model module. Each model
+    module is where the variant + model registry decorators run, so importing it is what makes a manipulator family
+    discoverable to the registry. Without this a fresh interpreter only sees the manipulators that some other module
+    has already imported.
     """
     for module_info in pkgutil.iter_modules(_manipulators_pkg.__path__):
         if not module_info.ispkg:
             continue
-        # Each manipulator subpackage exposes its registry-decorated classes via its `model`
-        # module (and `variant` for the enum). Importing both is what registers them.
+        # Each manipulator subpackage exposes its registry-decorated classes via its model module (and variant for the
+        # enum). Importing both is what registers them.
         for submodule_name in ("variant", "model"):
             try:
                 importlib.import_module(f"{_manipulators_pkg.__name__}.{module_info.name}.{submodule_name}")
             except ModuleNotFoundError:
-                # Some subpackages (e.g. `tests`) won't have these submodules; skip silently.
+                # Some subpackages (e.g. tests) won't have these submodules; skip silently.
                 continue
 
 

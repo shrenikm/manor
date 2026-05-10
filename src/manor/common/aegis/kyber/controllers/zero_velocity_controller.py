@@ -1,9 +1,9 @@
 """
-``ZeroVelocityController``: emits a zero ``JointVelocities`` command,
-irrespective of action / proprioception.
+ZeroVelocityController: emits a zero JointVelocities command, irrespective of action /
+proprioception.
 
-Default during early bring-up: lets the full aegis graph tick without
-moving the robot. ``num_dof`` sets the command width.
+Default during early bring-up: lets the full aegis graph tick without moving the robot. num_dof sets
+the command width.
 """
 
 from __future__ import annotations
@@ -29,9 +29,8 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 @attr.frozen
 class ZeroVelocityControllerConfig(KyberControllerConfigBase):
     """
-    Config for ``ZeroVelocityController``. ``num_dof`` is required at
-    runtime (constructable as 0 for tests, but a zero-width command
-    will never be useful in a real diagram).
+    Config for ZeroVelocityController. num_dof is required at runtime (constructable as 0 for tests,
+    but a zero-width command will never be useful in a real diagram).
     """
 
     CONTROLLER_TYPE: ClassVar[KyberControllerType] = KyberControllerType.ZERO_VELOCITY
@@ -46,7 +45,7 @@ class ZeroVelocityControllerConfig(KyberControllerConfigBase):
 @attr.frozen
 class ZeroVelocityController:
     """
-    Always emit a zero ``JointVelocities`` command sized to ``num_dof``.
+    Always emit a zero JointVelocities command sized to num_dof.
     """
 
     num_dof: int = 0

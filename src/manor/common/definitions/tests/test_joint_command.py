@@ -19,6 +19,7 @@ from manor.common.definitions.tests.factories import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import InvalidDefinitionError
+from manor.common.testing_utils import run_manor_tests
 
 
 @pytest.mark.parametrize("variant_field", JOINT_COMMAND_VARIANT_FIELDS)
@@ -65,8 +66,13 @@ def test_capnp_arm_dispatch(rng: np.random.Generator) -> None:
 def test_lcm_variant_tag_dispatch(rng: np.random.Generator) -> None:
     cmd = JointCommand(header=random_timestamp_header(rng), joint_positions=random_joint_positions(rng))
     msg = cmd.to_lcm_message()
-    assert msg.variant == 0  # joint_positions is the first variant field
+    # joint_positions is the first variant field, so its tag value is 0.
+    assert msg.variant == 0
     restored = JointCommand.from_lcm_message(msg)
     assert restored.joint_positions is not None
     assert isinstance(restored.joint_positions, JointPositions)
     assert restored.joint_velocities is None
+
+
+if __name__ == "__main__":
+    run_manor_tests()

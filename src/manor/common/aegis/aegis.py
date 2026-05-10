@@ -1,10 +1,9 @@
 """
 Aegis top-level assembly.
 
-Builds the full Diagram out of Helios, Talos, Metis, Kyber, and the
-LCM publisher / subscriber adapters that connect them. The graph
-shape is identical in sim and hardware modes; only the backends and a
-sim-only ``GaiaAdvancer`` LeafSystem differ.
+Builds the full Diagram out of Helios, Talos, Metis, Kyber, and the LCM publisher / subscriber adapters that connect
+them. The graph shape is identical in sim and hardware modes; only the backends and a sim-only GaiaAdvancer LeafSystem
+differ.
 
 Logical data flow (LCM channels):
 
@@ -15,13 +14,10 @@ Logical data flow (LCM channels):
     Metis.action              --LCM(ACTION)------> Kyber.action
     Kyber.command             --direct----------> Talos.command
 
-Each sub-system owns its own ``*Config`` aggregator (publish frequency,
-backend choice, behavioural knobs) declared alongside the sub-system
-itself; ``AegisConfig`` collects them plus mode + manipulator model
-+ an optional environment / Gaia config for sim mode. The canonical
-construction path is ``AegisConfig.from_yaml`` -- programmatic
-construction works too, but the YAML is the source of truth for the
-config schema.
+Each sub-system owns its own *Config aggregator (publish frequency, backend choice, behavioural knobs) declared
+alongside the sub-system itself; AegisConfig collects them plus mode + manipulator model + an optional environment /
+Gaia config for sim mode. The canonical construction path is AegisConfig.from_yaml -- programmatic construction works
+too, but the YAML is the source of truth for the config schema.
 """
 
 from __future__ import annotations
@@ -68,30 +64,23 @@ from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import build_manipulator_model, get_variant_class
 
-# Discriminated reference to a specific manipulator + variant; lives
-# inside the ``manipulator_model:`` YAML block. Kept inline because
-# this is the only block whose YAML keys don't correspond to attrs
-# fields on a config class -- the keys ``type`` / ``variant`` map
-# directly onto ``ManipulatorType`` and the registered variant enum.
+# Discriminated reference to a specific manipulator + variant; lives inside the manipulator_model: YAML block. Kept
+# inline because this is the only block whose YAML keys don't correspond to attrs fields on a config class -- the keys
+# type / variant map directly onto ManipulatorType and the registered variant enum.
 _MANIPULATOR_TYPE_KEY = "type"
 _MANIPULATOR_VARIANT_KEY = "variant"
 _MANIPULATOR_ALLOWED_KEYS = {_MANIPULATOR_TYPE_KEY, _MANIPULATOR_VARIANT_KEY}
 
-# Layout for the split base / policy / controller YAML scheme. The
-# base YAML (e.g. ``lite6_ac.yaml``) lives directly under
-# ``configs/aegis/`` and references a policy and controller by name;
-# the per-policy and per-controller YAMLs live in sibling
-# subdirectories so the type-name -> filename mapping is mechanical.
+# Layout for the split base / policy / controller YAML scheme. The base YAML (e.g. lite6_ac.yaml) lives directly under
+# configs/aegis/ and references a policy and controller by name; the per-policy and per-controller YAMLs live in
+# sibling subdirectories so the type-name -> filename mapping is mechanical.
 AEGIS_YAML_SUFFIX = "_ac.yaml"
 POLICIES_SUBDIR = "policies"
 CONTROLLERS_SUBDIR = "controllers"
 
-# YAML keys used by the composer. The base YAML carries
-# ``policy_type`` / ``controller_type`` strings; after composition
-# these are replaced with fully-inlined ``policy_config`` /
-# ``controller_config`` blocks (with a synthesised ``type:`` tag) so
-# that the existing ``MetisConfig`` / ``KyberConfig`` parsing path,
-# which dispatches off ``type:``, works unchanged.
+# YAML keys used by the composer. The base YAML carries policy_type / controller_type strings; after composition these
+# are replaced with fully-inlined policy_config / controller_config blocks (with a synthesised type: tag) so that the
+# existing MetisConfig / KyberConfig parsing path, which dispatches off type:, works unchanged.
 _POLICY_TYPE_KEY = "policy_type"
 _CONTROLLER_TYPE_KEY = "controller_type"
 _POLICY_CONFIG_KEY = "policy_config"
@@ -103,9 +92,8 @@ _KYBER_CONFIG_KEY = "kyber_config"
 
 def _read_yaml_mapping(path: Path, context: str) -> dict:
     """
-    Read a YAML file from disk and validate that its top-level value
-    is a mapping. Empty files round-trip to an empty mapping rather
-    than ``None`` so callers can rely on a uniform dict shape.
+    Read a YAML file from disk and validate that its top-level value is a mapping. Empty files round-trip to an empty
+    mapping rather than None so callers can rely on a uniform dict shape.
     """
     try:
         with open(path, "r") as fp:
@@ -130,17 +118,13 @@ def _resolve_typed_yaml_block(
     valid_type_values: set[str],
 ) -> None:
     """
-    Translate a base-YAML block of the form ``{<type_key>: <name>, ...}``
-    into the inlined ``{<config_key>: {type: <name>, ...sub_body}, ...}``
-    shape the existing aegis parsers expect. Mutates ``block`` in
-    place.
+    Translate a base-YAML block of the form {<type_key>: <name>, ...} into the inlined
+    {<config_key>: {type: <name>, ...sub_body}, ...} shape the existing aegis parsers expect. Mutates block in place.
 
-    The plan: every metis_config / kyber_config block in the base
-    YAML names a policy / controller via ``policy_type`` /
-    ``controller_type``; the matching ``<name>_ac.yaml`` body lives
-    under ``configs/aegis/policies/`` or ``configs/aegis/controllers/``;
-    aegis refuses to run if either file is missing. The composer is
-    the single place those rules are enforced.
+    The plan: every metis_config / kyber_config block in the base YAML names a policy / controller via policy_type /
+    controller_type; the matching <name>_ac.yaml body lives under configs/aegis/policies/ or
+    configs/aegis/controllers/; aegis refuses to run if either file is missing. The composer is the single place those
+    rules are enforced.
     """
     if config_key in block:
         raise AegisConfigError(
@@ -176,15 +160,12 @@ def _resolve_typed_yaml_block(
 
 def compose_aegis_yaml_dict(base_yaml_path: FilePath) -> dict:
     """
-    Read a base aegis YAML and inline its policy and controller
-    sub-YAMLs into a single dict ready for ``AegisConfig.from_yaml_dict``.
+    Read a base aegis YAML and inline its policy and controller sub-YAMLs into a single dict ready for
+    AegisConfig.from_yaml_dict.
 
-    The base YAML's ``metis_config.policy_type`` and
-    ``kyber_config.controller_type`` are looked up in
-    ``<base.parent>/policies/`` and ``<base.parent>/controllers/``
-    respectively. If a sub-YAML is missing the composer raises so
-    aegis refuses to run with a config that relies on undefined
-    behaviour.
+    The base YAML's metis_config.policy_type and kyber_config.controller_type are looked up in
+    <base.parent>/policies/ and <base.parent>/controllers/ respectively. If a sub-YAML is missing the composer raises
+    so aegis refuses to run with a config that relies on undefined behaviour.
     """
     base_path = Path(base_yaml_path)
     raw = _read_yaml_mapping(base_path, context="aegis base config")
@@ -255,23 +236,18 @@ def _parse_manipulator_model(value: object, context: str) -> IManipulatorModel:
 @attr.frozen
 class AegisConfig:
     """
-    Top-level configuration for ``build_aegis``.
+    Top-level configuration for build_aegis.
 
-    ``manipulator_model`` is the source of truth for which robot the
-    aegis stack runs. Talos and (in sim mode) Gaia each construct an
-    independent ``MultibodyPlant`` from it; controllers that need a
-    plant build their own through ``KyberControllerManager``.
+    manipulator_model is the source of truth for which robot the aegis stack runs. Talos and (in sim mode) Gaia each
+    construct an independent MultibodyPlant from it; controllers that need a plant build their own through
+    KyberControllerManager.
 
-    Every sub-config is required -- the YAML is the explicit source
-    of truth for the full schema. Sim-only blocks
-    (``environment_config``, ``gaia_config``, ``gaia_advancer_config``)
-    must still be present in hardware-mode YAMLs (their fields all
-    default cleanly, so an empty mapping ``{}`` is valid); aegis just
-    ignores them when building the hardware diagram.
+    Every sub-config is required -- the YAML is the explicit source of truth for the full schema. Sim-only blocks
+    (environment_config, gaia_config, gaia_advancer_config) must still be present in hardware-mode YAMLs (their fields
+    all default cleanly, so an empty mapping {} is valid); aegis just ignores them when building the hardware diagram.
 
-    The canonical construction path is ``AegisConfig.from_yaml``; the
-    raw ``__init__`` exists for programmatic use (notably tests) but
-    is not the documented entry point for end users.
+    The canonical construction path is AegisConfig.from_yaml; the raw __init__ exists for programmatic use (notably
+    tests) but is not the documented entry point for end users.
     """
 
     mode: AegisMode
@@ -288,25 +264,19 @@ class AegisConfig:
     @classmethod
     def from_yaml(cls, filepath: FilePath) -> Self:
         """
-        Load an ``AegisConfig`` from a base YAML file. The base YAML
-        names a policy and controller via ``policy_type`` and
-        ``controller_type``; the matching bodies are read from
-        ``<base.parent>/policies/`` and ``<base.parent>/controllers/``
-        and inlined before parsing. See ``compose_aegis_yaml_dict``
-        for the rules.
+        Load an AegisConfig from a base YAML file. The base YAML names a policy and controller via policy_type and
+        controller_type; the matching bodies are read from <base.parent>/policies/ and <base.parent>/controllers/ and
+        inlined before parsing. See compose_aegis_yaml_dict for the rules.
         """
         return cls.from_yaml_dict(compose_aegis_yaml_dict(filepath))
 
     @classmethod
     def from_yaml_dict(cls, raw: dict) -> Self:
         """
-        Build an ``AegisConfig`` from an already-parsed YAML mapping.
-        Each subsystem block is delegated to that subsystem's
-        ``from_yaml_dict`` -- which the helper finds automatically by
-        looking at the field type, except for ``manipulator_model``
-        (a Protocol with no YAML schema of its own; needs a custom
-        parser) and ``lcm`` (a runtime-only Drake handle, never set
-        from YAML).
+        Build an AegisConfig from an already-parsed YAML mapping. Each subsystem block is delegated to that
+        subsystem's from_yaml_dict -- which the helper finds automatically by looking at the field type, except for
+        manipulator_model (a Protocol with no YAML schema of its own; needs a custom parser) and lcm (a runtime-only
+        Drake handle, never set from YAML).
         """
         return cls(
             **parse_attrs_yaml(
@@ -322,8 +292,7 @@ class AegisConfig:
 @attr.frozen
 class AegisSystems:
     """
-    Handles to each sub-system in the built diagram. ``gaia`` /
-    ``gaia_advancer`` are populated only in sim mode.
+    Handles to each sub-system in the built diagram. gaia / gaia_advancer are populated only in sim mode.
     """
 
     helios: Helios
@@ -335,13 +304,80 @@ class AegisSystems:
     gaia_advancer: GaiaAdvancer | None = None
 
 
+def _add_publisher(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+    publish_frequency_hz: float,
+) -> AegisLCMPublisherAdapter:
+    return builder.AddSystem(
+        AegisLCMPublisherAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+            publish_period=1.0 / publish_frequency_hz,
+        )
+    )
+
+
+def _add_subscriber(
+    builder: DiagramBuilder,
+    definition_cls: type,
+    channel: AegisChannel,
+    lcm: DrakeLcm,
+) -> AegisLCMSubscriberAdapter:
+    return builder.AddSystem(
+        AegisLCMSubscriberAdapter.from_lcm_type(
+            definition_cls=definition_cls,
+            channel=channel,
+            lcm=lcm,
+        )
+    )
+
+
+def _build_backends(
+    config: AegisConfig,
+) -> tuple[Gaia | None, SensorBackend, ManipulatorBackend]:
+    if config.mode == AegisMode.SIM:
+        gaia = Gaia(
+            manipulator_model=config.manipulator_model,
+            environment_config=config.environment_config,
+            config=config.gaia_config,
+        )
+        gaia.finalize()
+        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)
+        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(
+            gaia=gaia, config=config.talos_config.sim_backend_config
+        )
+        return gaia, sensor_backend, manipulator_backend
+
+    if config.mode == AegisMode.HARDWARE:
+        # Lite6 is the only manipulator currently supported on hardware; additional manipulators will need their own
+        # driver factories plumbed in alongside this branch.
+        if not isinstance(config.manipulator_model, Lite6Model):
+            raise InvalidDefinitionError(
+                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
+            )
+        driver = Lite6Driver(
+            model=config.manipulator_model,
+            config=config.talos_config.hardware_backend_config.lite6_driver_config,
+        )
+        manipulator_backend = HardwareManipulatorBackend(
+            driver=driver, config=config.talos_config.hardware_backend_config
+        )
+        sensor_backend = HardwareSensorBackend(config=config.helios_config.hardware_backend_config)
+        return None, sensor_backend, manipulator_backend
+
+    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")
+
+
 def build_aegis(config: AegisConfig) -> tuple[Diagram, AegisSystems]:
     """
     Build and wire the full aegis diagram.
 
-    The graph shape is identical in sim and hardware modes; only the
-    backends differ, and sim mode adds a ``GaiaAdvancer`` to drive the
-    shared ``Gaia`` instance forward in step with the diagram clock.
+    The graph shape is identical in sim and hardware modes; only the backends differ, and sim mode adds a
+    GaiaAdvancer to drive the shared Gaia instance forward in step with the diagram clock.
     """
 
     lcm = config.lcm if config.lcm is not None else DrakeLcm()
@@ -387,8 +423,8 @@ def build_aegis(config: AegisConfig) -> tuple[Diagram, AegisSystems]:
     metis.set_name(MetisConfig.SYSTEM_NAME)
     kyber.set_name(KyberConfig.SYSTEM_NAME)
 
-    # LCM publisher / subscriber adapters. RGB / depth are conditional
-    # on the matching Helios stream being enabled (frequency > 0).
+    # LCM publisher / subscriber adapters. RGB / depth are conditional on the matching Helios stream being enabled
+    # (frequency > 0).
     proprioception_publisher = _add_publisher(
         builder, Proprioception, AegisChannel.PROPRIOCEPTION, lcm, config.talos_config.publish_frequency_hz
     )
@@ -472,72 +508,3 @@ def build_aegis(config: AegisConfig) -> tuple[Diagram, AegisSystems]:
         gaia=gaia,
         gaia_advancer=gaia_advancer,
     )
-
-
-def _add_publisher(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-    publish_frequency_hz: float,
-) -> AegisLCMPublisherAdapter:
-    return builder.AddSystem(
-        AegisLCMPublisherAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-            publish_period=1.0 / publish_frequency_hz,
-        )
-    )
-
-
-def _add_subscriber(
-    builder: DiagramBuilder,
-    definition_cls: type,
-    channel: AegisChannel,
-    lcm: DrakeLcm,
-) -> AegisLCMSubscriberAdapter:
-    return builder.AddSystem(
-        AegisLCMSubscriberAdapter.from_lcm_type(
-            definition_cls=definition_cls,
-            channel=channel,
-            lcm=lcm,
-        )
-    )
-
-
-def _build_backends(
-    config: AegisConfig,
-) -> tuple[Gaia | None, SensorBackend, ManipulatorBackend]:
-    if config.mode == AegisMode.SIM:
-        gaia = Gaia(
-            manipulator_model=config.manipulator_model,
-            environment_config=config.environment_config,
-            config=config.gaia_config,
-        )
-        gaia.finalize()
-        sensor_backend: SensorBackend = SimSensorBackend(gaia=gaia, config=config.helios_config.sim_backend_config)
-        manipulator_backend: ManipulatorBackend = SimManipulatorBackend(
-            gaia=gaia, config=config.talos_config.sim_backend_config
-        )
-        return gaia, sensor_backend, manipulator_backend
-
-    if config.mode == AegisMode.HARDWARE:
-        # Lite6 is the only manipulator currently supported on hardware;
-        # additional manipulators will need their own driver factories
-        # plumbed in alongside this branch.
-        if not isinstance(config.manipulator_model, Lite6Model):
-            raise InvalidDefinitionError(
-                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
-            )
-        driver = Lite6Driver(
-            model=config.manipulator_model,
-            config=config.talos_config.hardware_backend_config.lite6_driver_config,
-        )
-        manipulator_backend = HardwareManipulatorBackend(
-            driver=driver, config=config.talos_config.hardware_backend_config
-        )
-        sensor_backend = HardwareSensorBackend(config=config.helios_config.hardware_backend_config)
-        return None, sensor_backend, manipulator_backend
-
-    raise InvalidDefinitionError(f"Unknown AegisMode: {config.mode!r}")

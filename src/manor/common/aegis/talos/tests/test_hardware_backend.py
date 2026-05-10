@@ -1,11 +1,9 @@
 """
 Tests for the stale-command watchdog in HardwareManipulatorBackend.
 
-A FakeDriver stands in for the real Lite6Driver so the tests can drive
-the backend through arbitrary action-staleness sequences without
-touching xarm. ``time.monotonic_ns`` inside the backend module is
-monkey-patched per-test so the watchdog's "now" is fully under test
-control.
+A FakeDriver stands in for the real Lite6Driver so the tests can drive the backend through arbitrary
+action-staleness sequences without touching xarm. time.monotonic_ns inside the backend module is
+monkey-patched per-test so the watchdog's "now" is fully under test control.
 """
 
 from __future__ import annotations
@@ -124,7 +122,7 @@ def backend(fake_driver: _FakeDriver) -> HardwareManipulatorBackend:
 def fake_now(monkeypatch: pytest.MonkeyPatch):
     """
     Replace time.monotonic_ns inside hardware_backend with a controllable counter so the watchdog
-    sees the wall-clock the test wants it to see.
+    sees the system time the test wants it to see.
     """
     state = {"now_ns": 1_000_000_000}
 
@@ -303,9 +301,9 @@ class TestPetWatchdogAdvancement:
         fake_now: dict,
     ) -> None:
         backend.start()
-        # Same header notified repeatedly (LCM subscriber holds the last message). Internal stamp
-        # must not advance with later wall-time, so once the threshold elapses the watchdog will
-        # still trip on the next send.
+        # Same header notified repeatedly (LCM subscriber holds the last message). Internal stamp must
+        # not advance with later system time, so once the threshold elapses the watchdog will still
+        # trip on the next send.
         repeating_header = TimestampHeader(monotonic_ns=fake_now["now_ns"], system_ns=0)
         backend.pet_watchdog(repeating_header)
         first_stamp = backend._latest_action_monotonic_ns

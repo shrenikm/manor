@@ -17,6 +17,7 @@ from manor.common.definitions.tests.factories import (
 )
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import InvalidDefinitionError
+from manor.common.testing_utils import run_manor_tests
 
 
 @pytest.mark.parametrize("variant_field", EE_TRAJECTORY_COMMAND_VARIANT_FIELDS)
@@ -49,3 +50,7 @@ def test_construct_default_passes_validator() -> None:
     cmd = EETrajectoryCommand.construct_default()
     assert cmd.ee_positions_trajectory is not None
     assert cmd.ee_velocities_trajectory is None
+
+
+if __name__ == "__main__":
+    run_manor_tests()

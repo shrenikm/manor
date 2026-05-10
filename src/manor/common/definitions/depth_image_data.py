@@ -31,8 +31,7 @@ class _CapnpField(StrEnum):
 @attr.frozen
 class DepthImageData(DefinitionBase):
     """
-    A single depth frame. `data` is interpreted per `encoding`, and multiplied
-    by `depth_scale` to get meters.
+    A single depth frame. data is interpreted per encoding, and multiplied by depth_scale to get meters.
     """
 
     header: TimestampHeader

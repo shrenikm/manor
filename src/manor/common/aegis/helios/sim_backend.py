@@ -1,10 +1,8 @@
 """
 Simulation SensorBackend.
 
-Closes over a ``Gaia`` instance and forwards camera reads to it. Gaia
-owns the ``RgbdSensor`` instances (when wired in); this backend just
-projects ``render_rgb`` / ``render_depth`` into the sensor backend
-protocol Helios consumes.
+Closes over a Gaia instance and forwards camera reads to it. Gaia owns the RgbdSensor instances (when wired in); this
+backend just projects render_rgb / render_depth into the sensor backend protocol Helios consumes.
 """
 
 from __future__ import annotations
@@ -22,9 +20,8 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 @attr.frozen
 class SimSensorBackendConfig:
     """
-    Configuration for the simulation sensor backend. ``camera_id``
-    selects which camera registered on Gaia is read; the default
-    ``"default"`` matches Gaia's stub camera.
+    Configuration for the simulation sensor backend. camera_id selects which camera registered on Gaia is read; the
+    default "default" matches Gaia's stub camera.
     """
 
     camera_id: str = "default"
@@ -37,7 +34,7 @@ class SimSensorBackendConfig:
 @attr.define
 class SimSensorBackend:
     """
-    SensorBackend that pulls frames from a shared ``Gaia``.
+    SensorBackend that pulls frames from a shared Gaia.
     """
 
     gaia: Gaia

@@ -4,13 +4,12 @@ Metis LeafSystem: runs a policy on observations to produce actions.
 On every periodic tick Metis:
   1. reads the latest Proprioception + RGB + Depth from its input ports,
   2. assembles them into an Observation,
-  3. calls ``policy.step(observation)`` to produce an Action,
+  3. calls policy.step(observation) to produce an Action,
   4. writes the Action into abstract state.
 
-The output port is a zero-order hold on that state. The ``MetisPolicy``
-protocol (defined in ``metis/policies/policy_manager.py``) is what
-downstream algorithm implementations (motion planners, diffusion
-policies, VLAs) plug into.
+The output port is a zero-order hold on that state. The MetisPolicy protocol (defined in
+metis/policies/policy_manager.py) is what downstream algorithm implementations (motion planners,
+diffusion policies, VLAs) plug into.
 """
 
 from __future__ import annotations
@@ -51,11 +50,10 @@ class MetisConfig:
     """
     Metis sub-system configuration.
 
-    ``policy_config`` is required: it pins which ``MetisPolicy`` runs
-    on the robot. Defaulting it would silently swap behaviour at the
-    most consequential layer of the stack, so aegis refuses to build
-    without an explicit choice. ``SYSTEM_NAME`` is the name applied to
-    the Metis LeafSystem in the diagram.
+    policy_config is required: it pins which MetisPolicy runs on the robot. Defaulting it would
+    silently swap behaviour at the most consequential layer of the stack, so aegis refuses to build
+    without an explicit choice. SYSTEM_NAME is the name applied to the Metis LeafSystem in the
+    diagram.
     """
 
     SYSTEM_NAME: ClassVar[str] = "metis"
@@ -66,7 +64,7 @@ class MetisConfig:
     @classmethod
     def from_yaml_dict(cls, d: dict) -> Self:
         """
-        Parse the ``metis_config:`` block of an aegis YAML.
+        Parse the metis_config: block of an aegis YAML.
         """
         return cls(**parse_attrs_yaml(cls, d, "metis_config"))
 

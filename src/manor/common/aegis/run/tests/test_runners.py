@@ -1,12 +1,3 @@
-"""
-Smoke tests for the per-block aegis runners.
-
-These verify each runner builds its diagram and the resulting Drake
-``Simulator`` advances cleanly. The end-to-end "metis + gylos talk
-to each other over LCM" path is exercised via the CLI tests; these
-are pure builder smoke tests.
-"""
-
 from __future__ import annotations
 
 import os
@@ -32,10 +23,8 @@ from manor.common.definitions.action import Action
 from manor.common.definitions.depth_image_data import DepthImageData
 from manor.common.definitions.proprioception import Proprioception
 from manor.common.definitions.rgb_image_data import RGBImageData
-from manor.common.testing_utils import run_manor_tests
-
-
 from manor.common.path_utils import get_project_root
+from manor.common.testing_utils import run_manor_tests
 
 
 def _repo_root() -> str:
@@ -49,13 +38,10 @@ def _bundled_config(
     controller_type: KyberControllerType | None = None,
 ) -> AegisConfig:
     """
-    Load the bundled aegis base YAML through the composer, optionally
-    swapping in a different policy / controller type for the load.
-    Used by the per-policy / per-controller round-trip tests so each
-    bundled sub-YAML is exercised end-to-end. The swap goes through
-    a temp YAML written next to the base so the composer's
-    sibling-directory resolution still finds ``policies/`` and
-    ``controllers/``.
+    Load the bundled aegis base YAML through the composer, optionally swapping in a different policy / controller type
+    for the load. Used by the per-policy / per-controller round-trip tests so each bundled sub-YAML is exercised
+    end-to-end. The swap goes through a temp YAML written next to the base so the composer's sibling-directory
+    resolution still finds policies/ and controllers/.
     """
     import tempfile
 
@@ -86,16 +72,15 @@ def _bundled_config(
             config = AegisConfig.from_yaml_dict(raw)
         finally:
             os.unlink(tmp_path)
-    # Disable meshcat for tests so the pinned port-7000 server doesn't
-    # collide with other tests that also load the bundled YAML.
+    # Disable meshcat for tests so the pinned port-7000 server doesn't collide with other tests that also load the
+    # bundled YAML.
     return attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
 
 
 def _build_metis_diagram(config: AegisConfig, lcm: DrakeLcm):
     """
-    Mirror ``run_metis`` up to (but not including) ``advance_until_signal``.
-    Tests use this to assert the diagram builds cleanly without
-    spinning a wall-clock-paced loop.
+    Mirror run_metis up to (but not including) advance_until_signal. Tests use this to assert the diagram builds
+    cleanly without spinning a system-time-paced loop.
     """
     metis_config = config.metis_config
     builder = DiagramBuilder()
@@ -150,15 +135,15 @@ class TestMetisRunner:
         diagram = _build_metis_diagram(config, DrakeLcm())
         simulator = Simulator(diagram)
         simulator.Initialize()
-        # Tiny advance is enough to confirm there are no algebraic-loop
-        # or wiring errors; we don't care about LCM message flow here.
+        # Tiny advance is enough to confirm there are no algebraic-loop or wiring errors; we don't care about LCM
+        # message flow here.
         simulator.AdvanceTo(0.05)
 
 
 class TestGylosRunner:
     def test_run_gylos_function_builds(self) -> None:
-        # Import lazily so a hard failure in gylos's import path
-        # surfaces as a test failure rather than a collection error.
+        # Import lazily so a hard failure in gylos's import path surfaces as a test failure rather than a collection
+        # error.
         from manor.common.aegis.run.run_gylos import run_gylos  # noqa: F401
 
     def test_gylos_diagram_builds_and_advances(self) -> None:
@@ -272,10 +257,9 @@ def test_runner_module_imports_cleanly(module: str) -> None:
 
 @pytest.mark.parametrize("policy_type", list(MetisPolicyType))
 def test_every_bundled_policy_yaml_parses(policy_type: MetisPolicyType) -> None:
-    # Each MetisPolicyType must have a matching ``policies/<name>_ac.yaml``
-    # body that round-trips through the composer + AegisConfig parser
-    # cleanly. Catches schema drift between policy configs and their
-    # bundled YAMLs without hand-maintaining a parametrize list.
+    # Each MetisPolicyType must have a matching policies/<name>_ac.yaml body that round-trips through the composer +
+    # AegisConfig parser cleanly. Catches schema drift between policy configs and their bundled YAMLs without
+    # hand-maintaining a parametrize list.
     config = _bundled_config(policy_type=policy_type)
     assert config.metis_config.policy_config is not None
     assert config.metis_config.policy_config.POLICY_TYPE is policy_type
@@ -283,8 +267,7 @@ def test_every_bundled_policy_yaml_parses(policy_type: MetisPolicyType) -> None:
 
 @pytest.mark.parametrize("controller_type", list(KyberControllerType))
 def test_every_bundled_controller_yaml_parses(controller_type: KyberControllerType) -> None:
-    # Mirror of the policy version: each KyberControllerType must
-    # have a matching ``controllers/<name>_ac.yaml`` body that
+    # Mirror of the policy version: each KyberControllerType must have a matching controllers/<name>_ac.yaml body that
     # round-trips through the composer.
     config = _bundled_config(controller_type=controller_type)
     assert config.kyber_config.controller_config is not None

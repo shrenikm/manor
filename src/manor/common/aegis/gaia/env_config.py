@@ -1,20 +1,15 @@
 """
 Environment configuration for the aegis simulator.
 
-An ``EnvironmentConfig`` describes how the manipulator is mounted and
-which static models populate the world around it. Configurations can be
-authored as YAML and loaded through ``EnvironmentConfig.from_yaml``; the
-default config (no extras, manipulator welded to the world origin) is
-also available via ``EnvironmentConfig.default()``.
+An EnvironmentConfig describes how the manipulator is mounted and which static models populate the world around it.
+Configurations can be authored as YAML and loaded through EnvironmentConfig.from_yaml; the default config (no extras,
+manipulator welded to the world origin) is also available via EnvironmentConfig.default().
 
-Relative ``description_filepath`` values are resolved against the
-project's ``models/`` directory at load time, so a YAML can reference
-``environment/lite6_table.urdf`` regardless of where the YAML itself
-lives. Absolute paths pass through unchanged.
+Relative description_filepath values are resolved against the project's models/ directory at load time, so a YAML can
+reference environment/lite6_table.urdf regardless of where the YAML itself lives. Absolute paths pass through unchanged.
 
 YAML schema (all fields optional):
 
-```yaml
 manipulator_base_xyz: [0.0, 0.0, 0.0]
 manipulator_base_rpy: [0.0, 0.0, 0.0]
 extra_models:
@@ -23,7 +18,6 @@ extra_models:
     base_xyz: [0.0, 0.0, 0.0]
     base_rpy: [0.0, 0.0, 0.0]
     weld_to_world: true
-```
 """
 
 from __future__ import annotations
@@ -62,11 +56,9 @@ def _parse_xyz(value: object, field_name: str) -> NpVector3f64:
 
 def _resolve_filepath(path: FilePath) -> FilePath:
     """
-    Relative ``description_filepath`` values resolve against the
-    project's ``models/`` directory; absolute paths pass through
-    unchanged. So a YAML can reference ``environment/foo.urdf`` and
-    Gaia will find it at ``<project_root>/models/environment/foo.urdf``
-    regardless of where the YAML itself sits.
+    Relative description_filepath values resolve against the project's models/ directory; absolute paths pass through
+    unchanged. So a YAML can reference environment/foo.urdf and Gaia will find it at
+    <project_root>/models/environment/foo.urdf regardless of where the YAML itself sits.
     """
     if os.path.isabs(path):
         return path
@@ -78,15 +70,12 @@ class StaticModelConfig:
     """
     A single static model loaded into the simulation world.
 
-    The model is loaded from ``description_filepath``. If
-    ``weld_to_world`` is true, Gaia explicitly welds the model's base
+    The model is loaded from description_filepath. If weld_to_world is true, Gaia explicitly welds the model's base
     body to the world frame at the configured pose.
 
-    Set ``weld_to_world`` to false for URDFs / SDFs that already pin
-    themselves to the world via an internal fixed joint (common in
-    environment URDFs). In that case ``base_xyz`` / ``base_rpy`` are
-    informational only -- the model's own internal joint defines the
-    final pose.
+    Set weld_to_world to false for URDFs / SDFs that already pin themselves to the world via an internal fixed joint
+    (common in environment URDFs). In that case base_xyz / base_rpy are informational only -- the model's own internal
+    joint defines the final pose.
     """
 
     name: str
@@ -98,8 +87,7 @@ class StaticModelConfig:
     @classmethod
     def from_yaml_dict(cls, raw: dict, context: str = "extra_model") -> Self:
         """
-        Parse a single ``extra_models[i]`` mapping. ``context`` is
-        used for error messages (e.g. ``"extra_models[0]"``).
+        Parse a single extra_models[i] mapping. context is used for error messages (e.g. "extra_models[0]").
         """
         return cls(
             **parse_attrs_yaml(
@@ -134,9 +122,8 @@ class EnvironmentConfig:
     """
     Top-level environment description for the aegis simulator.
 
-    ``manipulator_base_xyz`` / ``manipulator_base_rpy`` give the pose at
-    which the manipulator is welded to the world. ``extra_models`` lists
-    any additional models to load into the same plant.
+    manipulator_base_xyz / manipulator_base_rpy give the pose at which the manipulator is welded to the world.
+    extra_models lists any additional models to load into the same plant.
     """
 
     manipulator_base_xyz: NpVector3f64 = attr.field(factory=_zero_xyz)
@@ -146,8 +133,7 @@ class EnvironmentConfig:
     @classmethod
     def default(cls) -> Self:
         """
-        Construct the no-extras default: manipulator welded at the world
-        origin with no axis offsets, no extra models.
+        Construct the no-extras default: manipulator welded at the world origin with no axis offsets, no extra models.
         """
         return cls()
 
@@ -156,9 +142,8 @@ class EnvironmentConfig:
         """
         Load an EnvironmentConfig from a YAML file.
 
-        Missing fields fall back to the defaults from ``default()``.
-        Relative ``description_filepath`` values inside ``extra_models``
-        are resolved against the project's ``models/`` directory.
+        Missing fields fall back to the defaults from default(). Relative description_filepath values inside
+        extra_models are resolved against the project's models/ directory.
         """
         try:
             with open(filepath, "r") as fp:

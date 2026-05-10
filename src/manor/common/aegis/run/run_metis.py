@@ -1,24 +1,19 @@
 """
 Metis-process runner.
 
-Builds the slice of the aegis diagram that lives inside the metis
-process: an ``Metis`` LeafSystem, three LCM subscriber adapters
-(proprioception / rgb / depth), and one LCM publisher adapter
-(action). The diagram runs forever; the supervisor stops it with
-SIGTERM.
+Builds the slice of the aegis diagram that lives inside the metis process: an Metis LeafSystem, three LCM subscriber
+adapters (proprioception / rgb / depth), and one LCM publisher adapter (action). The diagram runs forever; the
+supervisor stops it with SIGTERM.
 
 Standalone usage:
 
     python -m manor.common.aegis.run.run_metis < /tmp/aegis.json
 
-where ``/tmp/aegis.json`` is the YAML re-encoded as JSON (see the
-``manor.common.aegis.run`` package docstring for the one-line
-``yaml.safe_load(...) -> json.dumps(...)`` recipe).
+where /tmp/aegis.json is the YAML re-encoded as JSON (see the manor.common.aegis.run package docstring for the
+one-line yaml.safe_load(...) -> json.dumps(...) recipe).
 
-The JSON payload is the full parsed-AegisConfig dict (the same shape
-the YAML produces). The runner only consumes ``metis_config``; the
-rest is ignored. Passing the full dict keeps every per-block runner
-on the same payload contract.
+The JSON payload is the full parsed-AegisConfig dict (the same shape the YAML produces). The runner only consumes
+metis_config; the rest is ignored. Passing the full dict keeps every per-block runner on the same payload contract.
 """
 
 from __future__ import annotations
@@ -56,8 +51,7 @@ def run_metis(
     lcm: DrakeLcm | None = None,
 ) -> None:
     """
-    Build the metis-process diagram, ``Initialize`` its Simulator,
-    and advance forever (until SIGTERM / SIGINT).
+    Build the metis-process diagram, Initialize its Simulator, and advance forever (until SIGTERM / SIGINT).
     """
     lcm = lcm if lcm is not None else DrakeLcm()
     builder = DiagramBuilder()
@@ -110,9 +104,8 @@ def run_metis(
     diagram = builder.Build()
     diagram.set_name("aegis_metis_process")
 
-    # Realtime pacing keeps Metis's periodic policy step in lockstep
-    # with wall-clock so action publish cadence matches what the rest
-    # of the system expects.
+    # Realtime pacing keeps Metis's periodic policy step in lockstep with system time so action publish cadence
+    # matches what the rest of the system expects.
     simulator = Simulator(diagram)
     simulator.set_target_realtime_rate(1.0)
     simulator.Initialize()

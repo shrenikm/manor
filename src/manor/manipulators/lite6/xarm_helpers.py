@@ -1,16 +1,13 @@
 """
 Shared low-level helpers around the xarm-python-sdk for the Lite6.
 
-Both the lite6_cli (the standalone hardware-experiment script) and
-Lite6Driver (the production driver consumed by aegis) go through these
-helpers so the prime / unprime / mode-switch sequences stay in one
-place. The cli previously owned this logic exclusively while we
-characterised the SDK; the driver now imports the same primitives so
-hardware behaviour matches what the cli has been validated against.
+Both the lite6_cli (the standalone hardware-experiment script) and Lite6Driver (the production driver
+consumed by aegis) go through these helpers so the prime / unprime / mode-switch sequences stay in one place.
+The cli previously owned this logic exclusively while we characterised the SDK; the driver now imports the
+same primitives so hardware behaviour matches what the cli has been validated against.
 
-Anything callsite-specific (typer.echo for the cli, ManorLogger for the
-driver) flows in via an injected log_fn callable -- the helpers
-themselves do not import either typer or ManorLogger.
+Anything callsite-specific (typer.echo for the cli, ManorLogger for the driver) flows in via an injected
+log_fn callable -- the helpers themselves do not import either typer or ManorLogger.
 """
 
 from __future__ import annotations
@@ -29,10 +26,9 @@ with contextlib.redirect_stdout(io.StringIO()):
 
 from manor.manipulators.lite6.joint_configurations import Lite6JointConfiguration
 
-# Default log sink: ignore every call. Callers that want to surface
-# progress messages pass their own log_fn (typer.echo, ManorLogger.info,
-# print, etc.). Keeping the default a no-op means the helpers are usable
-# from contexts where a logger isn't wired up yet.
+# Default log sink: ignore every call. Callers that want to surface progress messages pass their own log_fn
+# (typer.echo, ManorLogger.info, print, etc.). Keeping the default a no-op means the helpers are usable from
+# contexts where a logger isn't wired up yet.
 LogFn = Callable[[str], None]
 
 
@@ -60,31 +56,30 @@ class XArmState(IntEnum):
     STOP = 4
 
 
-# After motion_enable(True) the brakes release and the servos lock onto current encoder readings; this
-# takes ~2 s of micro-motion to settle (observed empirically). Sleep before issuing further state changes
-# so set_mode / set_state don't race the bring-up.
+# After motion_enable(True) the brakes release and the servos lock onto current encoder readings; this takes
+# ~2 s of micro-motion to settle (observed empirically). Sleep before issuing further state changes so
+# set_mode / set_state don't race the bring-up.
 _MOTION_ENABLE_SETTLE_S = 2.0
 
-# How long to leave the motors disabled during soft recovery before re-enabling. Long enough that the
-# servos fully de-energise so the next motion_enable starts from a known-clean state.
+# How long to leave the motors disabled during soft recovery before re-enabling. Long enough that the servos
+# fully de-energise so the next motion_enable starts from a known-clean state.
 _SOFT_RECOVERY_DISABLE_S = 1.0
 
-# Speed / acceleration for prime + unprime moves via mode 0 set_servo_angle (built-in trajectory
-# generation). Deliberately well below firmware ceilings (joint_speed_limit pi rad/s, joint_acc_limit 20
-# rad/s^2 from the probe) so the motion is slow enough for the operator to e-stop if anything looks wrong
-# while we're still characterising the hardware.
+# Speed / acceleration for prime + unprime moves via mode 0 set_servo_angle (built-in trajectory generation).
+# Deliberately well below firmware ceilings (joint_speed_limit pi rad/s, joint_acc_limit 20 rad/s^2 from the
+# probe) so the motion is slow enough for the operator to e-stop if anything looks wrong while we're still
+# characterising the hardware.
 _PRIME_MOVE_SPEED_RAD_S = 1.0
 _PRIME_MOVE_ACC_RAD_S2 = 2.0
 
-# Maximum time to wait in switch_mode for the heartbeat-cached arm.mode to catch up to a recent
-# set_mode call. Empirically the report rate is ~5 Hz so this only needs to cover one heartbeat
-# interval, but we leave a generous margin since wait_move bailing early on a stale arm.mode silently
-# breaks subsequent moves.
+# Maximum time to wait in switch_mode for the heartbeat-cached arm.mode to catch up to a recent set_mode
+# call. Empirically the report rate is ~5 Hz so this only needs to cover one heartbeat interval, but we leave
+# a generous margin since wait_move bailing early on a stale arm.mode silently breaks subsequent moves.
 _MODE_REPORT_SETTLE_S = 1.0
 
-# Hint text appended to the check_xarm_call error when the SDK returns specific known codes. Keep these
-# short -- the user's already looking at a traceback; we want the actionable suggestion in the message
-# itself, not a wall of explanation.
+# Hint text appended to the check_xarm_call error when the SDK returns specific known codes. Keep these short
+# -- the user's already looking at a traceback; we want the actionable suggestion in the message itself, not
+# a wall of explanation.
 _CODE_HINTS: dict[int, str] = {
     1: (
         "code=1 ('Not Ready') means the arm is refusing commands. If error_code/warn_code above are "
@@ -162,18 +157,16 @@ def connect(arm: XArmAPI, log_fn: LogFn = _noop_log) -> None:
 
     Two recovery branches handle the two ways latched faults manifest:
 
-    1. The first call in run_prime_sequence (clean_warn) returns code=1 (Not Ready) because
-       error_code is non-zero -- the arm is refusing commands outright. The bring-up sequence raises
-       partway through, so we never reach a successful end state to inspect. Catch the XArmCallError,
-       attempt try_soft_recover (which cycles motion_enable off/on and replays the sequence), and
-       continue.
-    2. The sequence completes but arm.error_code / warn_code is still non-zero -- a servo-level
-       error latched silently while the controller-level calls returned success (e.g. servo_id=6,
-       code=23 after a previous abrupt unprime). The post-bring-up check catches this and runs the
-       same try_soft_recover path.
+    1. The first call in run_prime_sequence (clean_warn) returns code=1 (Not Ready) because error_code is
+    non-zero -- the arm is refusing commands outright. The bring-up sequence raises partway through, so we
+    never reach a successful end state to inspect. Catch the XArmCallError, attempt try_soft_recover (which
+    cycles motion_enable off/on and replays the sequence), and continue.
+    2. The sequence completes but arm.error_code / warn_code is still non-zero -- a servo-level error latched
+    silently while the controller-level calls returned success (e.g. servo_id=6, code=23 after a previous
+    abrupt unprime). The post-bring-up check catches this and runs the same try_soft_recover path.
 
-    Both paths re-check error_code / warn_code afterwards; if either is still non-zero we raise with
-    a power-cycle hint since neither soft path can clear servo errors that need a physical reset.
+    Both paths re-check error_code / warn_code afterwards; if either is still non-zero we raise with a
+    power-cycle hint since neither soft path can clear servo errors that need a physical reset.
     """
     try:
         run_prime_sequence(arm, mode=XArmMode.POSITION)

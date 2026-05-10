@@ -40,7 +40,6 @@ def test_step_control_signal(debug: bool = False) -> None:
 
 
 def test_sine_control_signal(debug: bool = False) -> None:
-    # Test basic sine wave without any phase shift or offsets.
     amplitude = 0.3
     frequency = 2.0
     phase_shift = 0.0
@@ -56,8 +55,7 @@ def test_sine_control_signal(debug: bool = False) -> None:
     times = np.arange(0.0, 1.05, 0.05)
     signals = [signal.compute_signal(time_step=t) for t in times]
 
-    # Frequency = 2. means 2 time periods within the second.
-    # Hence it must end exactly at 0.
+    # Frequency = 2. means 2 time periods within the second. Hence it must end exactly at 0.
     np.testing.assert_array_almost_equal(signals[0], 0.0, decimal=6)
     np.testing.assert_array_almost_equal(signals[-1], 0.0, decimal=6)
 
@@ -77,14 +75,12 @@ def test_sine_standard_positive_signal(debug: bool = False) -> None:
     times = np.arange(0.0, 1.05, 0.05)
     signals = [signal.compute_signal(time_step=t) for t in times]
 
-    # Frequency = 2. means 2 time periods within the second.
-    # Hence it must end exactly at 0.
+    # Frequency = 2. means 2 time periods within the second. Hence it must end exactly at 0.
     np.testing.assert_array_almost_equal(signals[0], 0.0, decimal=6)
     np.testing.assert_array_almost_equal(signals[-1], 0.0, decimal=6)
 
-    # Min and max signal must be 0 and 0.3
-    # We don't test for 0.3 directly as we're limited by the time resolution
-    # It is enough to test that the min is 0.
+    # Min and max signal must be 0 and 0.3. We don't test for 0.3 directly as we're limited by the time resolution;
+    # it is enough to test that the min is 0.
     np.testing.assert_array_almost_equal(np.min(signals), 0.0, decimal=6)
 
     if debug:

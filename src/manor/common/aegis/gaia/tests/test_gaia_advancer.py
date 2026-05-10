@@ -1,7 +1,3 @@
-"""
-Tests for GaiaAdvancer.
-"""
-
 from __future__ import annotations
 
 import pytest

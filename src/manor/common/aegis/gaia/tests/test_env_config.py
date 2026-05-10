@@ -1,7 +1,3 @@
-"""
-Tests for EnvironmentConfig + StaticModelConfig YAML loading.
-"""
-
 from __future__ import annotations
 
 import os
@@ -96,10 +92,6 @@ class TestFromYaml:
 
 class TestBundledLite6TableYaml:
     def test_loads_default_lite6_table_env(self) -> None:
-        """
-        The bundled lite6_table.yaml under models/aegis_envs must load
-        cleanly with paths resolved to the actual on-disk URDF.
-        """
         from manor.common.model_utils import get_models_directory_path
 
         path = os.path.join(get_models_directory_path(), "aegis_envs", "lite6_table.yaml")

@@ -18,9 +18,8 @@ def rng() -> np.random.Generator:
     """
     Deterministic numpy RNG seeded for reproducibility.
 
-    Use in tests that need random inputs: request this fixture by adding
-    `rng: np.random.Generator` to the test signature and call methods like
-    `rng.uniform(...)`, `rng.standard_normal(...)`, `rng.integers(...)`,
-    `rng.choice(...)`, `rng.bytes(...)`.
+    Use in tests that need random inputs: request this fixture by adding rng: np.random.Generator to the test signature
+    and call methods like rng.uniform(...), rng.standard_normal(...), rng.integers(...), rng.choice(...),
+    rng.bytes(...).
     """
     return np.random.default_rng(_RNG_SEED)
