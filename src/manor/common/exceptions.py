@@ -77,6 +77,22 @@ class GaiaError(AegisError):
     pass
 
 
+class MeshcatError(ManorError):
+    """
+    Base exception for meshcat helper failures.
+    """
+
+    pass
+
+
+class MeshcatPortBusyError(MeshcatError):
+    """
+    Raised when the requested meshcat port is still held after waiting for it to free up.
+    """
+
+    pass
+
+
 class DefinitionError(ManorError):
     """
     Base exception for errors related to typed data-class definitions.

@@ -18,13 +18,14 @@ import pkgutil
 from collections.abc import Sequence
 
 import numpy as np
-from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, JointSliders, StartMeshcat
+from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, JointSliders
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
 from pydrake.multibody.tree import RigidBody
 from pydrake.visualization import AddDefaultVisualization, AddFrameTriadIllustration
 
 import manor.manipulators as _manipulators_pkg
+from manor.common.meshcat_utils import start_meshcat
 from manor.common.model_utils import (
     ObjectModelConfig,
     ObjectModelType,
@@ -74,7 +75,7 @@ def visualize_manipulator(
     Build a Drake diagram with the manipulator + optional cubes, hand control to a meshcat
     JointSliders panel. Blocks until the slider window is closed.
     """
-    meshcat = StartMeshcat()
+    meshcat = start_meshcat()
 
     builder = DiagramBuilder()
     plant: MultibodyPlant
