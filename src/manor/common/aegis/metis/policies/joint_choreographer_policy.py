@@ -26,6 +26,7 @@ velocities so the diagram can keep ticking.
 from __future__ import annotations
 
 import os
+import pickle
 from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar, Self
@@ -65,6 +66,13 @@ _PLOT_RESULTS_SUBDIR = "results/choreographer"
 # either become unreadable or need pagination -- we don't have a use case for that yet, so cap
 # loud rather than silently truncating.
 _MAX_PLOTTED_SECTIONS_PER_JOINT = 9
+
+# Per-panel dimensions in inches used when sizing the joint figure. _PLOT_HEADER_PAD_IN reserves
+# vertical space at the top of the figure for the suptitle and the shared legend strip so they
+# don't collide with the top row of panels.
+_PLOT_PANEL_WIDTH_IN = 4.0
+_PLOT_PANEL_HEIGHT_IN = 3.0
+_PLOT_HEADER_PAD_IN = 0.6
 
 
 def _parse_control_signal(raw: object, context: str) -> ControlSignal:
@@ -428,10 +436,21 @@ class JointChoreographerPolicy:
 
     def _save_plots(self) -> None:
         """
-        Render one figure per choreographed joint with target vs observed velocity per section,
-        and write each as a PNG under _plot_output_dir. Uses matplotlib's Figure interface
-        directly (not pyplot) so this is safe to call from the metis publish thread without
-        touching pyplot's global state or trying to start a GUI backend.
+        Render one figure per choreographed joint with target vs observed velocity per section. For
+        each joint we write two artifacts under _plot_output_dir: a PNG render and a pickled Figure
+        (.pkl) so the plot can be reloaded later for re-rendering or interactive viewing without
+        having to re-run the choreographer. Uses matplotlib's Figure interface directly (not
+        pyplot) so this is safe to call from the metis publish thread without touching pyplot's
+        global state or trying to start a GUI backend.
+
+        To reload a saved figure interactively:
+
+            import pickle, matplotlib.pyplot as plt
+            fig = pickle.load(open("joint_1.pkl", "rb"))
+            manager = plt.figure().canvas.manager
+            manager.canvas.figure = fig
+            fig.set_canvas(manager.canvas)
+            plt.show()
         """
         if not self._section_times_map:
             self._logger.info("choreographer: no ACTIVE-phase samples recorded, skipping plot output")
@@ -442,35 +461,64 @@ class JointChoreographerPolicy:
             if not section_keys:
                 continue
             fig = self._build_joint_figure(joint_index=jcs.joint_index, section_keys=section_keys)
-            output_path = os.path.join(self._plot_output_dir, f"joint_{jcs.joint_index + 1}.png")
-            fig.savefig(output_path)
-            self._logger.info(f"choreographer: wrote {output_path}")
+            png_path = os.path.join(self._plot_output_dir, f"joint_{jcs.joint_index + 1}.png")
+            pickle_path = os.path.join(self._plot_output_dir, f"joint_{jcs.joint_index + 1}.pkl")
+            fig.savefig(png_path)
+            with open(pickle_path, "wb") as fp:
+                pickle.dump(fig, fp)
+            self._logger.info(f"choreographer: wrote {png_path}")
+            self._logger.info(f"choreographer: wrote {pickle_path}")
 
     def _build_joint_figure(self, joint_index: int, section_keys: list[tuple[int, int]]) -> Figure:
-        nrows, ncols = _subplots_grid_for_num_sections(num_sections=len(section_keys))
-        fig = Figure()
+        num_sections = len(section_keys)
+        nrows, ncols = _subplots_grid_for_num_sections(num_sections=num_sections)
+        # Per-panel sizing keeps each subplot readable regardless of grid shape, with a bit of extra
+        # vertical headroom so the suptitle and figure-level legend don't crowd the top row.
+        fig = Figure(figsize=(ncols * _PLOT_PANEL_WIDTH_IN, nrows * _PLOT_PANEL_HEIGHT_IN + _PLOT_HEADER_PAD_IN))
         fig.suptitle(f"Choreographer Analysis Plots - Joint {joint_index + 1}")
         axes = fig.subplots(nrows=nrows, ncols=ncols)
-        # subplots returns a single Axes when (1, 1), a 1D array when one of nrows/ncols is 1, and
-        # a 2D array otherwise. Flatten to a uniform list so the indexing below stays simple.
+        # subplots returns a single Axes when (1, 1), a 1D array when one of nrows/ncols is 1, and a 2D array otherwise.
+        # Flatten to a uniform list so the indexing below stays simple.
         if nrows == 1 and ncols == 1:
             axes_list = [axes]
         elif nrows == 1 or ncols == 1:
             axes_list = list(axes)
         else:
             axes_list = [ax for axes_row in axes for ax in axes_row]
+        target_handle = None
+        observed_handle = None
         for plot_idx, key in enumerate(section_keys):
             ax = axes_list[plot_idx]
             t = np.asarray(self._section_times_map[key], dtype=np.float64)
             tv = np.asarray(self._section_target_velocities_map[key], dtype=np.float64)
             ov = np.asarray(self._section_observed_velocities_map[key], dtype=np.float64)
-            ax.set_title(f"Section {key[1] + 1}/{len(section_keys)}")
-            ax.plot(t, tv, color="blue", label="Target velocity")
-            ax.plot(t, ov, color="orange", label="Observed velocity")
-            ax.set_xlabel("t (sec)")
-            ax.set_ylabel("qdot (rad/s)")
-            ax.legend(loc="best")
-        fig.tight_layout()
+            ax.set_title(f"Section {key[1] + 1}/{num_sections}")
+            (target_handle,) = ax.plot(t, tv, color="tab:blue", linewidth=1.5, label="Target velocity")
+            (observed_handle,) = ax.plot(t, ov, color="tab:orange", linewidth=1.0, label="Observed velocity")
+            ax.grid(True, alpha=0.3)
+            # Only decorate outer panels with axis labels: bottom row gets the x-label, leftmost column gets the
+            # y-label. A panel is on the bottom row if no panel sits directly below it in the grid.
+            col = plot_idx % ncols
+            is_bottom = plot_idx + ncols >= num_sections
+            if is_bottom:
+                ax.set_xlabel("t (sec)")
+            if col == 0:
+                ax.set_ylabel("qdot (rad/s)")
+        # Hide any leftover axes when num_sections doesn't fill the grid (e.g. 8 sections in a 3x3 layout).
+        for plot_idx in range(num_sections, nrows * ncols):
+            axes_list[plot_idx].set_visible(False)
+        # One figure-level legend up top so per-panel legend boxes don't sit on top of the data.
+        if target_handle is not None and observed_handle is not None:
+            fig.legend(
+                handles=[target_handle, observed_handle],
+                labels=["Target velocity", "Observed velocity"],
+                loc="upper center",
+                bbox_to_anchor=(0.5, 0.96),
+                ncols=2,
+                frameon=False,
+            )
+        # rect leaves room at the top for the suptitle + legend strip so tight_layout doesn't crash into them.
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
         return fig
 
     def _record_if_active(
