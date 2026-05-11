@@ -27,11 +27,15 @@ pytest src/ -v
 
 ## Project Layout
 
-# TODO
-
-## Additional READMEs
-
-- [src/manor/common/aegis/README.md](src/manor/common/aegis/README.md) — aegis runtime: the multi-process observation → policy → controller → actuation loop over LCM.
-- [src/manor/manipulators/README.md](src/manor/manipulators/README.md) — manipulator families, types/variants, and how they register with the rest of the codebase.
-- [src/manor/manipulators/lite6/README.md](src/manor/manipulators/lite6/README.md) — empirical notes on the Ufactory Lite6 via the xArm Python SDK.
+- `src/manor/` — main Python package.
+  - `common/aegis/` — multi-process manipulation runtime (observation → policy → controller → actuation, over LCM). Runs unchanged in sim and on hardware. See [its README](src/manor/common/aegis/README.md).
+  - `common/control/`, `common/definitions/` — shared control signals and message/definition types used across the stack.
+  - `manipulators/` — manipulator families (types and variants) and the registry the rest of the codebase queries by `(type, variant)`. See [its README](src/manor/manipulators/README.md).
+  - `manipulators/lite6/` — Ufactory Lite6 model, driver, and CLI. Hardware-side quirks documented in [its README](src/manor/manipulators/lite6/README.md).
+  - `inspection/` — visualization and inspection utilities.
+- `configs/` — YAML configs consumed at runtime (`aegis/` for the aegis stack, `choreographer/` for joint choreographer sequences).
+- `models/` — URDF/SDF assets for environments and objects (not robot bodies).
+- `robot_models/` — git submodule of robot description files.
+- `scripts/` — packaging and build-time helpers (e.g. LCM message compilation).
+- `results/` — run output (plots, recordings); gitignored.
 
