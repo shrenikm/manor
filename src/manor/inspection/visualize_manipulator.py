@@ -5,16 +5,13 @@ Loads any manipulator (selected by ManipulatorType + variant) into a Drake plant
 drag joints around in meshcat, and renders body frames if requested. Useful for poking at URDFs, eyeballing reachable
 workspace, and capturing screenshots of named poses.
 
-The manipulator family is resolved through the manipulator registry, so this script picks up new manipulators
-automatically as long as they register their variant + model classes via the register_manipulator_variant /
-register_manipulator_model decorators in their package.
+The manipulator family is resolved through the manipulator registry. Importing manor.manipulators is what populates
+that registry; see manor/manipulators/README.md for how new families plug themselves in.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
-import pkgutil
 from collections.abc import Sequence
 
 import numpy as np
@@ -24,7 +21,7 @@ from pydrake.multibody.plant import MultibodyPlant
 from pydrake.multibody.tree import RigidBody
 from pydrake.visualization import AddDefaultVisualization, AddFrameTriadIllustration
 
-import manor.manipulators as _manipulators_pkg
+import manor.manipulators  # noqa: F401  -- side-effect import populates the manipulator registry.
 from manor.common.meshcat_utils import start_meshcat
 from manor.common.model_utils import (
     ObjectModelConfig,
@@ -44,26 +41,6 @@ from manor.manipulators.manipulator_variant import (
 # Used only by the __main__ demo invocation; live code should compute heights from the actual
 # environment.
 _DEMO_CUBE_Z_M = 0.0254 / 2.0
-
-
-def _import_all_manipulator_packages() -> None:
-    """
-    Walk the manor.manipulators namespace and import each top-level manipulator subpackage's model module. Each model
-    module is where the variant + model registry decorators run, so importing it is what makes a manipulator family
-    discoverable to the registry. Without this a fresh interpreter only sees the manipulators that some other module
-    has already imported.
-    """
-    for module_info in pkgutil.iter_modules(_manipulators_pkg.__path__):
-        if not module_info.ispkg:
-            continue
-        # Each manipulator subpackage exposes its registry-decorated classes via its model module (and variant for the
-        # enum). Importing both is what registers them.
-        for submodule_name in ("variant", "model"):
-            try:
-                importlib.import_module(f"{_manipulators_pkg.__name__}.{module_info.name}.{submodule_name}")
-            except ModuleNotFoundError:
-                # Some subpackages (e.g. tests) won't have these submodules; skip silently.
-                continue
 
 
 def visualize_manipulator(
@@ -128,8 +105,6 @@ def _resolve_manipulator(manipulator_type_value: str, variant_value: str) -> IMa
 
 
 def _main() -> None:
-    _import_all_manipulator_packages()
-
     parser = argparse.ArgumentParser(description="Visualize a manipulator in meshcat with joint sliders.")
     parser.add_argument(
         "--type",
