@@ -12,9 +12,7 @@ that registry; see manor/manipulators/README.md for how new families plug themse
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 
-import numpy as np
 from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, JointSliders
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant
@@ -23,11 +21,7 @@ from pydrake.visualization import AddDefaultVisualization, AddFrameTriadIllustra
 
 import manor.manipulators  # noqa: F401  -- side-effect import populates the manipulator registry.
 from manor.common.meshcat_utils import start_meshcat
-from manor.common.model_utils import (
-    ObjectModelConfig,
-    ObjectModelType,
-    add_object_models_to_plant,
-)
+from manor.common.model_utils import add_robot_models_to_package_map
 from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import (
@@ -37,20 +31,11 @@ from manor.manipulators.manipulator_variant import (
     get_variant_class,
 )
 
-# Demo cube z-position: half a 1-inch side length so the cube rests on the world plane (z=0).
-# Used only by the __main__ demo invocation; live code should compute heights from the actual
-# environment.
-_DEMO_CUBE_Z_M = 0.0254 / 2.0
 
-
-def visualize_manipulator(
-    model: IManipulatorModel,
-    object_model_configs: Sequence[ObjectModelConfig] | None = None,
-    show_frames: bool = False,
-) -> None:
+def visualize_manipulator(model: IManipulatorModel, show_frames: bool = False) -> None:
     """
-    Build a Drake diagram with the manipulator + optional cubes, hand control to a meshcat
-    JointSliders panel. Blocks until the slider window is closed.
+    Build a Drake diagram with the manipulator and hand control to a meshcat JointSliders panel. Blocks until
+    the slider window is closed.
     """
     meshcat = start_meshcat()
 
@@ -59,12 +44,9 @@ def visualize_manipulator(
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.0)
 
     parser = Parser(plant)
+    add_robot_models_to_package_map(parser.package_map())
     manipulator_model_instance = parser.AddModels(model.get_description_filepath())[0]
     plant.WeldFrames(plant.world_frame(), plant.GetFrameByName(model.get_base_frame_name()))
-    object_model_instances = add_object_models_to_plant(
-        plant=plant,
-        object_model_configs=list(object_model_configs) if object_model_configs is not None else None,
-    )
     plant.Finalize()
 
     meshcat.DeleteAddedControls()
@@ -72,16 +54,15 @@ def visualize_manipulator(
     AddDefaultVisualization(builder=builder, meshcat=meshcat)
 
     if show_frames:
-        for model_instance in [manipulator_model_instance, *object_model_instances]:
-            for body_index in plant.GetBodyIndices(model_instance=model_instance):
-                body: RigidBody = plant.get_body(body_index)
-                AddFrameTriadIllustration(
-                    scene_graph=scene_graph,
-                    plant=plant,
-                    body=body,
-                    length=0.15,
-                    radius=0.001,
-                )
+        for body_index in plant.GetBodyIndices(model_instance=manipulator_model_instance):
+            body: RigidBody = plant.get_body(body_index)
+            AddFrameTriadIllustration(
+                scene_graph=scene_graph,
+                plant=plant,
+                body=body,
+                length=0.15,
+                radius=0.001,
+            )
 
     diagram = builder.Build()
     sliders.Run(diagram, None)
@@ -117,24 +98,10 @@ def _main() -> None:
         help="Variant string (e.g. 'parallel_gripper_normal'). Must match a registered variant for --type.",
     )
     parser.add_argument("--show-frames", action="store_true", help="Render body-frame triads.")
-    parser.add_argument("--no-cubes", action="store_true", help="Skip the demo blue cube on the table.")
     args = parser.parse_args()
 
     model = _resolve_manipulator(manipulator_type_value=args.type, variant_value=args.variant)
-    if args.no_cubes:
-        object_model_configs: list[ObjectModelConfig] = []
-    else:
-        object_model_configs = [
-            ObjectModelConfig(
-                object_model_type=ObjectModelType.CUBE_1_INCH_BLUE,
-                position=np.array([0.2, 0.0, _DEMO_CUBE_Z_M]),
-            ),
-        ]
-    visualize_manipulator(
-        model=model,
-        object_model_configs=object_model_configs,
-        show_frames=args.show_frames,
-    )
+    visualize_manipulator(model=model, show_frames=args.show_frames)
 
 
 if __name__ == "__main__":
