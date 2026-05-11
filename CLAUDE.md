@@ -20,6 +20,14 @@ The project supports both: execution in simulation and real hardware
 - models/ contains description files for environments/objects (URDF, SDF, etc)
 - robot_models/ is a submodule that points to a project containing robot description files (URDF, SDF, etc)
 
+## Additional READMEs
+
+These describe how major subsystems are set up. Read them when working in the relevant area:
+
+- src/manor/common/aegis/README.md — aegis runtime: the multi-process observation → policy → controller → actuation loop over LCM.
+- src/manor/manipulators/README.md — manipulator families, types/variants, and how they register with the rest of the codebase.
+- src/manor/manipulators/lite6/README.md — empirical notes on the Ufactory Lite6 via the xArm Python SDK.
+
 ## Code Style
 
 - When writing tests, please add the function to run the tests (run_manor_tests()) at the end of every file
