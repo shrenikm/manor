@@ -349,7 +349,7 @@ class JointChoreographerPolicy:
         joint_index: int,
         velocities: JointVelocitiesVector,
     ) -> JointVelocitiesVector:
-        measured = self._extract_arm_positions(observation)
+        measured = self._extract_arm_positions(observation=observation)
         if measured is None:
             return velocities
         target = section.start_joint_positions
@@ -415,14 +415,16 @@ class JointChoreographerPolicy:
         self._logger.info("choreographer: all sections complete")
         self._save_plots()
 
-    @staticmethod
-    def _extract_arm_positions(observation: Observation) -> JointPositionsVector | None:
+    def _extract_arm_positions(self, observation: Observation) -> JointPositionsVector | None:
         if observation.proprioception is None:
             return None
         positions = observation.proprioception.joint_state.joint_positions.positions
         if positions.size == 0:
             return None
-        return np.asarray(positions, dtype=np.float64).copy()
+        # Proprioception carries the plant's full position vector (arm + EE plant DOFs); the
+        # choreographer only operates on the arm block, so slice off any trailing EE positions
+        # before comparing against start_joint_positions.
+        return np.asarray(positions[: self.num_arm_dof], dtype=np.float64).copy()
 
     def _save_plots(self) -> None:
         """
