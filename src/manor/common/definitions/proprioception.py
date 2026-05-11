@@ -1,33 +1,28 @@
 """
 Full proprioception state.
 
-Always carries joint state. End-effector state / pose / twist are optional:
-e.g. if the robot has no EEF, or if forward kinematics was skipped upstream.
+Always carries joint state. Cartesian (tip pose / twist, bundled into
+CartesianState) and ee (gripper positions / velocities, bundled into
+EEState) sides are independently optional: skip cartesian_state when no
+forward-kinematics tip frame is available, and skip ee_state on robots
+without a gripper or when the gripper is not being read.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, ClassVar, Self, override
 
 import attr
 
-from manor.common.definitions.eef_pose import EEFPose
-from manor.common.definitions.eef_state import EEFState
-from manor.common.definitions.eef_twist import EEFTwist
+from manor.common.definitions.cartesian_state import CartesianState
+from manor.common.definitions.ee_state import EEState
 from manor.common.definitions.joint_state import JointState
-from manor.common.definitions.lcmtypes.lcmt_eef_pose import lcmt_eef_pose
-from manor.common.definitions.lcmtypes.lcmt_eef_state import lcmt_eef_state
-from manor.common.definitions.lcmtypes.lcmt_eef_twist import lcmt_eef_twist
+from manor.common.definitions.lcmtypes.lcmt_cartesian_state import lcmt_cartesian_state
+from manor.common.definitions.lcmtypes.lcmt_ee_state import lcmt_ee_state
 from manor.common.definitions.lcmtypes.lcmt_proprioception import lcmt_proprioception
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
 from manor.common.definitions.utils.interfaces import DefinitionBase
-
-
-class _CapnpField(StrEnum):
-    HEADER = "header"
-    JOINT_STATE = "jointState"
 
 
 @attr.frozen
@@ -38,9 +33,8 @@ class Proprioception(DefinitionBase):
 
     header: TimestampHeader
     joint_state: JointState
-    eef_state: EEFState | None = None
-    eef_pose: EEFPose | None = None
-    eef_twist: EEFTwist | None = None
+    cartesian_state: CartesianState | None = None
+    ee_state: EEState | None = None
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
@@ -54,36 +48,34 @@ class Proprioception(DefinitionBase):
     def get_lcm_class(cls) -> type:
         return lcmt_proprioception
 
+    @override
     def to_capnp_current(self, builder: Any) -> None:
-        self.header.to_versioned_capnp(builder.init(_CapnpField.HEADER))
-        self.joint_state.to_versioned_capnp(builder.init(_CapnpField.JOINT_STATE))
+        self.header.to_versioned_capnp(builder.init("header"))
+        self.joint_state.to_versioned_capnp(builder.init("jointState"))
 
-        if self.eef_state is None:
-            builder.eefState.none = None
+        if self.cartesian_state is None:
+            builder.cartesianState.none = None
         else:
-            self.eef_state.to_versioned_capnp(builder.eefState.init("some"))
+            self.cartesian_state.to_versioned_capnp(builder.cartesianState.init("some"))
 
-        if self.eef_pose is None:
-            builder.eefPose.none = None
+        if self.ee_state is None:
+            builder.eeState.none = None
         else:
-            self.eef_pose.to_versioned_capnp(builder.eefPose.init("some"))
-
-        if self.eef_twist is None:
-            builder.eefTwist.none = None
-        else:
-            self.eef_twist.to_versioned_capnp(builder.eefTwist.init("some"))
+            self.ee_state.to_versioned_capnp(builder.eeState.init("some"))
 
     @classmethod
     def from_capnp_v1(cls, reader: Any) -> Self:
-        eef_state = EEFState.from_versioned_capnp(reader.eefState.some) if reader.eefState.which() == "some" else None
-        eef_pose = EEFPose.from_versioned_capnp(reader.eefPose.some) if reader.eefPose.which() == "some" else None
-        eef_twist = EEFTwist.from_versioned_capnp(reader.eefTwist.some) if reader.eefTwist.which() == "some" else None
+        cartesian_state = (
+            CartesianState.from_versioned_capnp(reader.cartesianState.some)
+            if reader.cartesianState.which() == "some"
+            else None
+        )
+        ee_state = EEState.from_versioned_capnp(reader.eeState.some) if reader.eeState.which() == "some" else None
         return cls(
             header=TimestampHeader.from_versioned_capnp(reader.header),
             joint_state=JointState.from_versioned_capnp(reader.jointState),
-            eef_state=eef_state,
-            eef_pose=eef_pose,
-            eef_twist=eef_twist,
+            cartesian_state=cartesian_state,
+            ee_state=ee_state,
         )
 
     @override
@@ -92,14 +84,13 @@ class Proprioception(DefinitionBase):
         msg.header = self.header.to_lcm_message()
         msg.joint_state = self.joint_state.to_lcm_message()
 
-        msg.has_eef_state = self.eef_state is not None
-        msg.eef_state = self.eef_state.to_lcm_message() if self.eef_state is not None else lcmt_eef_state()
+        msg.has_cartesian_state = self.cartesian_state is not None
+        msg.cartesian_state = (
+            self.cartesian_state.to_lcm_message() if self.cartesian_state is not None else lcmt_cartesian_state()
+        )
 
-        msg.has_eef_pose = self.eef_pose is not None
-        msg.eef_pose = self.eef_pose.to_lcm_message() if self.eef_pose is not None else lcmt_eef_pose()
-
-        msg.has_eef_twist = self.eef_twist is not None
-        msg.eef_twist = self.eef_twist.to_lcm_message() if self.eef_twist is not None else lcmt_eef_twist()
+        msg.has_ee_state = self.ee_state is not None
+        msg.ee_state = self.ee_state.to_lcm_message() if self.ee_state is not None else lcmt_ee_state()
         return msg
 
     @classmethod
@@ -108,7 +99,16 @@ class Proprioception(DefinitionBase):
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             joint_state=JointState.from_lcm_message(msg.joint_state),
-            eef_state=EEFState.from_lcm_message(msg.eef_state) if msg.has_eef_state else None,
-            eef_pose=EEFPose.from_lcm_message(msg.eef_pose) if msg.has_eef_pose else None,
-            eef_twist=EEFTwist.from_lcm_message(msg.eef_twist) if msg.has_eef_twist else None,
+            cartesian_state=(CartesianState.from_lcm_message(msg.cartesian_state) if msg.has_cartesian_state else None),
+            ee_state=EEState.from_lcm_message(msg.ee_state) if msg.has_ee_state else None,
+        )
+
+    @classmethod
+    @override
+    def construct_default(cls, num_joints: int = 0, num_ee_dofs: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            joint_state=JointState.construct_default(num_joints=num_joints),
+            cartesian_state=CartesianState.construct_default(),
+            ee_state=EEState.construct_default(num_ee_dofs=num_ee_dofs),
         )

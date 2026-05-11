@@ -70,11 +70,9 @@ class DefinitionBase(ISerializable, ILcmMessage):
         to_lcm_message(self) -> <LCM class>
         from_lcm_message(cls, msg) -> Self
 
-    Composite definitions call `to_versioned_capnp` / `from_versioned_capnp`
-    on their nested definitions. These helpers operate on a VersionedX
-    builder/reader (i.e. the union wrapper), so nested fields can be declared
-    in the parent schema as `VersionedX` rather than a specific `XV1` and each
-    definition can evolve its version independently.
+    Composite definitions call to_versioned_capnp / from_versioned_capnp on their nested definitions. These helpers
+    operate on a VersionedX builder/reader (i.e. the union wrapper), so nested fields can be declared in the parent
+    schema as VersionedX rather than a specific XV1 and each definition can evolve its version independently.
     """
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
@@ -84,6 +82,17 @@ class DefinitionBase(ISerializable, ILcmMessage):
         Fill the current-version struct builder. Subclasses MUST override.
         """
         raise NotImplementedError
+
+    @classmethod
+    @abc.abstractmethod
+    def construct_default(cls) -> Self:
+        """
+        Return the canonical default instance: zero-shape arrays, identity
+        quaternions, sentinel-but-valid enum values. Used as the abstract
+        port allocator template for adapters and as the starting point for
+        any zero-initialized message.
+        """
+        ...
 
     def to_versioned_capnp(self, versioned_builder: Any) -> None:
         """
@@ -96,7 +105,7 @@ class DefinitionBase(ISerializable, ILcmMessage):
     def from_versioned_capnp(cls, versioned_reader: Any) -> Self:
         """
         Read a VersionedX reader, dispatching on the active arm to the
-        matching `from_capnp_v{N}` handler.
+        matching from_capnp_v{N} handler.
         """
         arm = versioned_reader.which()
         if arm == CapnpUnionArm.UNSET:

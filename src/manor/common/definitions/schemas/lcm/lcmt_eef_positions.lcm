@@ -1,7 +1,0 @@
-package manor.common.definitions.lcmtypes;
-
-struct lcmt_eef_positions {
-    lcmt_timestamp_header header;
-    int32_t num_positions;
-    double positions[num_positions];
-}

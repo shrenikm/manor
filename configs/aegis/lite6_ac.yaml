@@ -1,0 +1,58 @@
+mode: sim
+
+manipulator_model:
+  type: lite6
+  variant: parallel_gripper_normal
+
+environment_config:
+  manipulator_base_xyz: [0.0, 0.0, 0.7366]
+  manipulator_base_rpy: [0.0, 0.0, 0.0]
+  extra_models:
+    - name: lite6_table
+      description_filepath: environment/lite6_table.urdf
+      base_xyz: [0.0, 0.0, 0.0]
+      base_rpy: [0.0, 0.0, 0.0]
+      weld_to_world: false
+
+helios_config:
+  publish_rgb_frequency_hz: 30.0
+  publish_depth_frequency_hz: 30.0
+  sim_backend_config:
+    camera_id: default
+  hardware_backend_config:
+    serial_number: ""
+    rgb_height: 480
+    rgb_width: 640
+    depth_height: 480
+    depth_width: 640
+
+talos_config:
+  publish_frequency_hz: 100.0
+  sim_backend_config:
+    minimum_watchdog_frequency_hz: 3.0
+  hardware_backend_config:
+    minimum_watchdog_frequency_hz: 3.0
+    lite6_driver_config:
+      joint_speed_limit_rad_s: 0.5
+  stale_command_watchdog_config:
+    publish_frequency_hz: 100.0
+
+metis_config:
+  publish_frequency_hz: 10.0
+  policy_type: constant_joint_velocities
+
+kyber_config:
+  publish_frequency_hz: 500.0
+  controller_type: ik_passthrough
+
+gaia_config:
+  time_step: 0.0
+  enable_meshcat: true
+  target_realtime_rate: 1.0
+  rgb_height: 480
+  rgb_width: 640
+  depth_height: 480
+  depth_width: 640
+
+gaia_advancer_config:
+  advance_frequency_hz: 100.0

@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self, override
 
 import attr
 
+from manor.common.attrs_utils import is_non_negative_int
 from manor.common.definitions.lcmtypes.lcmt_rgb_image_data import lcmt_rgb_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
@@ -31,13 +32,13 @@ class _CapnpField(StrEnum):
 @attr.frozen
 class RGBImageData(DefinitionBase):
     """
-    A single RGB frame. `data` is the raw pixel bytes when `encoding` is RAW_*,
-    or a compressed image payload (e.g. JPEG/PNG bytes) otherwise.
+    A single RGB frame. data is the raw pixel bytes when encoding is RAW_*, or a compressed image payload
+    (e.g. JPEG/PNG bytes) otherwise.
     """
 
     header: TimestampHeader
-    height: int
-    width: int
+    height: int = attr.field(validator=is_non_negative_int())
+    width: int = attr.field(validator=is_non_negative_int())
     encoding: ImageEncoding
     data: bytes
 
@@ -84,10 +85,27 @@ class RGBImageData(DefinitionBase):
     @classmethod
     @override
     def from_lcm_message(cls, msg: Any) -> Self:
+        # An LCM subscriber that hasn't yet received a message yields a
+        # default-constructed lcmt with an empty encoding string; treat
+        # it as the equivalent default RGBImageData so downstream
+        # consumers can Eval the port before any traffic arrives.
+        if not msg.encoding:
+            return cls.construct_default(height=int(msg.height), width=int(msg.width))
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             height=int(msg.height),
             width=int(msg.width),
             encoding=ImageEncoding(msg.encoding),
             data=bytes(msg.data),
+        )
+
+    @classmethod
+    @override
+    def construct_default(cls, height: int = 0, width: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            height=height,
+            width=width,
+            encoding=ImageEncoding.RAW_RGB8,
+            data=b"",
         )

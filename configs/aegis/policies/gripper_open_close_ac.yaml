@@ -1,0 +1,4 @@
+num_arm_dof: 6
+open_hold_seconds: 1.5
+close_hold_seconds: 1.5
+num_cycles: 5

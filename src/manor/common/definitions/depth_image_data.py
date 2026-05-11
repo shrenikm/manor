@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self, override
 
 import attr
 
+from manor.common.attrs_utils import is_non_negative_int, is_non_negative_number
 from manor.common.definitions.lcmtypes.lcmt_depth_image_data import lcmt_depth_image_data
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.definitions.utils.capnp_utils import CapnpStructSchema, load_versioned_schema
@@ -30,16 +31,15 @@ class _CapnpField(StrEnum):
 @attr.frozen
 class DepthImageData(DefinitionBase):
     """
-    A single depth frame. `data` is interpreted per `encoding`, and multiplied
-    by `depth_scale` to get meters.
+    A single depth frame. data is interpreted per encoding, and multiplied by depth_scale to get meters.
     """
 
     header: TimestampHeader
-    height: int
-    width: int
+    height: int = attr.field(validator=is_non_negative_int())
+    width: int = attr.field(validator=is_non_negative_int())
     encoding: DepthEncoding
     data: bytes
-    depth_scale: float
+    depth_scale: float = attr.field(validator=is_non_negative_number())
 
     CURRENT_CAPNP_VERSION: ClassVar[str] = "v1"
 
@@ -87,6 +87,10 @@ class DepthImageData(DefinitionBase):
     @classmethod
     @override
     def from_lcm_message(cls, msg: Any) -> Self:
+        # Default-constructed lcmt before any traffic has been received
+        # has an empty encoding; surface that as a default DepthImageData.
+        if not msg.encoding:
+            return cls.construct_default(height=int(msg.height), width=int(msg.width))
         return cls(
             header=TimestampHeader.from_lcm_message(msg.header),
             height=int(msg.height),
@@ -94,4 +98,16 @@ class DepthImageData(DefinitionBase):
             encoding=DepthEncoding(msg.encoding),
             data=bytes(msg.data),
             depth_scale=float(msg.depth_scale),
+        )
+
+    @classmethod
+    @override
+    def construct_default(cls, height: int = 0, width: int = 0) -> Self:
+        return cls(
+            header=TimestampHeader.construct_default(),
+            height=height,
+            width=width,
+            encoding=DepthEncoding.RAW_FLOAT32_M,
+            data=b"",
+            depth_scale=1.0,
         )

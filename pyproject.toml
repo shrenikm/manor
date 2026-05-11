@@ -36,15 +36,21 @@ dependencies = [
     "pytest==8.3.2",
     "mock==5.1.0",
     "ruff==0.15.10",
+    "pyyaml==6.0.2",
+    "typer==0.25.0",
+    "prompt-toolkit==3.0.48",
+    "xarm-python-sdk==1.17.3",
 ]
 
 [project.optional-dependencies]
-hardware = [
-    "xarm-python-sdk==1.13.0",
-]
 ml = [
     "torch==2.4.0",
 ]
+
+[project.scripts]
+aegis = "manor.common.aegis.aegis_cli:cli"
+lite6 = "manor.manipulators.lite6.lite6_cli:cli"
+manor_lcm_spy = "manor.common.manor_lcm_spy:main"
 
 [tool.ruff]
 line-length = 120

@@ -10,23 +10,86 @@ class Lite6Error(ManorError):
     pass
 
 
-class Lite6PliantError(Lite6Error):
+class ManipulatorError(ManorError):
+    """
+    Base exception for the manipulators sub-package.
+    """
+
     pass
 
 
-class Lite6SimulationPliantError(Lite6PliantError):
+class UnknownManipulatorTypeError(ManipulatorError):
+    """
+    Raised when a ManipulatorType has no registered variant class or
+    when a lookup against the registry fails for some other reason.
+    """
+
     pass
 
 
-class Lite6HardwarePliantError(Lite6PliantError):
+class VariantAlreadyRegisteredError(ManipulatorError):
+    """
+    Raised when register_variant_for is called for a manipulator type that already has a variant
+    class registered.
+    """
+
     pass
 
 
-class Lite6PliantChoreographerError(Lite6PliantError):
+class ManipulatorDriverError(ManipulatorError):
+    """
+    Base exception for hardware-driver failures.
+    """
+
     pass
 
 
-class Lite6SystemError(Lite6Error):
+class Lite6DriverError(ManipulatorDriverError):
+    """
+    Raised when a Lite6Driver call (prime/unprime/read/write) fails.
+    """
+
+    pass
+
+
+class AegisError(ManorError):
+    """
+    Base exception for the aegis sub-system.
+    """
+
+    pass
+
+
+class AegisConfigError(AegisError):
+    """
+    Raised when any aegis configuration (top-level, per-subsystem,
+    or environment YAML) cannot be parsed or fails validation.
+    """
+
+    pass
+
+
+class GaiaError(AegisError):
+    """
+    Raised when the Gaia simulator encounters a runtime error.
+    """
+
+    pass
+
+
+class MeshcatError(ManorError):
+    """
+    Base exception for meshcat helper failures.
+    """
+
+    pass
+
+
+class MeshcatPortBusyError(MeshcatError):
+    """
+    Raised when the requested meshcat port is still held after waiting for it to free up.
+    """
+
     pass
 
 

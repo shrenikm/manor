@@ -1,0 +1,9 @@
+package manor.common.definitions.lcmtypes;
+
+struct lcmt_joint_ee_command {
+    lcmt_timestamp_header header;
+    lcmt_joint_command joint_command;
+
+    boolean has_ee_command;
+    lcmt_ee_command ee_command;
+}

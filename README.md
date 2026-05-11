@@ -27,13 +27,11 @@ pytest src/ -v
 
 ## Project Layout
 
-```
-src/manor/           # Main package
-  common/            # Shared utilities, types, exceptions, control abstractions
-  lite6/             # Lite6 manipulator code (pliant control, systems, utilities)
-  analysis/          # Analysis and choreography tools
-  inspection/        # Visualization and debugging scripts
-  algorithms/        # Manipulation algorithm implementations
-models/              # URDF/SDF files for environments and objects
-robot_models/        # Git submodule with Lite6 robot description files
-```
+# TODO
+
+## Additional READMEs
+
+- [src/manor/common/aegis/README.md](src/manor/common/aegis/README.md) — aegis runtime: the multi-process observation → policy → controller → actuation loop over LCM.
+- [src/manor/manipulators/README.md](src/manor/manipulators/README.md) — manipulator families, types/variants, and how they register with the rest of the codebase.
+- [src/manor/manipulators/lite6/README.md](src/manor/manipulators/lite6/README.md) — empirical notes on the Ufactory Lite6 via the xArm Python SDK.
+
