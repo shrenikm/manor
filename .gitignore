@@ -132,3 +132,6 @@ results/
 
 # Generated LCM python classes (emitted by scripts/compile_messages.py)
 src/manor/common/definitions/lcmtypes/
+
+# Claude.md local
+CLAUDE.local.md
