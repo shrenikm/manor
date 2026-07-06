@@ -18,9 +18,11 @@ with the arm's serial bridge attached:
 
 SAFETY NOTES
 
-* The gripper linkage is 3D printed; full motor torque breaks it. Every gripper command in this CLI goes
-through FORCE_POS with a torque ratio capped at REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX. Do not bypass this
-with raw motorbridge calls unless you enjoy reprinting parts.
+* Large parts of this arm (including the gripper linkage) are 3D printed; full motor torque breaks them.
+Every gripper command in this CLI goes through FORCE_POS with a torque ratio capped at
+REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX, and every arm move streams torque-bounded MIT commands. Do not
+bypass these with raw motorbridge calls unless you enjoy reprinting parts. The one exception is send_jv
+(firmware VEL mode, integrator winds up on contact) -- keep its path clear.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -53,10 +55,6 @@ DEFAULT_STREAM_HZ = 20.0
 
 # Default FORCE_POS torque ratio for CLI gripper commands: the vendor LeRobot integration's grip strength.
 DEFAULT_GRIPPER_TORQUE_RATIO = 0.07
-
-# Convergence tolerance + poll period for send_jp: matches the helpers' configuration-move settle behaviour.
-_SETTLE_TOLERANCE_RAD = 0.02
-_CONVERGE_POLL_PERIOD_S = 0.05
 
 # How long send_jv applies the velocity before zeroing it if the operator gives no duration.
 _DEFAULT_JV_DURATION_S = 1.0
@@ -197,17 +195,19 @@ def cmd_connect(
 ) -> None:
     """
     Explicit bring-up without motion: open the bus, clear latched motor errors, enable the motors, and
-    configure modes (arm POS_VEL with vendor loop gains, gripper FORCE_POS). The arm is left energized
-    holding its current pose -- no move to PRIME. Inverse of disconnect.
+    configure modes (arm MIT holding the current pose at the streaming gains, gripper FORCE_POS). No move
+    to PRIME. Inverse of disconnect.
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel}...")
     bus.connect(log_fn=_cli_log)
     bus.clear_errors(log_fn=_cli_log)
     bus.enable_all(log_fn=_cli_log)
-    bus.set_arm_mode(Mode.POS_VEL, log_fn=_cli_log)
+    bus.set_arm_mode(Mode.MIT, log_fn=_cli_log)
+    positions, _ = bus.read_arm_state()
+    bus.send_arm_mit(positions)
     bus.set_gripper_mode_force_pos(log_fn=_cli_log)
-    typer.echo("connected (motors energized, arm POS_VEL, gripper FORCE_POS).")
+    typer.echo("connected (motors energized, arm holding in MIT, gripper FORCE_POS).")
 
 
 @app.command("disconnect")
@@ -239,7 +239,6 @@ def cmd_rest(
     bus.connect(log_fn=_cli_log)
     bus.clear_errors(log_fn=_cli_log)
     bus.enable_all(log_fn=_cli_log)
-    bus.set_arm_mode(Mode.POS_VEL, log_fn=_cli_log)
     bus.set_gripper_mode_force_pos(log_fn=_cli_log)
     unprime(bus, gripper_torque_ratio=DEFAULT_GRIPPER_TORQUE_RATIO, log_fn=_cli_log)
     typer.echo(f"at {RebotB601DmJointConfiguration.REST.name} (motors disabled).")
@@ -297,10 +296,9 @@ def cmd_send_jp(
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Move the arm to a joint pose via POS_VEL streaming -- the same path RebotB601DmDriver's
-    write_joint_positions uses. Any joint not specified stays at its current angle, so -j6 0.5 wiggles
-    joint 6 in isolation. The arm is primed first and left energized at the target (run rest / disconnect
-    to park).
+    Move the arm to a joint pose via the torque-bounded interpolated MIT move (the same helper prime /
+    unprime use). Any joint not specified stays at its current angle, so -j6 0.5 wiggles joint 6 in
+    isolation. The arm is primed first and left energized at the target (run rest / disconnect to park).
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel} and priming...")
@@ -309,13 +307,8 @@ def cmd_send_jp(
     targets = [j1, j2, j3, j4, j5, j6]
     resolved = np.array([c if t is None else t for t, c in zip(targets, current, strict=True)], dtype=np.float64)
     typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]}")
-    bus.send_arm_pos_vel(resolved)
-    while True:
-        positions, _ = bus.read_arm_state()
-        if float(np.max(np.abs(positions - resolved))) < _SETTLE_TOLERANCE_RAD:
-            break
-        time.sleep(_CONVERGE_POLL_PERIOD_S)
-    typer.echo("converged (motors energized; run rest or disconnect to park).")
+    bus.move_arm_to(resolved, "commanded", log_fn=_cli_log)
+    typer.echo("converged (motors energized, holding in MIT; run rest or disconnect to park).")
 
 
 @app.command("send_jv")
@@ -332,9 +325,11 @@ def cmd_send_jv(
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Apply the given joint velocity vector for --duration seconds, then zero it. Switches the arm to VEL
-    mode. Unspecified joints default to zero -- so -j6 0.3 -d 0.5 wiggles joint 6 only. The zero-out runs
-    in a finally so an early Ctrl-C still stops the arm.
+    Apply the given joint velocity vector for --duration seconds, then zero it. Switches the arm to the
+    firmware VEL mode, whose integral term winds up to full torque against an obstacle -- keep the path
+    clear and durations short (the production driver streams velocities through torque-bounded MIT
+    instead). Unspecified joints default to zero -- so -j6 0.3 -d 0.5 wiggles joint 6 only. The zero-out
+    runs in a finally so an early Ctrl-C still stops the arm.
     """
     velocities = np.array([j1, j2, j3, j4, j5, j6], dtype=np.float64)
     bus = RebotB601DmBus(channel=channel)

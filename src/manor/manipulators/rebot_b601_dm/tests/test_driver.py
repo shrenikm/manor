@@ -26,25 +26,33 @@ from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import RebotB601DmDriverError
 from manor.common.testing_utils import run_manor_tests
 from manor.manipulators.rebot_b601_dm import motorbridge_helpers as helpers_module
-from manor.manipulators.rebot_b601_dm.driver import RebotB601DmDriver, RebotB601DmDriverConfig
+from manor.manipulators.rebot_b601_dm.driver import (
+    RebotB601DmArmControlMode,
+    RebotB601DmDriver,
+    RebotB601DmDriverConfig,
+)
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF, RebotB601DmModel
 from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
+    REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD,
     REBOT_B601_DM_MOTOR_SPECS,
     RebotB601DmBus,
 )
 from manor.manipulators.rebot_b601_dm.variant import RebotB601DmVariant
 
 _TEST_JOINT_SPEED_LIMIT_RAD_S = 1.0
+_TEST_MAX_COMMAND_ERROR_RAD = 0.2
 _TEST_GRIPPER_TORQUE_RATIO = 0.07
 
 
 class FakeBusHardware:
     """
     Mock-side state for the fake motor bus: per-motor MagicMocks whose get_state returns a mutable
-    (pos, vel, torq) snapshot, plus the controller MagicMock they hang off.
+    (pos, vel, torq) snapshot, plus the controller MagicMock they hang off. Position-command sends
+    (send_pos_vel / send_mit) teleport the fake motor to the commanded position so convergence polls exit
+    on their first read; set teleport_on_send False to emulate a blocked / stalled joint.
     """
 
     def __init__(self) -> None:
@@ -52,6 +60,7 @@ class FakeBusHardware:
         self.motors: dict[str, mock.MagicMock] = {}
         self.positions: dict[str, float] = {}
         self.velocities: dict[str, float] = {}
+        self.teleport_on_send = True
 
         id_to_name = {spec.send_id: spec.name for spec in REBOT_B601_DM_MOTOR_SPECS}
 
@@ -71,12 +80,17 @@ class FakeBusHardware:
 
             motor.get_state.side_effect = _get_state
 
-            # POS_VEL targets teleport the fake motor to the commanded position so convergence polls
-            # (move_to_configuration during prime / unprime) exit on their first read.
             def _send_pos_vel(pos: float, vlim: float, _name: str = name) -> None:
-                self.positions[_name] = pos
+                if self.teleport_on_send:
+                    self.positions[_name] = pos
+
+            def _send_mit(pos: float, vel: float, kp: float, kd: float, tau: float, _name: str = name) -> None:
+                # A kp = 0 command exerts no positional pull; only teleport for position-tracking sends.
+                if self.teleport_on_send and kp > 0.0:
+                    self.positions[_name] = pos
 
             motor.send_pos_vel.side_effect = _send_pos_vel
+            motor.send_mit.side_effect = _send_mit
             self.motors[name] = motor
             return motor
 
@@ -105,18 +119,35 @@ def _no_sleep():
         yield
 
 
-@pytest.fixture
-def driver(hw: FakeBusHardware):
+def _make_driver(hw: FakeBusHardware, arm_control_mode: RebotB601DmArmControlMode):
     controller_cls = mock.MagicMock()
     controller_cls.from_dm_serial.return_value = hw.controller
-    with mock.patch.object(helpers_module, "Controller", controller_cls):
-        yield RebotB601DmDriver(
-            model=RebotB601DmModel(variant=RebotB601DmVariant.PARALLEL_GRIPPER),
-            config=RebotB601DmDriverConfig(
-                joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
-                gripper_torque_ratio=_TEST_GRIPPER_TORQUE_RATIO,
-            ),
-        )
+    patcher = mock.patch.object(helpers_module, "Controller", controller_cls)
+    patcher.start()
+    driver = RebotB601DmDriver(
+        model=RebotB601DmModel(variant=RebotB601DmVariant.PARALLEL_GRIPPER),
+        config=RebotB601DmDriverConfig(
+            joint_speed_limit_rad_s=_TEST_JOINT_SPEED_LIMIT_RAD_S,
+            max_command_error_rad=_TEST_MAX_COMMAND_ERROR_RAD,
+            gripper_torque_ratio=_TEST_GRIPPER_TORQUE_RATIO,
+            arm_control_mode=arm_control_mode,
+        ),
+    )
+    return driver, patcher
+
+
+@pytest.fixture
+def driver(hw: FakeBusHardware):
+    driver, patcher = _make_driver(hw, RebotB601DmArmControlMode.MIT)
+    yield driver
+    patcher.stop()
+
+
+@pytest.fixture
+def pos_vel_driver(hw: FakeBusHardware):
+    driver, patcher = _make_driver(hw, RebotB601DmArmControlMode.POS_VEL)
+    yield driver
+    patcher.stop()
 
 
 def _header(monotonic_ns: int) -> TimestampHeader:
@@ -128,16 +159,31 @@ class TestConfigValidation:
         with pytest.raises(ValueError):
             RebotB601DmDriverConfig(
                 joint_speed_limit_rad_s=1.0,
+                max_command_error_rad=0.15,
                 gripper_torque_ratio=REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX + 0.01,
             )
 
     def test_torque_ratio_zero_rejected(self) -> None:
         with pytest.raises(ValueError):
-            RebotB601DmDriverConfig(joint_speed_limit_rad_s=1.0, gripper_torque_ratio=0.0)
+            RebotB601DmDriverConfig(joint_speed_limit_rad_s=1.0, max_command_error_rad=0.15, gripper_torque_ratio=0.0)
 
     def test_speed_limit_zero_rejected(self) -> None:
         with pytest.raises(ValueError):
-            RebotB601DmDriverConfig(joint_speed_limit_rad_s=0.0, gripper_torque_ratio=0.07)
+            RebotB601DmDriverConfig(joint_speed_limit_rad_s=0.0, max_command_error_rad=0.15, gripper_torque_ratio=0.07)
+
+    def test_command_error_above_ceiling_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            RebotB601DmDriverConfig(
+                joint_speed_limit_rad_s=1.0,
+                max_command_error_rad=REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD + 0.01,
+                gripper_torque_ratio=0.07,
+            )
+
+    def test_arm_control_mode_defaults_to_mit(self) -> None:
+        config = RebotB601DmDriverConfig(
+            joint_speed_limit_rad_s=1.0, max_command_error_rad=0.15, gripper_torque_ratio=0.07
+        )
+        assert config.arm_control_mode is RebotB601DmArmControlMode.MIT
 
 
 class TestConstruction:
@@ -156,10 +202,9 @@ class TestPrime:
         # All seven motors registered, bus enabled.
         assert hw.controller.add_damiao_motor.call_count == len(REBOT_B601_DM_MOTOR_SPECS)
         hw.controller.enable_all.assert_called()
-        # Arm joints in POS_VEL with the loop-gain registers written; gripper in FORCE_POS.
+        # Arm joints in MIT (the torque-bounded default); gripper in FORCE_POS.
         for i in range(REBOT_B601_DM_ARM_DOF):
-            hw.arm_motor(i).ensure_mode.assert_any_call(Mode.POS_VEL, mock.ANY)
-            assert hw.arm_motor(i).write_register_f32.call_count == 4
+            hw.arm_motor(i).ensure_mode.assert_any_call(Mode.MIT, mock.ANY)
         hw.gripper_motor.ensure_mode.assert_any_call(Mode.FORCE_POS, mock.ANY)
         # Gripper closed softly: FORCE_POS to motor zero at the configured torque ratio.
         pos, _vlim, ratio = hw.gripper_motor.send_force_pos.call_args[0]
@@ -175,6 +220,14 @@ class TestPrime:
         driver.prime()
         # The bus reconnect is idempotent: motors registered exactly once.
         assert hw.controller.add_damiao_motor.call_count == len(REBOT_B601_DM_MOTOR_SPECS)
+
+    def test_prime_pos_vel_mode_writes_loop_gains(self, pos_vel_driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+        # In pos_vel mode prime ends by switching the arm into POS_VEL, which writes the four cascade
+        # gain registers per joint.
+        pos_vel_driver.prime()
+        for i in range(REBOT_B601_DM_ARM_DOF):
+            hw.arm_motor(i).ensure_mode.assert_any_call(Mode.POS_VEL, mock.ANY)
+            assert hw.arm_motor(i).write_register_f32.call_count == 4
 
 
 class TestUnprime:
@@ -207,7 +260,7 @@ class TestWriteJointPositions:
         target = np.full(REBOT_B601_DM_ARM_DOF, 2.0)
         driver.write_joint_positions(JointPositions(header=_header(1), positions=target))
         for i in range(REBOT_B601_DM_ARM_DOF):
-            commanded = hw.arm_motor(i).send_pos_vel.call_args[0][0]
+            commanded = hw.arm_motor(i).send_mit.call_args[0][0]
             assert commanded == pytest.approx(measured[i])
 
     def test_rate_limited_advance(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
@@ -220,25 +273,70 @@ class TestWriteJointPositions:
             driver.write_joint_positions(JointPositions(header=_header(1), positions=target))
         # Second write advances by at most joint_speed_limit_rad_s * dt = 1.0 * 0.1 = 0.1 rad.
         for i in range(REBOT_B601_DM_ARM_DOF):
-            commanded = hw.arm_motor(i).send_pos_vel.call_args[0][0]
+            commanded = hw.arm_motor(i).send_mit.call_args[0][0]
             assert commanded == pytest.approx(0.1)
+
+    def test_command_error_clamped_against_measured_when_blocked(
+        self, driver: RebotB601DmDriver, hw: FakeBusHardware
+    ) -> None:
+        # THE arm torque bound: with a blocked joint (measured position stalled) the commanded position
+        # may never lead the measured one by more than max_command_error_rad, no matter how far the rate
+        # limiter has advanced. Torque is then bounded at ~kp * clamp per joint.
+        driver.prime()
+        hw.set_arm_positions(np.zeros(REBOT_B601_DM_ARM_DOF))
+        hw.teleport_on_send = False
+        target = np.full(REBOT_B601_DM_ARM_DOF, 2.0)
+        headers = iter([_header(int(i * 1e9)) for i in range(10)])
+        with mock.patch.object(driver, "_now_timestamp_header", side_effect=lambda: next(headers)):
+            for i in range(1, 6):
+                driver.write_joint_positions(JointPositions(header=_header(i), positions=target))
+        # After 5 writes the rate limiter alone would have advanced 4+ rad worth of steps, but the
+        # measured position never moved -- so the command must sit exactly at the clamp.
+        for i in range(REBOT_B601_DM_ARM_DOF):
+            commanded = hw.arm_motor(i).send_mit.call_args[0][0]
+            assert commanded == pytest.approx(_TEST_MAX_COMMAND_ERROR_RAD)
+
+    def test_pos_vel_mode_uses_pos_vel_sends(self, pos_vel_driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+        pos_vel_driver.prime()
+        measured = np.zeros(REBOT_B601_DM_ARM_DOF)
+        hw.set_arm_positions(measured)
+        pos_vel_driver.write_joint_positions(
+            JointPositions(header=_header(1), positions=np.full(REBOT_B601_DM_ARM_DOF, 1.0))
+        )
+        for i in range(REBOT_B601_DM_ARM_DOF):
+            hw.arm_motor(i).send_pos_vel.assert_called()
 
 
 class TestWriteJointVelocities:
-    def test_switches_to_vel_mode_and_sends(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+    def test_mit_mode_streams_damping_command(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+        # In the MIT default, velocity commands stream as pure damping (kp = 0): torque =
+        # kd * velocity_error, bounded by construction; no mode switch happens.
         driver.prime()
         velocities = np.array([0.1, -0.1, 0.2, -0.2, 0.3, -0.3])
         driver.write_joint_velocities(JointVelocities(header=_header(1), velocities=velocities))
         for i in range(REBOT_B601_DM_ARM_DOF):
+            pos, vel, kp, _kd, _tau = hw.arm_motor(i).send_mit.call_args[0]
+            assert vel == pytest.approx(velocities[i])
+            assert kp == 0.0
+            vel_mode_calls = [c for c in hw.arm_motor(i).ensure_mode.call_args_list if c[0][0] == Mode.VEL]
+            assert not vel_mode_calls
+
+    def test_pos_vel_mode_switches_to_vel_and_sends(
+        self, pos_vel_driver: RebotB601DmDriver, hw: FakeBusHardware
+    ) -> None:
+        pos_vel_driver.prime()
+        velocities = np.array([0.1, -0.1, 0.2, -0.2, 0.3, -0.3])
+        pos_vel_driver.write_joint_velocities(JointVelocities(header=_header(1), velocities=velocities))
+        for i in range(REBOT_B601_DM_ARM_DOF):
             hw.arm_motor(i).ensure_mode.assert_any_call(Mode.VEL, mock.ANY)
             assert hw.arm_motor(i).send_vel.call_args[0][0] == pytest.approx(velocities[i])
 
-    def test_mode_switch_is_sticky(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
-        driver.prime()
+    def test_pos_vel_mode_switch_is_sticky(self, pos_vel_driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+        pos_vel_driver.prime()
         velocities = JointVelocities(header=_header(1), velocities=np.zeros(REBOT_B601_DM_ARM_DOF))
-        driver.write_joint_velocities(velocities)
+        pos_vel_driver.write_joint_velocities(velocities)
         vel_mode_calls = [c for c in hw.arm_motor(0).ensure_mode.call_args_list if c[0][0] == Mode.VEL]
-        driver.write_joint_velocities(velocities)
+        pos_vel_driver.write_joint_velocities(velocities)
         vel_mode_calls_after = [c for c in hw.arm_motor(0).ensure_mode.call_args_list if c[0][0] == Mode.VEL]
         assert len(vel_mode_calls_after) == len(vel_mode_calls)
 
@@ -316,9 +414,9 @@ class TestHaltResume:
         held = np.array([0.1, -0.4, -0.2, 0.0, 0.1, -0.1])
         hw.set_arm_positions(held)
         driver.halt()
-        # The measured pose was latched as the POS_VEL hold target.
+        # The measured pose was latched as the MIT hold target.
         for i in range(REBOT_B601_DM_ARM_DOF):
-            assert hw.arm_motor(i).send_pos_vel.call_args[0][0] == pytest.approx(held[i])
+            assert hw.arm_motor(i).send_mit.call_args[0][0] == pytest.approx(held[i])
         with pytest.raises(RebotB601DmDriverError):
             driver.write_joint_positions(JointPositions(header=_header(1), positions=held))
 
@@ -328,12 +426,12 @@ class TestHaltResume:
         driver.resume()
         driver.write_joint_positions(JointPositions(header=_header(1), positions=np.zeros(REBOT_B601_DM_ARM_DOF)))
 
-    def test_halt_in_vel_mode_zeroes_velocity(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
-        driver.prime()
-        driver.write_joint_velocities(
+    def test_halt_in_vel_mode_zeroes_velocity(self, pos_vel_driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
+        pos_vel_driver.prime()
+        pos_vel_driver.write_joint_velocities(
             JointVelocities(header=_header(1), velocities=np.full(REBOT_B601_DM_ARM_DOF, 0.5))
         )
-        driver.halt()
+        pos_vel_driver.halt()
         for i in range(REBOT_B601_DM_ARM_DOF):
             assert hw.arm_motor(i).send_vel.call_args[0][0] == pytest.approx(0.0)
 

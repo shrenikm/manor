@@ -20,14 +20,19 @@ physically breaks the arm (see below):
 
 The DM motors expose four firmware modes (motorbridge `Mode`):
 
+- `MIT` — impedance command `(p_des, v_des, kp, kd, tau_ff)`; torque = kp·err + kd·verr + tau_ff, with
+  NO integrator, saturating at the motor's max torque. Bounding the commanded error therefore bounds the
+  torque. This is what the official LeRobot follower defaults to for the arm (`control_mode="mit"`, kp
+  45/45/45/8/9/8, kd 12/12/12/1/1/1) and what our driver streams joint positions AND velocities with
+  (velocities as pure damping commands, kp = 0). The vendor's stiffer endpos gains (kp 120 / kd 8 on the
+  4340s, 18 / 2 on the 4310s) are used for our torque-bounded bring-up moves.
 - `POS_VEL` — cascaded position/velocity loop inside the motor, gains in registers (RID 25/26 velocity
   loop, 27/28 position loop; vendor gains: 4340P `(0.0125, 0.004, 150.0, 0.5)`, 4310
-  `(0.0008, 0.002, 50.0, 1.0)`). Each command carries a velocity limit. This is what the vendor uses for
-  arm position control and what our driver streams joint positions with.
-- `MIT` — impedance command `(p_des, v_des, kp, kd, tau_ff)`; torque ≈ kp·err + kd·verr + tau_ff, bounded
-  by the motor's max torque. Soft gains = compliance. Vendor endpos control uses kp 120 / kd 8 (4340) and
-  kp 18 / kd 2 (4310); the LeRobot teleop follower uses much softer kp 45 / kd 12 and kp 8-9 / kd 1.
-- `VEL` — velocity mode; our driver uses it for joint-velocity streaming.
+  `(0.0008, 0.002, 50.0, 1.0)`). Each command carries a velocity limit — but the loops have INTEGRAL
+  terms, so a blocked joint winds up to full motor torque. The vendor's ROS2/MoveIt stack uses this for
+  collision-checked planned motion; opt-in via `arm_control_mode: pos_vel`, never near contact.
+- `VEL` — firmware velocity mode; same integrator-windup caveat. Used only by the CLI's send_jv
+  experiment and the pos_vel driver mode.
 - `FORCE_POS` — position control with a per-command torque ceiling: `send_force_pos(pos, vlim, ratio)`
   where ratio is a fraction of max motor torque. The gripper's only safe mode.
 
@@ -61,22 +66,36 @@ joint limit (0.0) in this pose.
 ## Bring-up / tear-down
 
 `prime` (shared by the driver and the CLI, in `motorbridge_helpers`): open bus → clear latched motor errors
-→ enable all → arm to POS_VEL (writing loop-gain registers) → gripper to FORCE_POS → close gripper at the
-capped torque → stream a slow (0.5 rad/s) POS_VEL move to PRIME and poll convergence. `unprime` reverses:
-close gripper, park at REST (the home pose, where the folded arm is safe to de-energize — this mirrors the
-vendor's own shutdown), disable motors. The serial bridge stays open across unprime/prime cycles.
+→ enable all → gripper to FORCE_POS and closed at the capped torque → torque-bounded interpolated MIT move
+to PRIME (target stepped at 0.5 rad/s, commanded position clamped within 0.08 rad of measured, vendor endpos
+gains — a blocked move pushes with ~10 N·m max at joints 1-3 until the timeout aborts, instead of a POS_VEL
+integrator winding to 27). The driver then switches to POS_VEL only if that mode is configured. `unprime`
+reverses: close gripper, park at REST via the same bounded move (the home pose, where the folded arm is safe
+to de-energize — mirrors the vendor's own shutdown), disable motors. The serial bridge stays open across
+unprime/prime cycles.
 
 `halt` / `resume` (stale-command watchdog path): the DM firmware has no STOP state, so halt latches the
-measured pose as the POS_VEL target (or zeros the VEL target) and the driver refuses writes until resume.
+measured pose as a soft MIT hold (or the POS_VEL target / zeroed VEL target in those modes) and the driver
+refuses writes until resume.
 The firmware also has its own CAN-timeout protection (RID 9 / `set_can_timeout_ms`) as a deeper backstop we
 don't currently configure.
 
-## Streaming safety
+## Streaming safety — THE ARM IS ALSO PARTLY 3D PRINTED
 
-`write_joint_positions` clamps the commanded target's advance to `joint_speed_limit_rad_s * dt` from the
-previously commanded position (re-seeded from the measured pose after prime / resume / mode changes), the
-same client-side rate limiter as the Lite6 driver. The firmware POS_VEL velocity limits (5.0 rad/s on
-joints 1-3, 3.0 on 4-6, from the vendor config) bound the chase speed as a second layer.
+Every streamed position command passes through two clamps:
+
+1. Rate limiter: advance capped at `joint_speed_limit_rad_s * dt` from the previously commanded position
+   (re-seeded from the measured pose after prime / resume / mode changes) — bounds motion speed, same as
+   the Lite6 driver.
+2. Command-error clamp (`max_command_error_rad`, required config): the command never leads the freshly
+   MEASURED position by more than this. In the MIT default this is the arm's torque bound — per joint,
+   torque stays below ~kp × clamp (≈6.8 of 27 N·m at joints 1-3, ≈1.3 of 7 at 4-6 with 0.15 rad), so a
+   blocked arm (contact, self-collision at the folded zero pose, a bad IK target) yields instead of
+   breaking. This mirrors the LeRobot follower's `max_relative_target` mechanism.
+
+Velocity commands in MIT mode are pure damping (torque = kd × velocity error), bounded by construction.
+In `pos_vel` mode neither clamp bounds torque (firmware integrators) — planned, collision-checked motion
+only.
 
 ## Teleop / leader arm (future work)
 

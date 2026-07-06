@@ -244,6 +244,7 @@ class TestBuildHardwareDriver:
             "minimum_watchdog_frequency_hz": 3.0,
             "rebot_b601_dm_driver_config": {
                 "joint_speed_limit_rad_s": 0.5,
+                "max_command_error_rad": 0.15,
                 "gripper_torque_ratio": 0.07,
             },
         }

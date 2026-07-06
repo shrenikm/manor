@@ -349,6 +349,7 @@ class TestHardwareManipulatorBackendConfig:
                 "minimum_watchdog_frequency_hz": 2.0,
                 "rebot_b601_dm_driver_config": {
                     "joint_speed_limit_rad_s": 0.5,
+                    "max_command_error_rad": 0.15,
                     "gripper_torque_ratio": 0.07,
                 },
             }
@@ -356,6 +357,7 @@ class TestHardwareManipulatorBackendConfig:
         assert config.minimum_watchdog_frequency_hz == 2.0
         assert config.lite6_driver_config is None
         assert config.rebot_b601_dm_driver_config.joint_speed_limit_rad_s == 0.5
+        assert config.rebot_b601_dm_driver_config.max_command_error_rad == 0.15
         assert config.rebot_b601_dm_driver_config.gripper_torque_ratio == 0.07
 
     def test_from_yaml_dict_missing_field_raises(self) -> None:

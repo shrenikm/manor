@@ -6,15 +6,18 @@ driver consumed by aegis) go through these helpers so the bring-up / tear-down /
 place. The control strategy mirrors what the vendor stack (reBotArm_control_py, the ROS2 controller, and the
 official LeRobot integration) has validated on this hardware:
 
-* Arm joints run in POS_VEL mode: the DM motor firmware runs a cascaded position/velocity loop with a
-per-command velocity limit, using loop gains written into motor registers at bring-up. Streamed position
-targets are additionally rate-limited client-side by the driver.
+* Arm joints stream in MIT mode by default (matching the official LeRobot follower's control_mode="mit"):
+torque = kp * position_error + kd * velocity_error with NO integrator, so clamping the commanded target
+near the measured position hard-bounds the torque and the arm yields on contact. POS_VEL (the DM firmware
+cascade with integral terms) is available for collision-checked / planned motion, but its integrators wind
+up to full motor torque against an obstacle -- never use it for streamed control near contact.
 * The gripper ALWAYS runs in FORCE_POS mode: firmware position control with a hard torque ceiling expressed
 as a fraction of the motor's maximum torque. This is the critical protection for the 3D printed gripper
 linkage -- plain position control (POS_VEL / MIT with stiff gains) applies full motor torque on contact and
 has physically broken the printed parts. The vendor's LeRobot integration grips at ratio 0.07.
-* Moves to named configurations stream interpolated POS_VEL targets at a bounded joint speed and poll for
-convergence, which is how the vendor's safe-home behaves (min-jerk stream to the zero pose at 0.5 rad/s).
+* Moves to named configurations stream an interpolated MIT target at a bounded joint speed with the
+commanded position clamped near the measured one, so even a blocked bring-up move pushes with bounded
+torque until the timeout aborts it.
 
 Anything callsite-specific (typer.echo for the cli, ManorLogger for the driver) flows in via an injected
 log_fn callable -- the helpers themselves do not import either typer or ManorLogger.
@@ -69,22 +72,47 @@ REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD = -5.0
 # full-torque crush that breaks the printed linkage. The config validator refuses ratios above this.
 REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX = 0.2
 
+# Hard ceiling on the configurable MIT streaming command-error clamp. The clamp bounds arm torque at
+# kp * clamp per joint; 0.3 rad at the streaming kp of 45 is already ~13.5 N*m on joints 1-3 (half the
+# DM-J4340's max). The config validator refuses clamps above this.
+REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD = 0.3
+
 # Default velocity limit (rad/s at the motor) for FORCE_POS gripper commands. Vendor LeRobot default is
 # 900 deg/s ~= 15.7 rad/s; we run slower since nothing about our use needs a snappy gripper.
 REBOT_B601_DM_GRIPPER_VLIM_RAD_S = 8.0
 
 # Firmware POS_VEL velocity limits per arm joint (rad/s), from the vendor SDK config (rebotarm_dm.yaml):
 # 5.0 for the DM-J4340 joints 1-3, 3.0 for the DM-J4310 joints 4-6. These bound how fast the firmware chases
-# a streamed position target; the driver additionally rate-limits the target advance client-side.
+# a streamed position target; the driver additionally rate-limits the target advance client-side. Note that
+# POS_VEL runs firmware position / velocity loops WITH integral terms, so a blocked joint winds up to full
+# motor torque -- POS_VEL is only safe for collision-checked / planned motion, never for streamed control
+# near contact. The MIT gains below are the contact-safe alternative.
 REBOT_B601_DM_ARM_POS_VEL_VLIM_RAD_S: tuple[float, ...] = (5.0, 5.0, 5.0, 3.0, 3.0, 3.0)
 
-# Velocity limit used for prime / unprime moves to named configurations. Matches the vendor safe-home
-# max_vel of 0.5 rad/s -- slow enough for the operator to intervene while we characterise the hardware.
-_CONFIGURATION_MOVE_VLIM_RAD_S = 0.5
+# MIT streaming gains per arm joint for policy / teleop control, from the official LeRobot integration's
+# follower defaults (config_rebot_b601_follower.py: control_mode="mit"). Deliberately soft: in MIT mode the
+# motor torque is kp * position_error + kd * velocity_error (no integrator), so with the commanded target
+# clamped near the measured position the torque is hard-bounded and the arm yields on contact instead of
+# breaking its 3D printed structure. This is how the vendor's own teleop drives the arm.
+REBOT_B601_DM_ARM_MIT_STREAM_KP: tuple[float, ...] = (45.0, 45.0, 45.0, 8.0, 9.0, 8.0)
+REBOT_B601_DM_ARM_MIT_STREAM_KD: tuple[float, ...] = (12.0, 12.0, 12.0, 1.0, 1.0, 1.0)
 
-# Convergence tolerance and polling for move_to_configuration. The vendor safe-home settles at 0.01 rad.
-_CONFIGURATION_MOVE_TOLERANCE_RAD = 0.02
-_CONFIGURATION_MOVE_POLL_PERIOD_S = 0.05
+# MIT gains for bring-up moves (prime / unprime), from the vendor ROS2 stack's endpos-control MIT gains
+# (rebotarm_hardware.yaml mit_kp / mit_kd). Stiffer than the streaming gains so gravity sag stays within the
+# move-convergence tolerance; the interpolated move keeps the commanded-vs-measured error clamped, so the
+# torque stays bounded at kp * clamp even if the move is blocked.
+_MOVE_MIT_KP: tuple[float, ...] = (120.0, 120.0, 120.0, 18.0, 18.0, 18.0)
+_MOVE_MIT_KD: tuple[float, ...] = (8.0, 8.0, 8.0, 2.0, 2.0, 2.0)
+
+# Interpolated-move parameters for prime / unprime. The target steps toward the goal at the vendor
+# safe-home speed (0.5 rad/s) at 50 Hz, with the commanded interpolant clamped within _MOVE_ERROR_CLAMP_RAD
+# of the measured position -- so a blocked move pushes with at most kp * clamp (about 10 N*m at joints 1-3,
+# 1.4 N*m at 4-6) until the timeout aborts it, instead of a POS_VEL integrator winding up to full torque.
+# The convergence tolerance leaves room for gravity sag under the finite kp (about 0.03 rad at the shoulder).
+_CONFIGURATION_MOVE_VLIM_RAD_S = 0.5
+_CONFIGURATION_MOVE_SEND_RATE_HZ = 50.0
+_MOVE_ERROR_CLAMP_RAD = 0.08
+_CONFIGURATION_MOVE_TOLERANCE_RAD = 0.05
 _CONFIGURATION_MOVE_TIMEOUT_S = 20.0
 
 # Settle pauses copied from the vendor SDK's bring-up sequences: mode transitions and enable/disable are
@@ -359,13 +387,46 @@ class RebotB601DmBus:
 
     def send_arm_vel(self, velocities: np.ndarray) -> None:
         """
-        Stream velocity targets to the arm joints. Requires the arm to already be in VEL mode.
+        Stream velocity targets to the arm joints. Requires the arm to already be in VEL mode. Note the
+        firmware velocity loop has an integral term, so a blocked joint winds up to full torque -- prefer
+        send_arm_mit with kp = 0 for contact-safe velocity control.
         """
         for i, spec in enumerate(self.arm_specs):
             try:
                 self._motor(spec.name).send_vel(float(velocities[i]))
             except CallError as exc:
                 raise MotorBridgeCallError(f"send_vel failed for motor {spec.name!r}: {exc}") from exc
+
+    def send_arm_mit(
+        self,
+        positions: np.ndarray,
+        velocities: np.ndarray | None = None,
+        kp: np.ndarray | None = None,
+        kd: np.ndarray | None = None,
+    ) -> None:
+        """
+        Stream MIT impedance commands to the arm joints: per-joint torque = kp * (p_des - p) +
+        kd * (v_des - v), saturated at the motor's max torque. No integrator, so bounding the commanded
+        position error bounds the torque. Requires the arm to already be in MIT mode. kp / kd default to
+        the LeRobot streaming gains; velocities default to zero.
+        """
+        if velocities is None:
+            velocities = np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64)
+        if kp is None:
+            kp = np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KP, dtype=np.float64)
+        if kd is None:
+            kd = np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KD, dtype=np.float64)
+        for i, spec in enumerate(self.arm_specs):
+            try:
+                self._motor(spec.name).send_mit(
+                    float(positions[i]),
+                    float(velocities[i]),
+                    float(kp[i]),
+                    float(kd[i]),
+                    0.0,
+                )
+            except CallError as exc:
+                raise MotorBridgeCallError(f"send_mit failed for motor {spec.name!r}: {exc}") from exc
 
     def send_gripper_force_pos(
         self,
@@ -400,39 +461,60 @@ class RebotB601DmBus:
                 raise MotorBridgeCallError(f"set_zero_position failed for motor {spec.name!r}: {exc}") from exc
             time.sleep(_PER_MOTOR_SETTLE_S)
 
+    def move_arm_to(self, target: np.ndarray, label: str, log_fn: LogFn = _noop_log) -> None:
+        """
+        Move the arm to a joint-position target by streaming an interpolated MIT command: the commanded
+        interpolant steps toward the target at the configured move speed, and is additionally clamped
+        within _MOVE_ERROR_CLAMP_RAD of the measured position each tick. Because MIT torque is
+        kp * error with no integrator, a blocked move pushes with at most kp * clamp until the timeout
+        aborts it -- unlike a POS_VEL move, whose firmware integrators wind up to full motor torque
+        against an obstacle. Switches the arm to MIT mode itself; the caller restores its preferred
+        operating mode afterwards if different.
+
+        Raises MotorBridgeCallError if the arm has not converged within the timeout -- a wedged or blocked
+        move should surface loudly rather than silently proceeding to the next bring-up step.
+        """
+        target = np.asarray(target, dtype=np.float64)
+        log_fn(f"moving to {label} pose...")
+        self.set_arm_mode(Mode.MIT, log_fn=log_fn)
+        kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
+        kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
+        dt = 1.0 / _CONFIGURATION_MOVE_SEND_RATE_HZ
+        step = _CONFIGURATION_MOVE_VLIM_RAD_S * dt
+        positions, _ = self.read_arm_state()
+        interpolant = positions.copy()
+        deadline = time.monotonic() + _CONFIGURATION_MOVE_TIMEOUT_S
+        while time.monotonic() < deadline:
+            positions, _ = self.read_arm_state()
+            if float(np.max(np.abs(positions - target))) < _CONFIGURATION_MOVE_TOLERANCE_RAD:
+                # Latch the exact target as the hold command before returning.
+                self.send_arm_mit(target, kp=kp, kd=kd)
+                return
+            interpolant += np.clip(target - interpolant, -step, step)
+            # Torque bound: never let the commanded position lead the measured one by more than the
+            # clamp, no matter how far the interpolant has advanced.
+            commanded = positions + np.clip(interpolant - positions, -_MOVE_ERROR_CLAMP_RAD, _MOVE_ERROR_CLAMP_RAD)
+            self.send_arm_mit(commanded, kp=kp, kd=kd)
+            time.sleep(dt)
+        positions, _ = self.read_arm_state()
+        # Hold wherever the arm actually is rather than keep pushing toward the unreachable target.
+        self.send_arm_mit(positions, kp=kp, kd=kd)
+        raise MotorBridgeCallError(
+            f"arm did not converge to {label} within {_CONFIGURATION_MOVE_TIMEOUT_S:.0f}s; "
+            f"max error {float(np.max(np.abs(positions - target))):.4f} rad. The arm may be blocked or a "
+            f"motor may be faulted -- now holding the current pose; check the bus and clear errors before "
+            f"retrying."
+        )
+
     def move_arm_to_configuration(
         self,
         configuration: RebotB601DmJointConfiguration,
         log_fn: LogFn = _noop_log,
     ) -> None:
         """
-        Move the arm to a named joint configuration by streaming a POS_VEL target with a slow velocity
-        limit and polling for convergence. The firmware's cascade loop does the actual interpolation, so a
-        single target with a low vlim yields a smooth bounded-speed move (the vendor safe-home streams a
-        min-jerk trajectory at the same effective speed). Requires POS_VEL mode.
-
-        Raises MotorBridgeCallError if the arm has not converged within the timeout -- a wedged or blocked
-        move should surface loudly rather than silently proceeding to the next bring-up step.
+        move_arm_to for a named joint configuration.
         """
-        target = configuration.get_joint_positions_vector()
-        log_fn(f"moving to {configuration.name} pose...")
-        vlims = np.full(REBOT_B601_DM_ARM_DOF, _CONFIGURATION_MOVE_VLIM_RAD_S, dtype=np.float64)
-        deadline = time.monotonic() + _CONFIGURATION_MOVE_TIMEOUT_S
-        self.send_arm_pos_vel(target, vlims=vlims)
-        while time.monotonic() < deadline:
-            positions, _ = self.read_arm_state()
-            if float(np.max(np.abs(positions - target))) < _CONFIGURATION_MOVE_TOLERANCE_RAD:
-                return
-            # Re-send the target each poll: POS_VEL targets are latched by the firmware, but re-sending
-            # costs little and recovers from any dropped frame on the serial bridge.
-            self.send_arm_pos_vel(target, vlims=vlims)
-            time.sleep(_CONFIGURATION_MOVE_POLL_PERIOD_S)
-        positions, _ = self.read_arm_state()
-        raise MotorBridgeCallError(
-            f"arm did not converge to {configuration.name} within {_CONFIGURATION_MOVE_TIMEOUT_S:.0f}s; "
-            f"max error {float(np.max(np.abs(positions - target))):.4f} rad. The arm may be blocked or a "
-            f"motor may be faulted -- check the bus and clear errors before retrying."
-        )
+        self.move_arm_to(configuration.get_joint_positions_vector(), configuration.name, log_fn=log_fn)
 
     def _require_controller(self) -> Controller:
         if self._controller is None:
@@ -446,14 +528,15 @@ def prime(
     log_fn: LogFn = _noop_log,
 ) -> None:
     """
-    Full bring-up: open the bus, clear latched errors, enable the motors, configure modes (arm POS_VEL with
-    vendor loop gains, gripper FORCE_POS), close the gripper softly, and move the arm to PRIME. Mirrors the
-    lite6 prime shape; the gripper close uses the supplied torque ratio so even bring-up can never crush.
+    Full bring-up: open the bus, clear latched errors, enable the motors, put the gripper in FORCE_POS and
+    close it softly, then move the arm to PRIME via the torque-bounded interpolated MIT move. Mirrors the
+    lite6 prime shape; every actuator command in bring-up is torque-limited so priming can never crush or
+    break anything. The arm is left in MIT mode holding PRIME -- the caller switches to its own operating
+    mode afterwards if different.
     """
     bus.connect(log_fn=log_fn)
     bus.clear_errors(log_fn=log_fn)
     bus.enable_all(log_fn=log_fn)
-    bus.set_arm_mode(Mode.POS_VEL, log_fn=log_fn)
     bus.set_gripper_mode_force_pos(log_fn=log_fn)
     bus.send_gripper_force_pos(motor_rad=0.0, torque_ratio=gripper_torque_ratio)
     bus.move_arm_to_configuration(RebotB601DmJointConfiguration.PRIME, log_fn=log_fn)
