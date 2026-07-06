@@ -318,10 +318,13 @@ class TestHardwareManipulatorBackendConfig:
         with pytest.raises(TypeError):
             HardwareManipulatorBackendConfig()
 
-    def test_lite6_driver_config_is_required(self) -> None:
-        # Same contract as minimum_watchdog_frequency_hz: required field, no factory default.
-        with pytest.raises(TypeError):
-            HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0)
+    def test_driver_config_blocks_are_optional(self) -> None:
+        # The per-driver config blocks default to None at the parse layer; aegis.py requires the block
+        # matching the configured manipulator type only when it actually builds the hardware driver, so a
+        # YAML declares just the block for the arm it runs.
+        config = HardwareManipulatorBackendConfig(minimum_watchdog_frequency_hz=3.0)
+        assert config.lite6_driver_config is None
+        assert config.rebot_b601_dm_driver_config is None
 
     def test_rejects_non_positive_minimum_watchdog_frequency_hz(self) -> None:
         with pytest.raises(ValueError):
@@ -339,6 +342,21 @@ class TestHardwareManipulatorBackendConfig:
         )
         assert config.minimum_watchdog_frequency_hz == 2.0
         assert config.lite6_driver_config.joint_speed_limit_rad_s == 0.5
+
+    def test_from_yaml_dict_rebot_b601_dm(self) -> None:
+        config = HardwareManipulatorBackendConfig.from_yaml_dict(
+            {
+                "minimum_watchdog_frequency_hz": 2.0,
+                "rebot_b601_dm_driver_config": {
+                    "joint_speed_limit_rad_s": 0.5,
+                    "gripper_torque_ratio": 0.07,
+                },
+            }
+        )
+        assert config.minimum_watchdog_frequency_hz == 2.0
+        assert config.lite6_driver_config is None
+        assert config.rebot_b601_dm_driver_config.joint_speed_limit_rad_s == 0.5
+        assert config.rebot_b601_dm_driver_config.gripper_torque_ratio == 0.07
 
     def test_from_yaml_dict_missing_field_raises(self) -> None:
         from manor.common.exceptions import AegisConfigError

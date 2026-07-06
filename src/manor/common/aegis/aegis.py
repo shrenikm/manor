@@ -60,9 +60,12 @@ from manor.common.definitions.rgb_image_data import RGBImageData
 from manor.common.exceptions import AegisConfigError, InvalidDefinitionError
 from manor.manipulators.lite6.driver import Lite6Driver
 from manor.manipulators.lite6.model import Lite6Model
+from manor.manipulators.manipulator_driver import IManipulatorDriver
 from manor.manipulators.manipulator_model import IManipulatorModel
 from manor.manipulators.manipulator_type import ManipulatorType
 from manor.manipulators.manipulator_variant import build_manipulator_model, get_variant_class
+from manor.manipulators.rebot_b601_dm.driver import RebotB601DmDriver
+from manor.manipulators.rebot_b601_dm.model import RebotB601DmModel
 
 # Discriminated reference to a specific manipulator + variant; lives inside the manipulator_model: YAML block. Kept
 # inline because this is the only block whose YAML keys don't correspond to attrs fields on a config class -- the keys
@@ -336,6 +339,38 @@ def _add_subscriber(
     )
 
 
+def _build_hardware_driver(config: AegisConfig) -> IManipulatorDriver:
+    """
+    Construct the hardware driver matching the configured manipulator model. Each supported family requires
+    its own driver-config block inside talos_config.hardware_backend_config; a missing block is a config
+    error rather than a silent default so every hardware run consciously declares its tuning knobs.
+    """
+    hardware_backend_config = config.talos_config.hardware_backend_config
+    if isinstance(config.manipulator_model, Lite6Model):
+        if hardware_backend_config.lite6_driver_config is None:
+            raise AegisConfigError(
+                "hardware mode with a lite6 manipulator requires talos_config.hardware_backend_config."
+                "lite6_driver_config"
+            )
+        return Lite6Driver(
+            model=config.manipulator_model,
+            config=hardware_backend_config.lite6_driver_config,
+        )
+    if isinstance(config.manipulator_model, RebotB601DmModel):
+        if hardware_backend_config.rebot_b601_dm_driver_config is None:
+            raise AegisConfigError(
+                "hardware mode with a rebot_b601_dm manipulator requires talos_config.hardware_backend_config."
+                "rebot_b601_dm_driver_config"
+            )
+        return RebotB601DmDriver(
+            model=config.manipulator_model,
+            config=hardware_backend_config.rebot_b601_dm_driver_config,
+        )
+    raise InvalidDefinitionError(
+        f"No hardware driver registered for manipulator model {type(config.manipulator_model).__name__}"
+    )
+
+
 def _build_backends(
     config: AegisConfig,
 ) -> tuple[Gaia | None, SensorBackend, ManipulatorBackend]:
@@ -353,16 +388,7 @@ def _build_backends(
         return gaia, sensor_backend, manipulator_backend
 
     if config.mode == AegisMode.HARDWARE:
-        # Lite6 is the only manipulator currently supported on hardware; additional manipulators will need their own
-        # driver factories plumbed in alongside this branch.
-        if not isinstance(config.manipulator_model, Lite6Model):
-            raise InvalidDefinitionError(
-                f"Hardware mode currently supports only Lite6Model; got {type(config.manipulator_model).__name__}"
-            )
-        driver = Lite6Driver(
-            model=config.manipulator_model,
-            config=config.talos_config.hardware_backend_config.lite6_driver_config,
-        )
+        driver = _build_hardware_driver(config)
         manipulator_backend = HardwareManipulatorBackend(
             driver=driver, config=config.talos_config.hardware_backend_config
         )

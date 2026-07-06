@@ -20,6 +20,7 @@ import pytest
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import Diagram
 
+from manor.common.aegis import aegis as aegis_module
 from manor.common.aegis.aegis import (
     AegisConfig,
     AegisSystems,
@@ -39,9 +40,10 @@ from manor.common.aegis.talos.sim_backend import SimManipulatorBackendConfig
 from manor.common.aegis.talos.talos import TalosConfig
 from manor.common.exceptions import AegisConfigError
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.lite6.driver import Lite6DriverConfig
+from manor.manipulators.lite6.driver import Lite6Driver, Lite6DriverConfig
 from manor.manipulators.lite6.model import LITE6_ARM_DOF, Lite6Model
 from manor.manipulators.lite6.variant import Lite6Variant
+from manor.manipulators.rebot_b601_dm.driver import RebotB601DmDriver
 
 # Sentinel speed limit for the hardware-mode build smoke tests. Required field on
 # Lite6DriverConfig (no default), included in every hardware_backend_config the tests construct.
@@ -229,11 +231,61 @@ class TestAegisYamlDict:
             AegisConfig.from_yaml_dict(d)
 
 
+class TestBuildHardwareDriver:
+    def test_lite6_dispatch(self) -> None:
+        config = AegisConfig.from_yaml_dict(_full_yaml_dict(mode="hardware"))
+        driver = aegis_module._build_hardware_driver(config)
+        assert isinstance(driver, Lite6Driver)
+
+    def test_rebot_b601_dm_dispatch(self) -> None:
+        d = _full_yaml_dict(mode="hardware")
+        d["manipulator_model"] = {"type": "rebot_b601_dm", "variant": "parallel_gripper"}
+        d["talos_config"]["hardware_backend_config"] = {
+            "minimum_watchdog_frequency_hz": 3.0,
+            "rebot_b601_dm_driver_config": {
+                "joint_speed_limit_rad_s": 0.5,
+                "gripper_torque_ratio": 0.07,
+            },
+        }
+        config = AegisConfig.from_yaml_dict(d)
+        driver = aegis_module._build_hardware_driver(config)
+        assert isinstance(driver, RebotB601DmDriver)
+
+    def test_missing_matching_driver_config_raises(self) -> None:
+        # A rebot manipulator with only a lite6 driver-config block declared is a config error.
+        d = _full_yaml_dict(mode="hardware")
+        d["manipulator_model"] = {"type": "rebot_b601_dm", "variant": "parallel_gripper"}
+        config = AegisConfig.from_yaml_dict(d)
+        with pytest.raises(AegisConfigError):
+            aegis_module._build_hardware_driver(config)
+
+
 class TestBundledLite6DefaultYaml:
     def test_bundled_yaml_round_trips_and_builds(self) -> None:
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
         path = os.path.join(repo_root, "configs", "aegis", "lite6_ac.yaml")
         assert os.path.exists(path), f"bundled lite6 yaml missing at {path}"
+        config = AegisConfig.from_yaml(path)
+        # Force meshcat off for the smoke test -- the bundled YAML pins
+        # the meshcat server to port 7000, which collides with other
+        # tests in the same suite that also load the bundled YAML.
+        config = attr.evolve(config, gaia_config=attr.evolve(config.gaia_config, enable_meshcat=False))
+        diagram, systems = build_aegis(config)
+        assert isinstance(diagram, Diagram)
+        # gaia presence is mode-dependent: sim mode owns a gaia plant; hardware mode skips it. The
+        # bundled YAML's mode flag is the source of truth -- this test just verifies the YAML
+        # round-trips and the resulting AegisSystems matches what build_aegis produces for that mode.
+        if config.mode is AegisMode.SIM:
+            assert systems.gaia is not None
+        else:
+            assert systems.gaia is None
+
+
+class TestBundledRebotB601DmYaml:
+    def test_bundled_yaml_round_trips_and_builds(self) -> None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
+        path = os.path.join(repo_root, "configs", "aegis", "rebot_b601_dm_ac.yaml")
+        assert os.path.exists(path), f"bundled rebot_b601_dm yaml missing at {path}"
         config = AegisConfig.from_yaml(path)
         # Force meshcat off for the smoke test -- the bundled YAML pins
         # the meshcat server to port 7000, which collides with other

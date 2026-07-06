@@ -52,6 +52,14 @@ class Lite6DriverError(ManipulatorDriverError):
     pass
 
 
+class RebotB601DmDriverError(ManipulatorDriverError):
+    """
+    Raised when a RebotB601DmDriver call (prime/unprime/read/write) fails.
+    """
+
+    pass
+
+
 class AegisError(ManorError):
     """
     Base exception for the aegis sub-system.

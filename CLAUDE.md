@@ -27,6 +27,7 @@ These describe how major subsystems are set up. Read them when working in the re
 - src/manor/common/aegis/README.md — aegis runtime: the multi-process observation → policy → controller → actuation loop over LCM.
 - src/manor/manipulators/README.md — manipulator families, types/variants, and how they register with the rest of the codebase.
 - src/manor/manipulators/lite6/README.md — empirical notes on the Ufactory Lite6 via the xArm Python SDK.
+- src/manor/manipulators/rebot_b601_dm/README.md — notes on the Seeed reBot B601 DM via motorbridge, including the mandatory FORCE_POS gripper torque cap.
 
 ## Code Style
 
