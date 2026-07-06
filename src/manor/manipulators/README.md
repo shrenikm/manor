@@ -4,15 +4,18 @@ Manipulator families live here. Each family is a Python subpackage (e.g. `lite6/
 
 ## Types and variants
 
-A **type** is a manipulator family — a single piece of hardware as the manufacturer ships it. The set of supported types is the `ManipulatorType` enum in `manipulator_type.py`. Today there is one:
+A **type** is a manipulator family — a single piece of hardware as the manufacturer ships it. The set of supported types is the `ManipulatorType` enum in `manipulator_type.py`:
 
 - `LITE6` — Ufactory Lite6 6-DOF arm.
+- `REBOT_B601_DM` — Seeed Studio reBot Arm B601 DM, a 6-DOF Damiao-motor arm with an actuated parallel gripper.
 
 A **variant** is a specific trim of that type. Different end-effectors, mounting orientations, or any configuration that changes the kinematic chain or the Drake URDF gets its own variant. Each type has its own variant enum, defined as a subclass of `IManipulatorVariant` in the family's `variant.py`. For Lite6 (`lite6/variant.py`) the variants are:
 
 - `VACUUM_GRIPPER` — vacuum end-effector.
 - `PARALLEL_GRIPPER_NORMAL` — actuated parallel gripper, finger heads facing inward.
 - `PARALLEL_GRIPPER_REVERSE` — actuated parallel gripper, finger heads facing outward.
+
+For the reBot B601 DM (`rebot_b601_dm/variant.py`) there is a single variant, `PARALLEL_GRIPPER`, since the arm ships in one configuration.
 
 Cross-manipulator code (CLIs, the aegis YAML loader, the visualizer) refers to a manipulator by a `(ManipulatorType, IManipulatorVariant)` pair and never imports a concrete model class directly — that's what lets you write a single CLI flag like `--type lite6 --variant parallel_gripper_normal` and have it route to the right Drake model.
 

@@ -7,3 +7,4 @@ a new family.
 """
 
 from manor.manipulators.lite6 import model as _lite6_model  # noqa: F401
+from manor.manipulators.rebot_b601_dm import model as _rebot_b601_dm_model  # noqa: F401

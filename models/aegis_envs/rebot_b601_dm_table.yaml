@@ -1,0 +1,13 @@
+# Aegis Gaia environment: reBot B601 DM mounted on the existing rebot_b601_dm_table.urdf.
+#
+# The table URDF welds itself to the world via an internal fixed joint,
+# so weld_to_world is false here; Gaia leaves the table where the URDF
+# pins it and only welds the manipulator base.
+
+manipulator_base_xyz: [0.0, 0.0, 0.7366]
+manipulator_base_rpy: [0.0, 0.0, 0.0]
+
+extra_models:
+  - name: rebot_b601_dm_table
+    description_filepath: environment/rebot_b601_dm_table.urdf
+    weld_to_world: false

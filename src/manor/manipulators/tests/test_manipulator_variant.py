@@ -16,11 +16,15 @@ from manor.manipulators.manipulator_variant import (
     get_variant_class,
     register_manipulator_variant,
 )
+from manor.manipulators.rebot_b601_dm.variant import RebotB601DmVariant
 
 
 class TestVariantRegistry:
     def test_lite6_variant_class_is_registered(self) -> None:
         assert get_variant_class(ManipulatorType.LITE6) is Lite6Variant
+
+    def test_rebot_b601_dm_variant_class_is_registered(self) -> None:
+        assert get_variant_class(ManipulatorType.REBOT_B601_DM) is RebotB601DmVariant
 
     def test_unknown_manipulator_type_raises(self) -> None:
         # Construct a fresh enum member that isn't in the registry by going through StrEnum's _missing_ path
@@ -30,6 +34,9 @@ class TestVariantRegistry:
 
     def test_lite6_listed_in_registered_types(self) -> None:
         assert ManipulatorType.LITE6 in get_registered_manipulator_types()
+
+    def test_rebot_b601_dm_listed_in_registered_types(self) -> None:
+        assert ManipulatorType.REBOT_B601_DM in get_registered_manipulator_types()
 
 
 class TestVariantAlreadyRegistered:

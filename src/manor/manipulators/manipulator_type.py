@@ -16,3 +16,4 @@ class ManipulatorType(StrEnum):
     """
 
     LITE6 = "lite6"
+    REBOT_B601_DM = "rebot_b601_dm"
