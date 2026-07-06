@@ -5,11 +5,21 @@
   <material name="brown">
     <color rgba="0.7 0.4 0.0 1.0"/>
   </material>
+  <material name="light_brown">
+    <color rgba="0.8 0.55 0.18 1.0"/>
+  </material>
 
   <link name="world"/>
 
-  <!-- Table represented as a box of size 24" x 40" x 29" -->
-  <link name="link_rebot_b601_dm_table">
+  <!--
+  Two identical tables (24" x 40" x 29" each, same as the lite6 table) placed side by side, touching
+  along their long (40") edges. The robot is mounted on the robot table at the middle of the shared
+  edge, base plate flush with the edge, facing across the workspace table. The world frame follows the
+  manor convention: robot base at (x, y) = (0, 0) on the tabletop plane, so the robot table sits behind
+  the robot (-x) and the workspace table in front (+x).
+  -->
+
+  <link name="link_rebot_b601_dm_robot_table">
     <visual>
       <geometry>
         <box size="0.6096 1.1016 0.7366"/>
@@ -35,28 +45,61 @@
     </inertial>
   </link>
 
+  <link name="link_rebot_b601_dm_workspace_table">
+    <visual>
+      <geometry>
+        <box size="0.6096 1.1016 0.7366"/>
+      </geometry>
+      <material name="light_brown"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.6096 1.1016 0.7366"/>
+      </geometry>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <drake:proximity_properties>
+        <drake:compliant_hydroelastic/>
+        <drake:hydroelastic_modulus value="1e6"/>
+        <drake:hunt_crossley_dissipation value="0."/>
+        <drake:mu_dynamic value="0.3"/>
+      </drake:proximity_properties>
+    </collision>
+
+    <inertial>
+      <mass value="10"/>
+      <inertia ixx="2.1073" ixy="0.0" ixz="0.0" iyy="1.1097" iyz="0.0" izz="1.9022"/>
+    </inertial>
+  </link>
+
   <link name="link_rebot_b601_dm_position"/>
 
   <!--
-  Position the table such that the rebot base is at (x, y) = (0, 0) in world coordinates
-  when placed on the appropriate position on the table.
+  The robot base plate is 0.14 m deep in x (spanning [-0.07, +0.07] around the base frame), so the
+  robot table's front edge sits at x = +0.07 to leave the plate fully supported and flush with the
+  edge. Table centers: robot table at x = 0.07 - 0.3048 = -0.2348, workspace table adjacent at
+  x = 0.07 + 0.3048 = +0.3748. Both are centered on the robot in y.
   -->
 
-  <joint name="joint_world_to_rebot_b601_dm_table" type="fixed">
+  <joint name="joint_world_to_rebot_b601_dm_robot_table" type="fixed">
     <parent link="world"/>
-    <child link="link_rebot_b601_dm_table"/>
-    <origin xyz="0.1778 0 0.3683" rpy="0 0 0"/>
+    <child link="link_rebot_b601_dm_robot_table"/>
+    <origin xyz="-0.2348 0 0.3683" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="joint_world_to_rebot_b601_dm_workspace_table" type="fixed">
+    <parent link="world"/>
+    <child link="link_rebot_b601_dm_workspace_table"/>
+    <origin xyz="0.3748 0 0.3683" rpy="0 0 0"/>
   </joint>
 
   <!--
-  Robot is placed centered in y, but on top of the table (so z=height/2) and
-  pushed back such that the mid point of the robot's base_link is 5" from the
-  back of the table (x=-7" as the half x width is 12").
+  Marker frame for the robot mount point: on the robot table's top surface, at the middle of the
+  shared edge, i.e. (0, 0) in world x-y.
   -->
-  <joint name="joint_rebot_b601_dm_table_to_rebot_b601_dm_position" type="fixed">
-    <parent link="link_rebot_b601_dm_table"/>
+  <joint name="joint_rebot_b601_dm_robot_table_to_rebot_b601_dm_position" type="fixed">
+    <parent link="link_rebot_b601_dm_robot_table"/>
     <child link="link_rebot_b601_dm_position"/>
-    <origin xyz="-0.1778 0 0.3683" rpy="0 0 0"/>
+    <origin xyz="0.2348 0 0.3683" rpy="0 0 0"/>
   </joint>
 
 </robot>

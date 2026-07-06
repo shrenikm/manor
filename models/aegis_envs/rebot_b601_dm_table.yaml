@@ -1,8 +1,11 @@
-# Aegis Gaia environment: reBot B601 DM mounted on the existing rebot_b601_dm_table.urdf.
+# Aegis Gaia environment: reBot B601 DM mounted on the two-table setup in
+# rebot_b601_dm_table.urdf (robot table behind the base, workspace table in
+# front, touching along their long edges; the arm faces across the workspace
+# table).
 #
-# The table URDF welds itself to the world via an internal fixed joint,
-# so weld_to_world is false here; Gaia leaves the table where the URDF
-# pins it and only welds the manipulator base.
+# The table URDF welds itself to the world via internal fixed joints,
+# so weld_to_world is false here; Gaia leaves the tables where the URDF
+# pins them and only welds the manipulator base.
 
 manipulator_base_xyz: [0.0, 0.0, 0.7366]
 manipulator_base_rpy: [0.0, 0.0, 0.0]
