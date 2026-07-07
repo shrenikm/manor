@@ -130,6 +130,13 @@ _ENSURE_MODE_RETRIES = 9
 _ENSURE_MODE_RETRY_PAUSE_S = 0.01
 _ENSURE_MODE_TIMEOUT_MS = 1000
 
+# Feedback-poll retry rounds. A single request-all + poll_feedback_once pass only drains the replies that
+# have already arrived at the serial bridge -- measured on hardware (2026-07-06), a cold pass catches ~2 of
+# the 7 motors and the rest land on the second pass a few milliseconds later. Retry until every motor has
+# reported at least once; steady-state reads exit on the first round because motor states stay cached.
+_FEEDBACK_RETRY_ROUNDS = 5
+_FEEDBACK_RETRY_PAUSE_S = 0.01
+
 # POS_VEL cascade loop gains per motor model, written into the DM motor registers at bring-up. Values come
 # from the vendor SDK config (rebotarm_dm.yaml): the register pairs are (velocity kp, velocity ki) on
 # RID_KP_ASR / RID_KI_ASR and (position kp, position ki) on RID_KP_APR / RID_KI_APR.
@@ -339,15 +346,24 @@ class RebotB601DmBus:
         time.sleep(_ENSURE_MODE_RETRY_PAUSE_S)
 
     def _poll_feedback(self) -> None:
-        for spec in REBOT_B601_DM_MOTOR_SPECS:
+        # Request-and-poll until every motor has reported at least once (bounded retries): the serial
+        # bridge delivers replies over a few milliseconds, so a single poll pass right after the requests
+        # misses whichever motors have not answered yet. Once a motor has reported, its state stays cached
+        # and later rounds are unnecessary, so warm reads exit after the first pass.
+        for round_index in range(_FEEDBACK_RETRY_ROUNDS):
+            for spec in REBOT_B601_DM_MOTOR_SPECS:
+                try:
+                    self._motor(spec.name).request_feedback()
+                except CallError:
+                    pass
             try:
-                self._motor(spec.name).request_feedback()
+                self._require_controller().poll_feedback_once()
             except CallError:
                 pass
-        try:
-            self._require_controller().poll_feedback_once()
-        except CallError:
-            pass
+            if all(self._motor(spec.name).get_state() is not None for spec in REBOT_B601_DM_MOTOR_SPECS):
+                return
+            if round_index < _FEEDBACK_RETRY_ROUNDS - 1:
+                time.sleep(_FEEDBACK_RETRY_PAUSE_S)
 
     def read_state(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
