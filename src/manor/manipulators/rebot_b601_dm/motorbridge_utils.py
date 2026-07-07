@@ -463,15 +463,25 @@ class RebotB601DmBus:
         except CallError as exc:
             raise MotorBridgeCallError(f"send_force_pos failed for gripper: {exc}") from exc
 
-    def set_zero_all(self, log_fn: LogFn = _noop_log) -> None:
+    def set_zero(self, joint_names: list[str] | None = None, log_fn: LogFn = _noop_log) -> None:
         """
-        Set the current physical pose as the zero position of every motor. The motors must be disabled
-        first (vendor sequence); the operator holds the arm at the vendor home pose (horizontal / sit-down,
-        gripper fully closed) while this runs.
+        Set the current physical pose as the zero position of the named motors (all seven when
+        joint_names is None). The motors must be disabled first (vendor sequence) -- note this disables
+        the WHOLE bus, so the backdrivable arm must be resting (or supported) even for a single-joint
+        zero. The operator holds the target joints at their zero pose while this runs: the vendor home
+        pose for the arm, fully closed for the gripper.
         """
+        known = {spec.name for spec in REBOT_B601_DM_MOTOR_SPECS}
+        if joint_names is None:
+            specs = list(REBOT_B601_DM_MOTOR_SPECS)
+        else:
+            unknown = sorted(set(joint_names) - known)
+            if unknown:
+                raise MotorBridgeCallError(f"unknown joint names {unknown}; expected a subset of {sorted(known)}")
+            specs = [spec for spec in REBOT_B601_DM_MOTOR_SPECS if spec.name in set(joint_names)]
         self.disable_all(log_fn=log_fn)
         self._poll_feedback()
-        for spec in REBOT_B601_DM_MOTOR_SPECS:
+        for spec in specs:
             log_fn(f"zeroing {spec.name}...")
             try:
                 self._motor(spec.name).set_zero_position()

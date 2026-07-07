@@ -285,20 +285,30 @@ def cmd_limp(
 
 @app.command("zero")
 def cmd_zero(
+    joint: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--joint",
+            help="Zero only these motors (repeatable, e.g. --joint gripper). Default: all seven.",
+        ),
+    ] = None,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Set the current physical pose as the zero position of every motor. Physically hold the arm at the
-    vendor home pose (shoulder and forearm horizontal, gripper pointing forward and fully closed) before
-    confirming -- this is the pose the URDF, the joint configurations, and the vendor tooling all treat as
-    q = 0. Motors are disabled first so the arm can be positioned by hand.
+    Set the current physical pose as the zero position of every motor (or only --joint motors, e.g. a
+    gripper-only re-zero after the linkage is reassembled). Physically hold the target joints at their
+    zero pose before confirming: the vendor home pose for the arm (shoulder and forearm horizontal,
+    gripper pointing forward), fully closed for the gripper -- this is the pose the URDF, the joint
+    configurations, and the vendor tooling all treat as q = 0. The WHOLE bus is disabled first so the
+    joints can be positioned by hand; the arm must be resting or supported.
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel}...")
     bus.connect(log_fn=_cli_log)
-    typer.echo("Hold the arm at the vendor home pose (horizontal, gripper closed and forward).")
-    typer.confirm("Set the current pose as zero for every motor?", abort=True)
-    bus.set_zero_all(log_fn=_cli_log)
+    which = "every motor" if not joint else ", ".join(joint)
+    typer.echo("Hold the target joints at their zero pose (home pose for the arm, fully closed gripper).")
+    typer.confirm(f"Set the current pose as zero for {which}?", abort=True)
+    bus.set_zero(joint_names=joint if joint else None, log_fn=_cli_log)
     typer.echo("zero set. verify with: rebot_b601_dm stream --passive")
 
 
