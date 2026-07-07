@@ -3,7 +3,7 @@ Tests for RebotB601DmDriver.
 
 motorbridge is a hard dependency, but the tests inject MagicMock controller / motor objects in place of the
 real serial bus so the bring-up / read / write paths can be exercised against the SDK contract without
-hardware. Construction is patched at the Controller import-site inside motorbridge_helpers so the bus's lazy
+hardware. Construction is patched at the Controller import-site inside motorbridge_utils so the bus's lazy
 connect() lands on the mock.
 
 time.sleep is patched out because the shared helpers include settle pauses at every enable / mode step.
@@ -25,7 +25,7 @@ from manor.common.definitions.joint_velocities import JointVelocities
 from manor.common.definitions.timestamp_header import TimestampHeader
 from manor.common.exceptions import RebotB601DmDriverError
 from manor.common.testing_utils import run_manor_tests
-from manor.manipulators.rebot_b601_dm import motorbridge_helpers as helpers_module
+from manor.manipulators.rebot_b601_dm import motorbridge_utils as motorbridge_utils_module
 from manor.manipulators.rebot_b601_dm.driver import (
     RebotB601DmArmControlMode,
     RebotB601DmDriver,
@@ -33,7 +33,7 @@ from manor.manipulators.rebot_b601_dm.driver import (
 )
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF, RebotB601DmModel
-from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
+from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
     REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
     REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD,
@@ -122,7 +122,7 @@ def _no_sleep():
 def _make_driver(hw: FakeBusHardware, arm_control_mode: RebotB601DmArmControlMode):
     controller_cls = mock.MagicMock()
     controller_cls.from_dm_serial.return_value = hw.controller
-    patcher = mock.patch.object(helpers_module, "Controller", controller_cls)
+    patcher = mock.patch.object(motorbridge_utils_module, "Controller", controller_cls)
     patcher.start()
     driver = RebotB601DmDriver(
         model=RebotB601DmModel(variant=RebotB601DmVariant.PARALLEL_GRIPPER),
@@ -365,7 +365,7 @@ class TestGripper:
         # the module ceiling before it reaches the motor.
         controller_cls = mock.MagicMock()
         controller_cls.from_dm_serial.return_value = hw.controller
-        with mock.patch.object(helpers_module, "Controller", controller_cls):
+        with mock.patch.object(motorbridge_utils_module, "Controller", controller_cls):
             bus = RebotB601DmBus()
             bus.connect()
             bus.send_gripper_force_pos(motor_rad=0.0, torque_ratio=0.9)

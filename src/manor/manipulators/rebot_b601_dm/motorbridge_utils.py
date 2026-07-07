@@ -57,8 +57,10 @@ def _noop_log(_message: str) -> None:
     pass
 
 
-# Serial bridge defaults (vendor: Damiao serial bridge enumerating as a CDC ACM device).
-REBOT_B601_DM_DEFAULT_CHANNEL = "/dev/ttyACM0"
+# Serial bridge defaults. The udev rule installed by hardware_system_setup.sh pins the Damiao serial
+# bridge (a CDC ACM device) to this stable name regardless of enumeration order; on a host without the
+# rule, pass the raw device explicitly (e.g. --channel /dev/ttyACM0 on the CLI).
+REBOT_B601_DM_DEFAULT_CHANNEL = "/dev/rebot_b601_dm"
 REBOT_B601_DM_SERIAL_BAUD = 921600
 
 # Gripper motor position at the fully-open jaw state, in radians at the motor. The vendor stack maps motor 0
