@@ -59,6 +59,10 @@ DEFAULT_GRIPPER_TORQUE_RATIO = 0.07
 # How long send_jv applies the velocity before zeroing it if the operator gives no duration.
 _DEFAULT_JV_DURATION_S = 1.0
 
+# How far from REST the arm may be for disconnect to disable without asking. Beyond this the backdrivable,
+# brakeless DM joints will fall under gravity when torque drops.
+_DISCONNECT_REST_TOLERANCE_RAD = 0.2
+
 
 def _cli_log(message: str) -> None:
     """
@@ -217,10 +221,23 @@ def cmd_disconnect(
     """
     Full teardown: disable every motor and release the serial bridge. Run this when you're done with a
     session -- the DM motors hold torque while enabled, which warms them over time.
+
+    The DM motors are backdrivable and have no brakes, so THE ARM FALLS when torque drops unless it is
+    parked at REST (where gravity pushes the folded arm into its joint stops). If the arm is away from
+    REST this command asks for confirmation and suggests running rest instead.
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel}...")
     bus.connect(log_fn=_cli_log)
+    positions, _ = bus.read_arm_state()
+    rest = RebotB601DmJointConfiguration.REST.get_joint_positions_vector()
+    max_error = float(np.max(np.abs(positions - rest)))
+    if max_error > _DISCONNECT_REST_TOLERANCE_RAD:
+        typer.echo(
+            f"WARNING: arm is {max_error:.2f} rad away from REST. The DM motors have no brakes -- the arm "
+            f"WILL FALL when disabled. Run 'rebot_b601_dm rest' to park it safely first."
+        )
+        typer.confirm("Disable anyway (support the arm!)?", abort=True)
     bus.disable_all(log_fn=_cli_log)
     bus.disconnect()
     typer.echo("disconnected (motors disabled, bridge released).")
