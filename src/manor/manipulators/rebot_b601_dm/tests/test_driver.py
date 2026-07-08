@@ -34,7 +34,8 @@ from manor.manipulators.rebot_b601_dm.driver import (
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF, RebotB601DmModel
 from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
-    REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD,
+    REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD,
+    REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
     REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD,
     REBOT_B601_DM_MOTOR_SPECS,
@@ -348,7 +349,7 @@ class TestGripper:
         # Half open: width 0.0715 -> motor -2.5 rad.
         driver.write_ee_positions(EEPositions(header=_header(1), positions=np.array([0.0715])))
         pos, _vlim, ratio = hw.gripper_motor.send_force_pos.call_args[0]
-        assert pos == pytest.approx(REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD / 2.0)
+        assert pos == pytest.approx(REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD / 2.0)
         assert ratio == _TEST_GRIPPER_TORQUE_RATIO
 
     def test_gripper_commands_always_torque_capped(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
@@ -377,18 +378,22 @@ class TestGripper:
         hw.gripper_motor.send_force_pos.reset_mock()
         # Positive width rate drives toward fully open.
         driver.write_ee_velocities(EEVelocities(header=_header(1), velocities=np.array([0.05])))
-        assert hw.gripper_motor.send_force_pos.call_args[0][0] == pytest.approx(REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD)
+        assert hw.gripper_motor.send_force_pos.call_args[0][0] == pytest.approx(REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD)
         # Negative drives toward closed.
         driver.write_ee_velocities(EEVelocities(header=_header(2), velocities=np.array([-0.05])))
         assert hw.gripper_motor.send_force_pos.call_args[0][0] == pytest.approx(0.0)
-        # Zero holds the current motor position.
-        hw.positions["gripper"] = -1.25
+        # Zero holds the current opening: the half-open FEEDBACK position round-trips through the width
+        # mapping into the half-open COMMAND position (the frames differ; echoing feedback back as a
+        # command would drive the gripper closed).
+        hw.positions["gripper"] = REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD / 2.0
         driver.write_ee_velocities(EEVelocities(header=_header(3), velocities=np.array([0.0])))
-        assert hw.gripper_motor.send_force_pos.call_args[0][0] == pytest.approx(-1.25)
+        assert hw.gripper_motor.send_force_pos.call_args[0][0] == pytest.approx(
+            REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD / 2.0, rel=1e-3
+        )
 
     def test_read_ee_positions_maps_motor_to_width(self, driver: RebotB601DmDriver, hw: FakeBusHardware) -> None:
         driver.prime()
-        hw.positions["gripper"] = REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD / 2.0
+        hw.positions["gripper"] = REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD / 2.0
         ee_positions = driver.read_ee_positions()
         assert ee_positions is not None
         np.testing.assert_allclose(ee_positions.positions, [0.0715])

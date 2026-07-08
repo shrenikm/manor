@@ -63,11 +63,17 @@ def _noop_log(_message: str) -> None:
 REBOT_B601_DM_DEFAULT_CHANNEL = "/dev/rebot_b601_dm"
 REBOT_B601_DM_SERIAL_BAUD = 921600
 
-# Gripper motor position at the fully-open jaw state, in radians at the motor. The vendor stack maps motor 0
-# rad = fully closed to -5 rad = fully open (rebotarm_hardware.yaml position_limits); the LeRobot integration
-# clamps to [-270 deg, 0]. We use the vendor's -5.0 as the full-travel reference for the width mapping and
-# treat it as approximate until calibrated against the physical gripper.
-REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD = -5.0
+# The gripper's FORCE_POS command frame and its feedback frame are different. Commands are rotor-side radians
+# (through the DM-J4310's 10:1 gearing, sign-inverted vs the output), feedback is output-side radians. Fully closed is 0 in both frames (the zeroing pose).
+
+# Command frame: the vendor's fully-open target of -5 rad, validated on our unit -- it deliberately
+# over-commands past the physical stop (about -3.13 rotor rad, i.e. 10 x the measured output travel) and
+# lets the FORCE_POS torque cap stall the fingers at the stop. Holding there is benign: stalling at 7
+# percent of max torque is the same load as gripping an object.
+REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD = -5.0
+# Feedback frame: output-side position at the fully-open hard stop, measured via stream --passive after
+# zeroing at fully closed. Opening reads POSITIVE.
+REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD = 0.3134
 
 # Hard ceiling on the configurable FORCE_POS gripper torque ratio. The vendor's LeRobot integration grips at
 # 0.07 (7 percent of max motor torque) and that is plenty to hold objects; anything near 1.0 reproduces the
@@ -79,8 +85,8 @@ REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX = 0.2
 # DM-J4340's max). The config validator refuses clamps above this.
 REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD = 0.3
 
-# Default velocity limit (rad/s at the motor) for FORCE_POS gripper commands. Vendor LeRobot default is
-# 900 deg/s ~= 15.7 rad/s; we run slower since nothing about our use needs a snappy gripper.
+# Default velocity limit for FORCE_POS gripper commands, in the rotor-side command frame (~0.8 rad/s at
+# the output through the 10:1 gearing, i.e. full stroke in roughly 0.4 s). Hardware-validated 2026-07-06.
 REBOT_B601_DM_GRIPPER_VLIM_RAD_S = 8.0
 
 # Firmware POS_VEL velocity limits per arm joint (rad/s), from the vendor SDK config (rebotarm_dm.yaml):
@@ -180,27 +186,29 @@ class MotorBridgeCallError(RuntimeError):
 
 def gripper_width_to_motor_rad(width_m: float) -> float:
     """
-    Map a physical jaw opening width in metres onto the gripper motor position in radians. The mapping is
-    linear between fully closed (width 0, motor 0) and fully open (width 0.143, motor -5 rad).
+    Map a physical jaw opening width in metres onto a gripper FORCE_POS command position (rotor-side
+    frame): linear between fully closed (width 0, command 0) and fully open (width 0.143, command -5, an
+    over-command past the physical stop -- see REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD).
     """
     fraction = width_m / REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M
-    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD
+    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD
 
 
 def gripper_motor_rad_to_width(motor_rad: float) -> float:
     """
-    Inverse of gripper_width_to_motor_rad; clamps to the physical width range.
+    Map a gripper feedback position (output-side frame, positive = opening) onto the physical jaw width;
+    clamps to the physical width range.
     """
-    fraction = motor_rad / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD
+    fraction = motor_rad / REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD
     return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M
 
 
 def gripper_motor_rad_s_to_width_m_s(motor_rad_s: float) -> float:
     """
-    Map a gripper motor velocity onto the jaw width rate. Same linear factor as the position mapping; the
-    negative motor direction (opening) maps to positive width rate.
+    Map a gripper feedback velocity (output-side frame) onto the jaw width rate. Same linear factor as the
+    feedback position mapping; positive motor velocity (opening) maps to positive width rate.
     """
-    return motor_rad_s * (REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD)
+    return motor_rad_s * (REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD)
 
 
 @attr.define

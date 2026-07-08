@@ -52,8 +52,12 @@ Manor enforces this in layers:
 - The helpers re-clamp the ratio defensively at the send site, and the CLI's `--torque-ratio` option is
   bounded the same way.
 
-Gripper geometry: motor 0 rad = fully closed (fingertips touching), about -5 rad = fully open. The EE-level
-width in metres maps linearly onto that motor range (`gripper_width_to_motor_rad`), width 0 to 0.143 m.
+Gripper geometry (established on hardware 2026-07-06): the FORCE_POS command frame and the feedback
+frame DIFFER. Commands are rotor-side (10:1, sign-inverted vs output): 0 = closed, −5 = fully open — an
+over-command past the physical stop (~−3.13 rotor rad) that the torque cap stalls at, exactly how the
+vendor uses it. Feedback is output-side: 0 = closed, +0.3134 rad at the open stop (positive opens). Width
+0–0.143 m maps linearly onto each frame via `gripper_width_to_motor_rad` (commands) and
+`gripper_motor_rad_to_width` (feedback); never echo a feedback position back as a command.
 
 ## Zeroing / calibration
 

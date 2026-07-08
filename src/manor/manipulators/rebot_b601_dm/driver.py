@@ -404,8 +404,10 @@ class RebotB601DmDriver(IManipulatorDriver):
         elif width_rate < 0.0:
             motor_rad = gripper_width_to_motor_rad(0.0)
         else:
+            # Hold the current opening. Feedback and command frames differ (output-side vs rotor-side),
+            # so round-trip through the width mapping rather than echoing the feedback position back.
             current_motor_rad, _ = self._read_gripper_state()
-            motor_rad = current_motor_rad
+            motor_rad = gripper_width_to_motor_rad(gripper_motor_rad_to_width(current_motor_rad))
         try:
             self._bus.send_gripper_force_pos(
                 motor_rad=motor_rad,
