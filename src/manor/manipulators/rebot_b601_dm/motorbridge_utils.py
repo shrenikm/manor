@@ -45,10 +45,7 @@ from motorbridge import (
 )
 
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
-from manor.manipulators.rebot_b601_dm.model import (
-    REBOT_B601_DM_ARM_DOF,
-    REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M,
-)
+from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
 
 LogFn = Callable[[str], None]
 
@@ -63,17 +60,11 @@ def _noop_log(_message: str) -> None:
 REBOT_B601_DM_DEFAULT_CHANNEL = "/dev/rebot_b601_dm"
 REBOT_B601_DM_SERIAL_BAUD = 921600
 
-# The gripper's FORCE_POS command frame and its feedback frame are different. Commands are rotor-side radians
-# (through the DM-J4310's 10:1 gearing, sign-inverted vs the output), feedback is output-side radians. Fully closed is 0 in both frames (the zeroing pose).
+# Gripper motor position at the fully-open hard stop, output-side radians, measured on hardware
+REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD = -5.9668
 
-# Command frame: the vendor's fully-open target of -5 rad, validated on our unit -- it deliberately
-# over-commands past the physical stop (about -3.13 rotor rad, i.e. 10 x the measured output travel) and
-# lets the FORCE_POS torque cap stall the fingers at the stop. Holding there is benign: stalling at 7
-# percent of max torque is the same load as gripping an object.
-REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD = -5.0
-# Feedback frame: output-side position at the fully-open hard stop, measured via stream --passive after
-# zeroing at fully closed. Opening reads POSITIVE.
-REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD = 0.3134
+# Physical jaw opening at the fully-open stop, measured on hardware (inner parallel faces of the gripper)
+REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M = 0.105
 
 # Hard ceiling on the configurable FORCE_POS gripper torque ratio. The vendor's LeRobot integration grips at
 # 0.07 (7 percent of max motor torque) and that is plenty to hold objects; anything near 1.0 reproduces the
@@ -186,29 +177,29 @@ class MotorBridgeCallError(RuntimeError):
 
 def gripper_width_to_motor_rad(width_m: float) -> float:
     """
-    Map a physical jaw opening width in metres onto a gripper FORCE_POS command position (rotor-side
-    frame): linear between fully closed (width 0, command 0) and fully open (width 0.143, command -5, an
-    over-command past the physical stop -- see REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD).
+    Map a physical jaw opening width in metres onto a gripper FORCE_POS command position: linear between
+    fully closed (width 0, command 0) and the measured fully-open stop (width
+    REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M, command REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD).
     """
-    fraction = width_m / REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M
-    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_GRIPPER_CMD_OPEN_RAD
+    fraction = width_m / REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M
+    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD
 
 
 def gripper_motor_rad_to_width(motor_rad: float) -> float:
     """
-    Map a gripper feedback position (output-side frame, positive = opening) onto the physical jaw width;
-    clamps to the physical width range.
+    Inverse of gripper_width_to_motor_rad (commands and feedback share one frame); clamps to the
+    physical width range.
     """
-    fraction = motor_rad / REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD
-    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M
+    fraction = motor_rad / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD
+    return float(np.clip(fraction, 0.0, 1.0)) * REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M
 
 
 def gripper_motor_rad_s_to_width_m_s(motor_rad_s: float) -> float:
     """
-    Map a gripper feedback velocity (output-side frame) onto the jaw width rate. Same linear factor as the
-    feedback position mapping; positive motor velocity (opening) maps to positive width rate.
+    Map a gripper motor velocity onto the jaw width rate. Same linear factor as the position mapping;
+    negative motor velocity (opening) maps to positive width rate.
     """
-    return motor_rad_s * (REBOT_B601_DM_PARALLEL_GRIPPER_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_FEEDBACK_OPEN_RAD)
+    return motor_rad_s * (REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD)
 
 
 @attr.define

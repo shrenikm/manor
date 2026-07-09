@@ -41,6 +41,7 @@ from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJoi
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
 from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
     REBOT_B601_DM_DEFAULT_CHANNEL,
+    REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
     REBOT_B601_DM_MOTOR_SPECS,
     RebotB601DmBus,
@@ -380,8 +381,11 @@ def cmd_gripper(
             "-w",
             "--width",
             min=0.0,
-            max=0.143,
-            help="Target jaw opening width in metres (0 = closed, 0.143 = fully open).",
+            max=REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,
+            help=(
+                "Target jaw opening width in metres "
+                f"(0 = closed, {REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M:.3f} = fully open)."
+            ),
         ),
     ],
     torque_ratio: Annotated[float, _TORQUE_RATIO_OPTION] = DEFAULT_GRIPPER_TORQUE_RATIO,
