@@ -20,9 +20,11 @@ SAFETY NOTES
 
 * Large parts of this arm (including the gripper linkage) are 3D printed; full motor torque breaks them.
 Every gripper command in this CLI goes through FORCE_POS with a torque ratio capped at
-REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX, and every arm move streams torque-bounded MIT commands. Do not
-bypass these with raw motorbridge calls unless you enjoy reprinting parts. The one exception is send_jv
-(firmware VEL mode, integrator winds up on contact) -- keep its path clear.
+REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX. Arm moves (prime / rest / send_jp) use the torque-bounded MIT move
+-- the same control law the driver streams -- at the gentle bring-up speed with a bounded command error,
+so a blocked move pushes gently instead of winding up. Do not bypass these with raw motorbridge calls
+unless you enjoy reprinting parts. send_jv (firmware VEL mode, integrator winds up on contact) is the
+sharpest edge -- keep its path clear.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -40,6 +42,7 @@ from motorbridge import Mode
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
 from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
+    REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
     REBOT_B601_DM_DEFAULT_CHANNEL,
     REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
@@ -59,6 +62,12 @@ DEFAULT_GRIPPER_TORQUE_RATIO = 0.07
 
 # How long send_jv applies the velocity before zeroing it if the operator gives no duration.
 _DEFAULT_JV_DURATION_S = 1.0
+
+# Default advance speed for send_jp's MIT move (rad/s): the gentle bring-up speed, overridable per
+# invocation with --max-speed. MIT has no firmware speed limit, so this is the rate the streamed target
+# ramps toward the goal; the per-tick command-error clamp bounds the torque independently.
+_DEFAULT_SEND_JP_SPEED_RAD_S = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S
+_MAX_SEND_JP_SPEED_RAD_S = 2.0
 
 # How far from REST the arm may be for disconnect to disable without asking. Beyond this the backdrivable,
 # brakeless DM joints will fall under gravity when torque drops.
@@ -321,12 +330,24 @@ def cmd_send_jp(
     j4: Annotated[Optional[float], typer.Option("-j4", "--j4", help="Joint 4 target (rad). Default: current.")] = None,
     j5: Annotated[Optional[float], typer.Option("-j5", "--j5", help="Joint 5 target (rad). Default: current.")] = None,
     j6: Annotated[Optional[float], typer.Option("-j6", "--j6", help="Joint 6 target (rad). Default: current.")] = None,
+    max_speed: Annotated[
+        float,
+        typer.Option(
+            "-s",
+            "--max-speed",
+            min=0.05,
+            max=_MAX_SEND_JP_SPEED_RAD_S,
+            help="Speed the streamed target ramps toward the goal (rad/s). Lower is gentler.",
+        ),
+    ] = _DEFAULT_SEND_JP_SPEED_RAD_S,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Move the arm to a joint pose via the torque-bounded interpolated MIT move (the same helper prime /
-    unprime use). Any joint not specified stays at its current angle, so -j6 0.5 wiggles joint 6 in
-    isolation. The arm is primed first and left energized at the target (run rest / disconnect to park).
+    Move the arm to a joint pose via the torque-bounded MIT move (the same control law the driver streams,
+    and the same helper prime / unprime use): a target that ramps toward the goal at --max-speed with the
+    per-tick command error clamped, so the torque stays bounded. Any joint not specified stays at its
+    current angle, so -j6 0.5 wiggles joint 6 in isolation. The arm is primed first and left energized at
+    the target (run rest / disconnect to park).
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel} and priming...")
@@ -334,9 +355,9 @@ def cmd_send_jp(
     current, _ = bus.read_arm_state()
     targets = [j1, j2, j3, j4, j5, j6]
     resolved = np.array([c if t is None else t for t, c in zip(targets, current, strict=True)], dtype=np.float64)
-    typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]}")
-    bus.move_arm_to(resolved, "commanded", log_fn=_cli_log)
-    typer.echo("converged (motors energized, holding in MIT; run rest or disconnect to park).")
+    typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]} at <= {max_speed:.2f} rad/s")
+    bus.move_arm_to(resolved, "commanded", speed_rad_s=max_speed, log_fn=_cli_log)
+    typer.echo("arrived (motors energized, holding in MIT; run rest or disconnect to park).")
 
 
 @app.command("send_jv")

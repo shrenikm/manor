@@ -5,16 +5,48 @@ Notes on the Seeed Studio reBot Arm B601 DM and how manor drives it. The arm is 
 All seven motors sit on one CAN bus behind a Damiao serial bridge (`/dev/ttyACM0`, 921600 baud), spoken to
 via the `motorbridge` pip package.
 
-These findings come from reading the vendor stack end to end, since getting the gripper control wrong
-physically breaks the arm (see below):
+These findings come from reading the vendor stack end to end, since getting the control wrong physically
+breaks the arm (see below). All links below were confirmed live on 2026-07-08 — start here next time
+instead of searching.
 
-- [reBotArm_control_py](https://github.com/vectorBH6/reBotArm_control_py) — the low-level SDK (JointGroup
+### Resources
+
+Control stack (the definitive source for what commands are safe — read the LeRobot follower first):
+
+- LeRobot follower (the authority on teleop / streaming control):
+  [rebot_b601_follower.py](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/rebot_b601_follower/rebot_b601_follower.py),
+  [config_rebot_b601_follower.py](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/rebot_b601_follower/config_rebot_b601_follower.py)
+  — `control_mode` (mit / pos_vel), per-joint gains, `max_relative_target`, soft joint limits, gripper
+  FORCE_POS ratio.
+- LeRobot leader (read-only teleop source):
+  [rebot_102_leader.py](https://github.com/huggingface/lerobot/blob/main/src/lerobot/teleoperators/rebot_102_leader/rebot_102_leader.py).
+- LeRobot Damiao motor bus (a second, pure-Python reference for the CAN encoding / limits):
+  [damiao.py](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/damiao/damiao.py).
+- Seeed's own LeRobot integration repos:
+  [lerobot-robot-seeed-b601](https://github.com/Seeed-Projects/lerobot-robot-seeed-b601) (follower),
+  [lerobot-teleoperator-seeed-b601](https://github.com/Seeed-Projects/lerobot-teleoperator-seeed-b601),
+  [lerobot-teleoperator-rebot-arm-102](https://github.com/Seeed-Projects/lerobot-teleoperator-rebot-arm-102) (leader).
+- [reBotArm_control_py](https://github.com/vectorBH6/reBotArm_control_py) — low-level SDK (JointGroup
   architecture, mode sequences, gains).
-- [reBotArmController_ROS2](https://github.com/Seeed-Projects/reBotArmController_ROS2) — the ROS2 node
-  (state machine, gripper services, gravity compensation).
-- The official [LeRobot integration](https://huggingface.co/docs/lerobot/main/en/rebot_b601)
-  (`rebot_b601_follower` / `rebot_102_leader` in the lerobot repo) — teleop and the definitive gripper
-  safety pattern.
+- [reBotArmController_ROS2](https://github.com/Seeed-Projects/reBotArmController_ROS2) — ROS2 node (state
+  machine, gripper services, gravity compensation) and the source of the URDF used in robot_models.
+- [fashionstar-starai-arm-ros2](https://github.com/Seeed-Projects/fashionstar-starai-arm-ros2) — the
+  FashionStar leader-servo side.
+
+Motor SDK (the layer manor actually calls):
+
+- [motorbridge](https://motorbridge.seeedstudio.com) — the pip package manor pins; `Controller` /
+  `Motor`, the Damiao send_mit / send_pos_vel / send_force_pos primitives, register IDs.
+- [Stackforce-Motor-SDK](https://github.com/Seeed-Projects/Stackforce-Motor-SDK) — the vendor SDK behind
+  motorbridge.
+
+Hardware, wiki, product overview:
+
+- [reBot-DevArm](https://github.com/Seeed-Projects/reBot-DevArm) — hardware / mechanical / URDF source repo
+  (no control code; that lives in the repos above).
+- Seeed wiki: [LeRobot getting started](https://wiki.seeedstudio.com/rebot_arm_b601_dm_lerobot/),
+  [ROS2 integration](https://wiki.seeedstudio.com/rebot_arm_b601_dm_ros2_integration/).
+- [Hugging Face LeRobot docs — reBot B601](https://huggingface.co/docs/lerobot/main/en/rebot_b601).
 
 ## Motor control modes
 

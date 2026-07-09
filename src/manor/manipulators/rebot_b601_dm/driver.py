@@ -139,7 +139,7 @@ class RebotB601DmDriver(IManipulatorDriver):
     _bus: RebotB601DmBus = attr.field(init=False)
     # Sticky arm-mode cache. POS_VEL / VEL transitions rewrite motor registers over the serial bridge
     # (~0.05 s per motor plus a group settle), so we only switch on shape transitions, mirroring the lite6
-    # driver. None until prime() runs; prime always ends in POS_VEL.
+    # driver. None until prime() runs; prime ends in the configured streaming mode.
     _current_arm_mode: Mode | None = attr.field(init=False, default=None)
     # Halted flag. halt() freezes the arm at its current pose and refuses subsequent writes until resume().
     # The DM motors have no firmware STOP state equivalent to the xarm's, so the refusal is enforced here at

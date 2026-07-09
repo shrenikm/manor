@@ -15,9 +15,12 @@ up to full motor torque against an obstacle -- never use it for streamed control
 as a fraction of the motor's maximum torque. This is the critical protection for the 3D printed gripper
 linkage -- plain position control (POS_VEL / MIT with stiff gains) applies full motor torque on contact and
 has physically broken the printed parts. The vendor's LeRobot integration grips at ratio 0.07.
-* Moves to named configurations stream an interpolated MIT target at a bounded joint speed with the
-commanded position clamped near the measured one, so even a blocked bring-up move pushes with bounded
-torque until the timeout aborts it.
+* Moves to named configurations run in MIT mode -- the same control law the driver streams in production,
+so the cli move and the driver stay on one path (the cli is how that path gets exercised on hardware).
+MIT has no native velocity limit (send_mit's velocity arg is a feed-forward setpoint, not a cap), so a
+gentle move streams a target that advances at a bounded speed and is clamped within a small band of the
+measured position each tick. Torque is kp * clamp with no integrator, so even a blocked move pushes
+gently until the timeout aborts it -- it can never wind up the way a POS_VEL move would.
 
 Anything callsite-specific (typer.echo for the cli, ManorLogger for the driver) flows in via an injected
 log_fn callable -- the helpers themselves do not import either typer or ManorLogger.
@@ -96,19 +99,20 @@ REBOT_B601_DM_ARM_POS_VEL_VLIM_RAD_S: tuple[float, ...] = (5.0, 5.0, 5.0, 3.0, 3
 REBOT_B601_DM_ARM_MIT_STREAM_KP: tuple[float, ...] = (45.0, 45.0, 45.0, 8.0, 9.0, 8.0)
 REBOT_B601_DM_ARM_MIT_STREAM_KD: tuple[float, ...] = (12.0, 12.0, 12.0, 1.0, 1.0, 1.0)
 
-# MIT gains for bring-up moves (prime / unprime), from the vendor ROS2 stack's endpos-control MIT gains
-# (rebotarm_hardware.yaml mit_kp / mit_kd). Stiffer than the streaming gains so gravity sag stays within the
-# move-convergence tolerance; the interpolated move keeps the commanded-vs-measured error clamped, so the
-# torque stays bounded at kp * clamp even if the move is blocked.
+# MIT gains for bring-up / point-to-point moves (prime / unprime / send_jp), from the vendor ROS2 stack's
+# endpos-control MIT gains (rebotarm_hardware.yaml mit_kp / mit_kd). Stiffer than the teleop streaming gains
+# above so the arm holds against gravity within the convergence tolerance during a slow move; the
+# command-error clamp still bounds torque at about kp * clamp even if the move is blocked.
 _MOVE_MIT_KP: tuple[float, ...] = (120.0, 120.0, 120.0, 18.0, 18.0, 18.0)
 _MOVE_MIT_KD: tuple[float, ...] = (8.0, 8.0, 8.0, 2.0, 2.0, 2.0)
 
-# Interpolated-move parameters for prime / unprime. The target steps toward the goal at the vendor
-# safe-home speed (0.5 rad/s) at 50 Hz, with the commanded interpolant clamped within _MOVE_ERROR_CLAMP_RAD
-# of the measured position -- so a blocked move pushes with at most kp * clamp (about 10 N*m at joints 1-3,
-# 1.4 N*m at 4-6) until the timeout aborts it, instead of a POS_VEL integrator winding up to full torque.
-# The convergence tolerance leaves room for gravity sag under the finite kp (about 0.03 rad at the shoulder).
-_CONFIGURATION_MOVE_VLIM_RAD_S = 0.5
+# MIT configuration-move parameters. MIT has no native velocity limit, so a gentle move streams a target
+# that advances toward the goal at the move speed and is additionally clamped within _MOVE_ERROR_CLAMP_RAD
+# of the measured position each tick -- the driver's own control law run to completion. A blocked move
+# therefore pushes with at most kp * clamp (about 9.6 N*m at joints 1-3, 1.4 N*m at 4-6) until the timeout
+# aborts it. REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S is the gentle default advance speed (rad/s);
+# send_jp exposes it as --max-speed. The tolerance leaves room for gravity sag under the finite kp.
+REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S = 0.5
 _CONFIGURATION_MOVE_SEND_RATE_HZ = 50.0
 _MOVE_ERROR_CLAMP_RAD = 0.08
 _CONFIGURATION_MOVE_TOLERANCE_RAD = 0.05
@@ -488,26 +492,33 @@ class RebotB601DmBus:
                 raise MotorBridgeCallError(f"set_zero_position failed for motor {spec.name!r}: {exc}") from exc
             time.sleep(_PER_MOTOR_SETTLE_S)
 
-    def move_arm_to(self, target: np.ndarray, label: str, log_fn: LogFn = _noop_log) -> None:
+    def move_arm_to(
+        self,
+        target: np.ndarray,
+        label: str,
+        speed_rad_s: float = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
+        log_fn: LogFn = _noop_log,
+    ) -> None:
         """
-        Move the arm to a joint-position target by streaming an interpolated MIT command: the commanded
-        interpolant steps toward the target at the configured move speed, and is additionally clamped
-        within _MOVE_ERROR_CLAMP_RAD of the measured position each tick. Because MIT torque is
-        kp * error with no integrator, a blocked move pushes with at most kp * clamp until the timeout
-        aborts it -- unlike a POS_VEL move, whose firmware integrators wind up to full motor torque
-        against an obstacle. Switches the arm to MIT mode itself; the caller restores its preferred
-        operating mode afterwards if different.
+        Move the arm to a joint-position target in MIT mode -- the same control law the driver streams in
+        production. MIT has no native velocity limit, so a gentle move streams a target that advances toward
+        the goal at speed_rad_s and is clamped within _MOVE_ERROR_CLAMP_RAD of the measured position each
+        tick. This loop is a trajectory generator: it turns a far target into a run of near targets, which
+        is exactly what a human hand supplies for free during teleop, so the per-tick error (and hence the
+        torque) stays small. Because MIT torque is kp * error with no integrator, a blocked move pushes with
+        at most kp * clamp until the timeout aborts it. Switches the arm to MIT mode itself and leaves it
+        holding the target; the caller restores its preferred operating mode afterwards if different.
 
         Raises MotorBridgeCallError if the arm has not converged within the timeout -- a wedged or blocked
         move should surface loudly rather than silently proceeding to the next bring-up step.
         """
         target = np.asarray(target, dtype=np.float64)
-        log_fn(f"moving to {label} pose...")
+        log_fn(f"moving to {label} pose (MIT, <= {speed_rad_s:.2f} rad/s)...")
         self.set_arm_mode(Mode.MIT, log_fn=log_fn)
         kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
         kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
         dt = 1.0 / _CONFIGURATION_MOVE_SEND_RATE_HZ
-        step = _CONFIGURATION_MOVE_VLIM_RAD_S * dt
+        step = speed_rad_s * dt
         positions, _ = self.read_arm_state()
         interpolant = positions.copy()
         deadline = time.monotonic() + _CONFIGURATION_MOVE_TIMEOUT_S
@@ -518,8 +529,8 @@ class RebotB601DmBus:
                 self.send_arm_mit(target, kp=kp, kd=kd)
                 return
             interpolant += np.clip(target - interpolant, -step, step)
-            # Torque bound: never let the commanded position lead the measured one by more than the
-            # clamp, no matter how far the interpolant has advanced.
+            # Torque bound: never let the commanded position lead the measured one by more than the clamp,
+            # no matter how far the interpolant has advanced.
             commanded = positions + np.clip(interpolant - positions, -_MOVE_ERROR_CLAMP_RAD, _MOVE_ERROR_CLAMP_RAD)
             self.send_arm_mit(commanded, kp=kp, kd=kd)
             time.sleep(dt)
@@ -527,10 +538,9 @@ class RebotB601DmBus:
         # Hold wherever the arm actually is rather than keep pushing toward the unreachable target.
         self.send_arm_mit(positions, kp=kp, kd=kd)
         raise MotorBridgeCallError(
-            f"arm did not converge to {label} within {_CONFIGURATION_MOVE_TIMEOUT_S:.0f}s; "
-            f"max error {float(np.max(np.abs(positions - target))):.4f} rad. The arm may be blocked or a "
-            f"motor may be faulted -- now holding the current pose; check the bus and clear errors before "
-            f"retrying."
+            f"arm did not converge to {label} within {_CONFIGURATION_MOVE_TIMEOUT_S:.0f}s; max error "
+            f"{float(np.max(np.abs(positions - target))):.4f} rad. The arm may be blocked or a motor may be "
+            f"faulted -- now holding the current pose; check the bus and clear errors before retrying."
         )
 
     def move_arm_to_configuration(
@@ -556,10 +566,9 @@ def prime(
 ) -> None:
     """
     Full bring-up: open the bus, clear latched errors, enable the motors, put the gripper in FORCE_POS and
-    close it softly, then move the arm to PRIME via the torque-bounded interpolated MIT move. Mirrors the
-    lite6 prime shape; every actuator command in bring-up is torque-limited so priming can never crush or
-    break anything. The arm is left in MIT mode holding PRIME -- the caller switches to its own operating
-    mode afterwards if different.
+    close it softly, then move the arm to PRIME via the torque-bounded MIT move. Mirrors the lite6 prime
+    shape; the gripper is torque-capped and the arm move runs at the gentle bring-up speed with a bounded
+    command error. The arm is left in MIT mode holding PRIME -- the caller switches its mode if different.
     """
     bus.connect(log_fn=log_fn)
     bus.clear_errors(log_fn=log_fn)
