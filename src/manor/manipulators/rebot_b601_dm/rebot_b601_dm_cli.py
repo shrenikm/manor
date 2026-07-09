@@ -20,11 +20,12 @@ SAFETY NOTES
 
 * Large parts of this arm (including the gripper linkage) are 3D printed; full motor torque breaks them.
 Every gripper command in this CLI goes through FORCE_POS with a torque ratio capped at
-REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX. Arm moves (prime / rest / send_jp) use the torque-bounded MIT move
--- the same control law the driver streams -- at the gentle bring-up speed with a bounded command error,
-so a blocked move pushes gently instead of winding up. Do not bypass these with raw motorbridge calls
-unless you enjoy reprinting parts. send_jv (firmware VEL mode, integrator winds up on contact) is the
-sharpest edge -- keep its path clear.
+REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX. Nothing here moves the arm on its own -- energizing only holds the
+current pose; moves are explicit (send_jp, and rest's park). Those use the torque-bounded MIT move -- the
+same control law the driver streams -- at the gentle speed with a bounded command error, so a blocked
+move pushes gently instead of winding up. Do not bypass these with raw motorbridge calls unless you enjoy
+reprinting parts. send_jv (firmware VEL mode, integrator winds up on contact) is the sharpest edge --
+keep its path clear.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -50,7 +51,6 @@ from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
     RebotB601DmBus,
     gripper_motor_rad_to_width,
     gripper_width_to_motor_rad,
-    prime,
     unprime,
 )
 
@@ -121,6 +121,23 @@ def probe(bus: RebotB601DmBus) -> None:
         )
 
 
+def _energize_and_hold(bus: RebotB601DmBus) -> None:
+    """
+    Bring the motors up and hold the CURRENT pose -- the reBot's only bring-up. Enables the motors, puts
+    the arm in MIT holding its measured pose (bounded torque, no motion), and the gripper in FORCE_POS.
+    Unlike the lite6 there is no reason to drive to a PRIME pose just to energize, and doing so would swing
+    the big joints unexpectedly, so nothing in this cli moves the arm on its own -- moves are explicit
+    (send_jp to a commanded pose, rest to park at REST).
+    """
+    bus.connect(log_fn=_cli_log)
+    bus.clear_errors(log_fn=_cli_log)
+    bus.enable_all(log_fn=_cli_log)
+    bus.set_arm_mode(Mode.MIT, log_fn=_cli_log)
+    positions, _ = bus.read_arm_state()
+    bus.send_arm_mit(positions)
+    bus.set_gripper_mode_force_pos(log_fn=_cli_log)
+
+
 # --- CLI --------------------------------------------------------------------
 
 app = typer.Typer(
@@ -177,14 +194,16 @@ def cmd_stream(
         bool,
         typer.Option(
             "--passive",
-            help="Stream without priming: motors stay disabled so the arm can be moved by hand.",
+            help="Leave the motors disabled so the arm can be moved by hand (read-only).",
         ),
     ] = False,
 ) -> None:
     """
-    Continuously print motor positions + velocities + torques. By default the arm is primed first (motors
-    enabled, moved to PRIME) and unprimed on exit; with --passive the motors are left disabled so the
-    operator can move the arm by hand and watch the readouts (useful for verifying zero offsets).
+    Continuously print motor positions + velocities + torques. By default the motors are energized holding
+    the current pose (no move) so the readouts reflect the held arm; with --passive the motors are left
+    disabled so the operator can move the arm by hand and watch the readouts (useful for verifying zero
+    offsets). Either way the arm is never moved to a pose. Leaves the motors as it found them on exit --
+    energized-and-holding for the active case (run rest / disconnect to park), disabled for --passive.
     """
     bus = RebotB601DmBus(channel=channel)
     if passive:
@@ -192,15 +211,10 @@ def cmd_stream(
         bus.connect(log_fn=_cli_log)
         stream_joint_state(bus, hz=hz, duration_s=duration)
         return
-    typer.echo(f"opening {channel} and priming...")
-    try:
-        prime(bus, gripper_torque_ratio=DEFAULT_GRIPPER_TORQUE_RATIO, log_fn=_cli_log)
-        typer.echo("primed.")
-        stream_joint_state(bus, hz=hz, duration_s=duration)
-    finally:
-        typer.echo("unpriming...")
-        unprime(bus, gripper_torque_ratio=DEFAULT_GRIPPER_TORQUE_RATIO, log_fn=_cli_log)
-        typer.echo("done.")
+    typer.echo(f"opening {channel} and energizing (holding current pose)...")
+    _energize_and_hold(bus)
+    stream_joint_state(bus, hz=hz, duration_s=duration)
+    typer.echo("done (motors energized, holding in MIT; run rest or disconnect to park).")
 
 
 @app.command("connect")
@@ -214,13 +228,7 @@ def cmd_connect(
     """
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel}...")
-    bus.connect(log_fn=_cli_log)
-    bus.clear_errors(log_fn=_cli_log)
-    bus.enable_all(log_fn=_cli_log)
-    bus.set_arm_mode(Mode.MIT, log_fn=_cli_log)
-    positions, _ = bus.read_arm_state()
-    bus.send_arm_mit(positions)
-    bus.set_gripper_mode_force_pos(log_fn=_cli_log)
+    _energize_and_hold(bus)
     typer.echo("connected (motors energized, arm holding in MIT, gripper FORCE_POS).")
 
 
@@ -343,15 +351,15 @@ def cmd_send_jp(
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Move the arm to a joint pose via the torque-bounded MIT move (the same control law the driver streams,
-    and the same helper prime / unprime use): a target that ramps toward the goal at --max-speed with the
-    per-tick command error clamped, so the torque stays bounded. Any joint not specified stays at its
-    current angle, so -j6 0.5 wiggles joint 6 in isolation. The arm is primed first and left energized at
-    the target (run rest / disconnect to park).
+    Move the arm to a joint pose via the torque-bounded MIT move (the same control law the driver streams):
+    a target that ramps toward the goal at --max-speed with the per-tick command error clamped, so the
+    torque stays bounded. Energizes and holds the CURRENT pose first (no move to PRIME), then moves only
+    the joints you specify -- any joint left unset stays at its current angle, so -j6 0.5 wiggles joint 6
+    from where the arm already is. Left energized at the target (run rest / disconnect to park).
     """
     bus = RebotB601DmBus(channel=channel)
-    typer.echo(f"opening {channel} and priming...")
-    prime(bus, gripper_torque_ratio=DEFAULT_GRIPPER_TORQUE_RATIO, log_fn=_cli_log)
+    typer.echo(f"opening {channel} and energizing (holding current pose)...")
+    _energize_and_hold(bus)
     current, _ = bus.read_arm_state()
     targets = [j1, j2, j3, j4, j5, j6]
     resolved = np.array([c if t is None else t for t, c in zip(targets, current, strict=True)], dtype=np.float64)
@@ -382,8 +390,8 @@ def cmd_send_jv(
     """
     velocities = np.array([j1, j2, j3, j4, j5, j6], dtype=np.float64)
     bus = RebotB601DmBus(channel=channel)
-    typer.echo(f"opening {channel} and priming...")
-    prime(bus, gripper_torque_ratio=DEFAULT_GRIPPER_TORQUE_RATIO, log_fn=_cli_log)
+    typer.echo(f"opening {channel} and energizing (holding current pose)...")
+    _energize_and_hold(bus)
     bus.set_arm_mode(Mode.VEL, log_fn=_cli_log)
     typer.echo(f"  velocities: {[f'{v:+0.4f}' for v in velocities]} for {duration:.3f} s")
     try:
