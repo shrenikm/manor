@@ -52,7 +52,7 @@ ml = [
 [project.scripts]
 aegis = "manor.common.aegis.aegis_cli:cli"
 lite6 = "manor.manipulators.lite6.lite6_cli:cli"
-rebot_b601_dm = "manor.manipulators.rebot_b601_dm.rebot_b601_dm_cli:cli"
+rebot = "manor.manipulators.rebot_b601_dm.rebot_b601_dm_cli:cli"
 manor_lcm_spy = "manor.common.manor_lcm_spy:main"
 
 [tool.ruff]

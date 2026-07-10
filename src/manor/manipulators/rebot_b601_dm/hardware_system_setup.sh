@@ -167,4 +167,4 @@ fi
 if [[ ${needs_relogin} -eq 1 ]]; then
     log "IMPORTANT: log out and back in (or run 'newgrp dialout') for the group change to apply"
 fi
-log "done. Point the CLI at it with: rebot_b601_dm probe --channel /dev/${name}"
+log "done. Point the CLI at it with: rebot probe --channel /dev/${name}"

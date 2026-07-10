@@ -32,6 +32,7 @@ sit-down, gripper fully closed); the gripper motor runs 0 (closed) to about -5 r
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 
@@ -574,6 +575,86 @@ class RebotB601DmBus:
         if self._controller is None:
             raise MotorBridgeCallError("bus used before connect()")
         return self._controller
+
+
+class RebotB601DmArmStreamer:
+    """
+    Continuous MIT position streamer for the arm, driven on a background thread. It holds the arm at a
+    settable target -- ramping the commanded position toward the target at a bounded speed with the
+    per-tick command error clamped -- and NEVER stops streaming while running. That is what keeps the arm
+    alive: the DM firmware disables a motor a short time after commands stop arriving (a command-timeout
+    watchdog), so a one-shot command that streams then exits lets the arm drop, whereas this streamer keeps
+    the heartbeat going so the arm stays energized and holding, and moves smoothly whenever the target
+    changes. This is the interactive analogue of how aegis streams the production driver: hold the bus open
+    and keep commanding.
+
+    Assumes the arm is already enabled and in MIT mode (bring it up first). The owning thread is the only
+    one that touches the bus while running; call stop() (which joins the thread) before any other bus use.
+    """
+
+    def __init__(
+        self,
+        bus: RebotB601DmBus,
+        speed_rad_s: float = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
+        error_clamp_rad: float = _MOVE_ERROR_CLAMP_RAD,
+        rate_hz: float = _CONFIGURATION_MOVE_SEND_RATE_HZ,
+    ) -> None:
+        self._bus = bus
+        self._dt = 1.0 / rate_hz
+        self._kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
+        self._kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        positions, _ = bus.read_arm_state()
+        # _interpolant is owned solely by the streaming thread; the rest is shared under _lock.
+        self._interpolant = positions.copy()
+        self._target = positions.copy()
+        self._measured = positions.copy()
+        self._speed = float(speed_rad_s)
+        self._clamp = float(error_clamp_rad)
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, name="rebot-arm-streamer", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            with self._lock:
+                target = self._target.copy()
+                step = self._speed * self._dt
+                clamp = self._clamp
+            measured, _ = self._bus.read_arm_state()
+            self._interpolant += np.clip(target - self._interpolant, -step, step)
+            commanded = measured + np.clip(self._interpolant - measured, -clamp, clamp)
+            self._bus.send_arm_mit(commanded, kp=self._kp, kd=self._kd)
+            with self._lock:
+                self._measured = measured
+            time.sleep(self._dt)
+
+    def set_target(self, target: np.ndarray) -> None:
+        with self._lock:
+            self._target = np.asarray(target, dtype=np.float64).copy()
+
+    def set_speed(self, speed_rad_s: float) -> None:
+        with self._lock:
+            self._speed = float(speed_rad_s)
+
+    def set_clamp(self, error_clamp_rad: float) -> None:
+        with self._lock:
+            self._clamp = float(error_clamp_rad)
+
+    def snapshot(self) -> tuple[np.ndarray, np.ndarray, float, float]:
+        with self._lock:
+            return self._target.copy(), self._measured.copy(), self._speed, self._clamp
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
 
 
 def prime(
