@@ -101,7 +101,7 @@ joint limit (0.0) in this pose.
 
 ## Bring-up / tear-down
 
-`prime` (shared by the driver and the CLI, in `motorbridge_utils`): open bus → clear latched motor errors
+`prime` (shared by the driver and the CLI, in `motorbridge_helpers`): open bus → clear latched motor errors
 → enable all → gripper to FORCE_POS and closed at the capped torque → torque-bounded interpolated MIT move
 to PRIME (target stepped at 0.5 rad/s, commanded position clamped within 0.08 rad of measured, vendor endpos
 gains — a blocked move pushes with ~10 N·m max at joints 1-3 until the timeout aborts, instead of a POS_VEL

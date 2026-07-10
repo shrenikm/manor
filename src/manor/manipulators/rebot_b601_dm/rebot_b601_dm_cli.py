@@ -3,7 +3,7 @@ Standalone hardware experiments against the Seeed reBot B601 DM over the motorbr
 one top-level function; the typer CLI at the bottom picks which one to run.
 
 Goal: characterise the SDK surface (modes, feedback rates, quirks) before and while wiring it into the aegis
-hardware backends. The driver and this CLI share the sequences in motorbridge_utils, so anything validated
+hardware backends. The driver and this CLI share the sequences in motorbridge_helpers, so anything validated
 here is exactly what production runs.
 
 Installed as the rebot_b601_dm console script (see pyproject.toml); run from any shell on a workstation
@@ -42,7 +42,7 @@ from motorbridge import Mode
 
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
-from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
+from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
     REBOT_B601_DM_DEFAULT_CHANNEL,
     REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,

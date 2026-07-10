@@ -1,7 +1,7 @@
 """
 reBot B601 DM hardware driver, backed by the motorbridge SDK.
 
-Wraps a RebotB601DmBus (see motorbridge_utils) to satisfy IManipulatorDriver. The control strategy follows
+Wraps a RebotB601DmBus (see motorbridge_helpers) to satisfy IManipulatorDriver. The control strategy follows
 the official LeRobot integration (whose follower defaults to MIT for the arm and FORCE_POS for the gripper),
 with torque bounded on EVERY actuator command -- large parts of this arm are 3D printed and full motor
 torque breaks them:
@@ -49,7 +49,7 @@ from manor.common.exceptions import RebotB601DmDriverError
 from manor.common.logging_utils import ManorLogger
 from manor.manipulators.manipulator_driver import IManipulatorDriver
 from manor.manipulators.rebot_b601_dm.model import RebotB601DmModel
-from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
+from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     REBOT_B601_DM_DEFAULT_CHANNEL,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
     REBOT_B601_DM_MAX_COMMAND_ERROR_CEILING_RAD,
@@ -59,10 +59,10 @@ from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
     gripper_motor_rad_to_width,
     gripper_width_to_motor_rad,
 )
-from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
+from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     prime as bus_prime,
 )
-from manor.manipulators.rebot_b601_dm.motorbridge_utils import (
+from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     unprime as bus_unprime,
 )
 
