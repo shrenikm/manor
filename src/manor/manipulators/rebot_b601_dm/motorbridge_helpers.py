@@ -106,16 +106,20 @@ REBOT_B601_DM_ARM_MIT_STREAM_KD: tuple[float, ...] = (12.0, 12.0, 12.0, 1.0, 1.0
 _MOVE_MIT_KP: tuple[float, ...] = (120.0, 120.0, 120.0, 18.0, 18.0, 18.0)
 _MOVE_MIT_KD: tuple[float, ...] = (8.0, 8.0, 8.0, 2.0, 2.0, 2.0)
 
-# MIT configuration-move parameters. MIT has no native velocity limit, so a gentle move streams a target
-# that advances toward the goal at the move speed and is additionally clamped within _MOVE_ERROR_CLAMP_RAD
-# of the measured position each tick -- the driver's own control law run to completion. A blocked move
-# therefore pushes with at most kp * clamp (about 9.6 N*m at joints 1-3, 1.4 N*m at 4-6) until the timeout
-# aborts it. REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S is the gentle default advance speed (rad/s);
-# send_jp exposes it as --max-speed. The tolerance leaves room for gravity sag under the finite kp.
+# MIT streaming-move parameters. MIT has no native velocity limit, so a gentle move streams a target that
+# advances toward the goal at the move speed and is additionally clamped within _MOVE_ERROR_CLAMP_RAD of the
+# measured position each tick -- the driver's own control law run to completion. A blocked move therefore
+# pushes with at most kp * clamp (about 9.6 N*m at joints 1-3, 1.4 N*m at 4-6).
+# REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S is the gentle default advance speed (rad/s); send_jp
+# exposes it as --max-speed. The move returns once the arm reaches the target (within the tolerance) or
+# settles -- stops making progress after the ramp is done, e.g. sagging short under gravity + stiction --
+# so a joint that cannot reach reports its residual instead of spinning to the timeout backstop.
 REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S = 0.5
 _CONFIGURATION_MOVE_SEND_RATE_HZ = 50.0
 _MOVE_ERROR_CLAMP_RAD = 0.08
 _CONFIGURATION_MOVE_TOLERANCE_RAD = 0.05
+_CONFIGURATION_MOVE_SETTLE_S = 0.5
+_CONFIGURATION_MOVE_SETTLE_PROGRESS_RAD = 0.005
 _CONFIGURATION_MOVE_TIMEOUT_S = 20.0
 
 # Settle pauses copied from the vendor SDK's bring-up sequences: mode transitions and enable/disable are
@@ -496,41 +500,56 @@ class RebotB601DmBus:
         self,
         target: np.ndarray,
         label: str,
-        speed_rad_s: float = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
+        speed_rad_s: float | np.ndarray = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
         error_clamp_rad: float = _MOVE_ERROR_CLAMP_RAD,
         log_fn: LogFn = _noop_log,
     ) -> None:
         """
-        Move the arm to a joint-position target in MIT mode -- the same control law the driver streams in
-        production. MIT has no native velocity limit, so a gentle move streams a target that advances toward
-        the goal at speed_rad_s and is clamped within error_clamp_rad of the measured position each tick.
-        This loop is a trajectory generator: it turns a far target into a run of near targets, which is
-        exactly what a human hand supplies for free during teleop, so the per-tick error (and hence the
-        torque) stays small. Because MIT torque is kp * error with no integrator, a blocked move pushes with
-        at most kp * error_clamp_rad until the timeout aborts it; that ceiling also has to exceed a joint's
-        gravity plus geartrain stiction for it to move at all, so error_clamp_rad is tunable per call.
-        Switches the arm to MIT mode itself and leaves it holding the target; the caller restores its
-        preferred operating mode afterwards if different.
+        Stream a torque-bounded MIT trajectory to a joint-position target. The commanded position advances
+        toward the target at speed_rad_s (a scalar, or a per-joint array) and is clamped within
+        error_clamp_rad of the measured position each tick, so torque stays bounded at kp * error_clamp_rad
+        (no integrator). That ceiling must also exceed a joint's gravity plus geartrain stiction for it to
+        move at all, so error_clamp_rad is tunable per call.
 
-        Raises MotorBridgeCallError if the arm has not converged within the timeout -- a wedged or blocked
-        move should surface loudly rather than silently proceeding to the next bring-up step.
+        This does NOT change control mode, enable motors, or clear errors -- it assumes the arm is already
+        energized and in MIT mode (put there by the cli connect command or by prime). It is therefore safe
+        to call repeatedly on a live arm without disturbing the hold.
+
+        Returns once the arm reaches the target (within the tolerance) or settles -- stops making progress
+        after the ramp has run out, e.g. a joint sagging short under gravity + stiction. Either way it holds
+        wherever it ended and logs the residual; it never raises or spins to the timeout on a sag.
         """
         target = np.asarray(target, dtype=np.float64)
-        log_fn(f"moving to {label} pose (MIT, <= {speed_rad_s:.2f} rad/s, error clamp {error_clamp_rad:.3f} rad)...")
-        self.set_arm_mode(Mode.MIT, log_fn=log_fn)
+        step = np.abs(np.asarray(speed_rad_s, dtype=np.float64)) / _CONFIGURATION_MOVE_SEND_RATE_HZ
+        log_fn(f"streaming to {label} (MIT, error clamp {error_clamp_rad:.3f} rad)...")
         kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
         kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
         dt = 1.0 / _CONFIGURATION_MOVE_SEND_RATE_HZ
-        step = speed_rad_s * dt
         positions, _ = self.read_arm_state()
         interpolant = positions.copy()
-        deadline = time.monotonic() + _CONFIGURATION_MOVE_TIMEOUT_S
+        settle_reference = positions.copy()
+        settle_reference_time = time.monotonic()
+        deadline = settle_reference_time + _CONFIGURATION_MOVE_TIMEOUT_S
         while time.monotonic() < deadline:
             positions, _ = self.read_arm_state()
-            if float(np.max(np.abs(positions - target))) < _CONFIGURATION_MOVE_TOLERANCE_RAD:
+            error = float(np.max(np.abs(positions - target)))
+            if error < _CONFIGURATION_MOVE_TOLERANCE_RAD:
                 # Latch the exact target as the hold command before returning.
                 self.send_arm_mit(target, kp=kp, kd=kd)
+                log_fn(f"reached {label} (max error {error:.4f} rad)")
                 return
+            # Settle detection: once the ramp has delivered the full target and the arm has stopped making
+            # progress, it is as close as it will get (a sag or a stall) -- hold there and return.
+            now = time.monotonic()
+            if now - settle_reference_time >= _CONFIGURATION_MOVE_SETTLE_S:
+                ramp_done = bool(np.all(np.abs(interpolant - target) < 1e-6))
+                progress = float(np.max(np.abs(positions - settle_reference)))
+                if ramp_done and progress < _CONFIGURATION_MOVE_SETTLE_PROGRESS_RAD:
+                    self.send_arm_mit(positions, kp=kp, kd=kd)
+                    log_fn(f"settled {error:.4f} rad short of {label} (sag/stall); holding here")
+                    return
+                settle_reference = positions.copy()
+                settle_reference_time = now
             interpolant += np.clip(target - interpolant, -step, step)
             # Torque bound: never let the commanded position lead the measured one by more than the clamp,
             # no matter how far the interpolant has advanced.
@@ -538,13 +557,8 @@ class RebotB601DmBus:
             self.send_arm_mit(commanded, kp=kp, kd=kd)
             time.sleep(dt)
         positions, _ = self.read_arm_state()
-        # Hold wherever the arm actually is rather than keep pushing toward the unreachable target.
         self.send_arm_mit(positions, kp=kp, kd=kd)
-        raise MotorBridgeCallError(
-            f"arm did not converge to {label} within {_CONFIGURATION_MOVE_TIMEOUT_S:.0f}s; max error "
-            f"{float(np.max(np.abs(positions - target))):.4f} rad. The arm may be blocked or a motor may be "
-            f"faulted -- now holding the current pose; check the bus and clear errors before retrying."
-        )
+        log_fn(f"timed out {float(np.max(np.abs(positions - target))):.4f} rad short of {label}; holding here")
 
     def move_arm_to_configuration(
         self,
@@ -576,6 +590,7 @@ def prime(
     bus.connect(log_fn=log_fn)
     bus.clear_errors(log_fn=log_fn)
     bus.enable_all(log_fn=log_fn)
+    bus.set_arm_mode(Mode.MIT, log_fn=log_fn)
     bus.set_gripper_mode_force_pos(log_fn=log_fn)
     bus.send_gripper_force_pos(motor_rad=0.0, torque_ratio=gripper_torque_ratio)
     bus.move_arm_to_configuration(RebotB601DmJointConfiguration.PRIME, log_fn=log_fn)
@@ -592,6 +607,7 @@ def unprime(bus: RebotB601DmBus, gripper_torque_ratio: float, log_fn: LogFn = _n
     """
     try:
         bus.send_gripper_force_pos(motor_rad=0.0, torque_ratio=gripper_torque_ratio)
+        bus.set_arm_mode(Mode.MIT, log_fn=log_fn)
         bus.move_arm_to_configuration(RebotB601DmJointConfiguration.REST, log_fn=log_fn)
     except MotorBridgeCallError as exc:
         log_fn(f"warning: move-to-{RebotB601DmJointConfiguration.REST.name} during unprime failed: {exc}")
