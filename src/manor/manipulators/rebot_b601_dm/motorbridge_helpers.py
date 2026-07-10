@@ -211,6 +211,26 @@ def gripper_motor_rad_s_to_width_m_s(motor_rad_s: float) -> float:
     return motor_rad_s * (REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD)
 
 
+def _ramp_and_leash(
+    interpolant: np.ndarray,
+    target: np.ndarray,
+    measured: np.ndarray,
+    step: np.ndarray | float,
+    error_clamp_rad: float,
+) -> np.ndarray:
+    """
+    One tick of the shared MIT trajectory law used by both move_arm_to and the streamer: ramp the
+    interpolant toward the target by at most step, then leash it to within error_clamp_rad of the measured
+    pose. Because the leashed value is what carries into the next tick, the interpolant can never wind
+    ahead of the arm -- a joint that was blocked or sagging resumes at the ramp speed when it frees instead
+    of rushing to catch up -- and the returned command is always within error_clamp_rad of measured, so
+    torque is bounded at kp * error_clamp_rad (no integrator). The return value is both the next
+    interpolant and the position to command.
+    """
+    interpolant = interpolant + np.clip(target - interpolant, -step, step)
+    return measured + np.clip(interpolant - measured, -error_clamp_rad, error_clamp_rad)
+
+
 @attr.define
 class RebotB601DmBus:
     """
@@ -516,9 +536,10 @@ class RebotB601DmBus:
         energized and in MIT mode (put there by the cli connect command or by prime). It is therefore safe
         to call repeatedly on a live arm without disturbing the hold.
 
-        Returns once the arm reaches the target (within the tolerance) or settles -- stops making progress
-        after the ramp has run out, e.g. a joint sagging short under gravity + stiction. Either way it holds
-        wherever it ended and logs the residual; it never raises or spins to the timeout on a sag.
+        Returns once the arm reaches the target (within the tolerance) or settles -- stops making progress,
+        e.g. a joint sagging short under gravity + stiction. Either way it holds wherever it ended and logs
+        the residual; it never raises or spins to the timeout on a sag. The per-tick trajectory law is the
+        shared _ramp_and_leash used by the streamer, so the cli REPL and the one-shot moves behave the same.
         """
         target = np.asarray(target, dtype=np.float64)
         step = np.abs(np.asarray(speed_rad_s, dtype=np.float64)) / _CONFIGURATION_MOVE_SEND_RATE_HZ
@@ -539,23 +560,21 @@ class RebotB601DmBus:
                 self.send_arm_mit(target, kp=kp, kd=kd)
                 log_fn(f"reached {label} (max error {error:.4f} rad)")
                 return
-            # Settle detection: once the ramp has delivered the full target and the arm has stopped making
-            # progress, it is as close as it will get (a sag or a stall) -- hold there and return.
+            # Settle detection: convergence is handled above, so if the arm stops making progress it is as
+            # close as it will get (a sag or a stall) -- hold there and return rather than spin to the
+            # timeout. Because the tethered interpolant never runs to the target on its own, progress -- not
+            # "the interpolant arrived" -- is the signal.
             now = time.monotonic()
             if now - settle_reference_time >= _CONFIGURATION_MOVE_SETTLE_S:
-                ramp_done = bool(np.all(np.abs(interpolant - target) < 1e-6))
                 progress = float(np.max(np.abs(positions - settle_reference)))
-                if ramp_done and progress < _CONFIGURATION_MOVE_SETTLE_PROGRESS_RAD:
+                if progress < _CONFIGURATION_MOVE_SETTLE_PROGRESS_RAD:
                     self.send_arm_mit(positions, kp=kp, kd=kd)
                     log_fn(f"settled {error:.4f} rad short of {label} (sag/stall); holding here")
                     return
                 settle_reference = positions.copy()
                 settle_reference_time = now
-            interpolant += np.clip(target - interpolant, -step, step)
-            # Torque bound: never let the commanded position lead the measured one by more than the clamp,
-            # no matter how far the interpolant has advanced.
-            commanded = positions + np.clip(interpolant - positions, -error_clamp_rad, error_clamp_rad)
-            self.send_arm_mit(commanded, kp=kp, kd=kd)
+            interpolant = _ramp_and_leash(interpolant, target, positions, step, error_clamp_rad)
+            self.send_arm_mit(interpolant, kp=kp, kd=kd)
             time.sleep(dt)
         positions, _ = self.read_arm_state()
         self.send_arm_mit(positions, kp=kp, kd=kd)
@@ -627,9 +646,8 @@ class RebotB601DmArmStreamer:
                 step = self._speed * self._dt
                 clamp = self._clamp
             measured, _ = self._bus.read_arm_state()
-            self._interpolant += np.clip(target - self._interpolant, -step, step)
-            commanded = measured + np.clip(self._interpolant - measured, -clamp, clamp)
-            self._bus.send_arm_mit(commanded, kp=self._kp, kd=self._kd)
+            self._interpolant = _ramp_and_leash(self._interpolant, target, measured, step, clamp)
+            self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd)
             with self._lock:
                 self._measured = measured
             time.sleep(self._dt)
