@@ -69,6 +69,14 @@ _DEFAULT_JV_DURATION_S = 1.0
 _DEFAULT_SEND_JP_SPEED_RAD_S = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S
 _MAX_SEND_JP_SPEED_RAD_S = 2.0
 
+# Command-error clamp for send_jp's move (rad). The per-joint torque ceiling is about kp*clamp (kp=120 on
+# j1-3, 18 on j4-6), so this is the knob for "a heavy joint can't overcome gravity + geartrain stiction to
+# reach its target." Default matches the bus move default; the ceiling keeps j1-3 under the DM-J4340's
+# ~28 N*m even at the max (120*0.25 = 30). Raise it on hardware until the joint moves cleanly, then we
+# bake the working value into the bus default.
+_DEFAULT_SEND_JP_ERROR_CLAMP_RAD = 0.08
+_MAX_SEND_JP_ERROR_CLAMP_RAD = 0.25
+
 # How far from REST the arm may be for disconnect to disable without asking. Beyond this the backdrivable,
 # brakeless DM joints will fall under gravity when torque drops.
 _DISCONNECT_REST_TOLERANCE_RAD = 0.2
@@ -348,6 +356,17 @@ def cmd_send_jp(
             help="Speed the streamed target ramps toward the goal (rad/s). Lower is gentler.",
         ),
     ] = _DEFAULT_SEND_JP_SPEED_RAD_S,
+    clamp: Annotated[
+        float,
+        typer.Option(
+            "-c",
+            "--clamp",
+            min=0.02,
+            max=_MAX_SEND_JP_ERROR_CLAMP_RAD,
+            help="Command-error clamp (rad); per-joint torque ceiling is about kp*clamp (kp=120 on j1-3). "
+            "Raise if a heavy joint sags and can't reach its target.",
+        ),
+    ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
@@ -363,8 +382,8 @@ def cmd_send_jp(
     current, _ = bus.read_arm_state()
     targets = [j1, j2, j3, j4, j5, j6]
     resolved = np.array([c if t is None else t for t, c in zip(targets, current, strict=True)], dtype=np.float64)
-    typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]} at <= {max_speed:.2f} rad/s")
-    bus.move_arm_to(resolved, "commanded", speed_rad_s=max_speed, log_fn=_cli_log)
+    typer.echo(f"  target: {[f'{v:+0.4f}' for v in resolved]} at <= {max_speed:.2f} rad/s, clamp {clamp:.3f} rad")
+    bus.move_arm_to(resolved, "commanded", speed_rad_s=max_speed, error_clamp_rad=clamp, log_fn=_cli_log)
     typer.echo("arrived (motors energized, holding in MIT; run rest or disconnect to park).")
 
 

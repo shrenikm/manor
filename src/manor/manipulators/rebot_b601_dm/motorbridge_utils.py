@@ -497,23 +497,26 @@ class RebotB601DmBus:
         target: np.ndarray,
         label: str,
         speed_rad_s: float = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
+        error_clamp_rad: float = _MOVE_ERROR_CLAMP_RAD,
         log_fn: LogFn = _noop_log,
     ) -> None:
         """
         Move the arm to a joint-position target in MIT mode -- the same control law the driver streams in
         production. MIT has no native velocity limit, so a gentle move streams a target that advances toward
-        the goal at speed_rad_s and is clamped within _MOVE_ERROR_CLAMP_RAD of the measured position each
-        tick. This loop is a trajectory generator: it turns a far target into a run of near targets, which
-        is exactly what a human hand supplies for free during teleop, so the per-tick error (and hence the
+        the goal at speed_rad_s and is clamped within error_clamp_rad of the measured position each tick.
+        This loop is a trajectory generator: it turns a far target into a run of near targets, which is
+        exactly what a human hand supplies for free during teleop, so the per-tick error (and hence the
         torque) stays small. Because MIT torque is kp * error with no integrator, a blocked move pushes with
-        at most kp * clamp until the timeout aborts it. Switches the arm to MIT mode itself and leaves it
-        holding the target; the caller restores its preferred operating mode afterwards if different.
+        at most kp * error_clamp_rad until the timeout aborts it; that ceiling also has to exceed a joint's
+        gravity plus geartrain stiction for it to move at all, so error_clamp_rad is tunable per call.
+        Switches the arm to MIT mode itself and leaves it holding the target; the caller restores its
+        preferred operating mode afterwards if different.
 
         Raises MotorBridgeCallError if the arm has not converged within the timeout -- a wedged or blocked
         move should surface loudly rather than silently proceeding to the next bring-up step.
         """
         target = np.asarray(target, dtype=np.float64)
-        log_fn(f"moving to {label} pose (MIT, <= {speed_rad_s:.2f} rad/s)...")
+        log_fn(f"moving to {label} pose (MIT, <= {speed_rad_s:.2f} rad/s, error clamp {error_clamp_rad:.3f} rad)...")
         self.set_arm_mode(Mode.MIT, log_fn=log_fn)
         kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
         kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
@@ -531,7 +534,7 @@ class RebotB601DmBus:
             interpolant += np.clip(target - interpolant, -step, step)
             # Torque bound: never let the commanded position lead the measured one by more than the clamp,
             # no matter how far the interpolant has advanced.
-            commanded = positions + np.clip(interpolant - positions, -_MOVE_ERROR_CLAMP_RAD, _MOVE_ERROR_CLAMP_RAD)
+            commanded = positions + np.clip(interpolant - positions, -error_clamp_rad, error_clamp_rad)
             self.send_arm_mit(commanded, kp=kp, kd=kd)
             time.sleep(dt)
         positions, _ = self.read_arm_state()
