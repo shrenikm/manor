@@ -263,7 +263,11 @@ def _apply_velocity_pulse(line: str, streamer: RebotB601DmArmStreamer) -> None:
     except KeyboardInterrupt:
         typer.echo("  interrupted")
     finally:
-        streamer.hold()
+        # Zero the velocity rather than snapping to a position hold. During the pulse the commanded
+        # interpolant leads the arm by up to the clamp; a position hold would capture the (trailing)
+        # measured pose and yank the joint back by that lead. Zeroing velocity lets the interpolant coast
+        # down with the arm so it decelerates smoothly to where it was heading, with no jump back.
+        streamer.set_velocity(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
 
 
 def _park_and_disable(bus: RebotB601DmBus, streamer: RebotB601DmArmStreamer) -> None:
