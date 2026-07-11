@@ -32,6 +32,7 @@ at connect, run the zero command with the arm physically held at the home pose.
 
 from __future__ import annotations
 
+import readline  # noqa: F401
 import time
 from typing import Annotated, Optional
 
