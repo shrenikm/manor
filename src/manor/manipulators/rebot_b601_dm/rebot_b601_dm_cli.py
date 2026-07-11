@@ -19,12 +19,14 @@ with the arm's serial bridge attached:
 SAFETY NOTES
 
 * Large parts of this arm (including the gripper linkage) are 3D printed; full motor torque breaks them.
-Every gripper command in this CLI goes through FORCE_POS with a torque ratio capped at
-REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX. The arm is brought up ONCE with connect (the only command that
-clears errors and enables motors); after that send_jp / send_jv are pure motion -- they open the bus and
-stream a torque-bounded MIT trajectory (bounded at kp * clamp, no integrator) and touch nothing else, so
-they can be chained back to back without disturbing the hold. rest parks at REST; disconnect / limp
-disable. Do not bypass these with raw motorbridge calls unless you enjoy reprinting parts.
+Every gripper command goes through FORCE_POS with a torque ratio capped at
+REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX, and every arm motion goes through the torque-bounded MIT law (the
+commanded position is leashed within the command-error clamp of the measured pose, so torque stays
+bounded at kp * clamp, no integrator). send_jp / send_jv are interactive REPLs that bring the arm up,
+stream continuously so it never times out (the DM watchdog disables a motor once commands stop), and park
+at REST on exit -- send_jp sets joint positions, send_jv sets joint velocities. connect / rest / disconnect
+/ limp are the one-shot bring-up / park / teardown. Do not bypass these with raw motorbridge calls unless
+you enjoy reprinting parts.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -59,9 +61,6 @@ DEFAULT_STREAM_HZ = 20.0
 
 # Default FORCE_POS torque ratio for CLI gripper commands: the vendor LeRobot integration's grip strength.
 DEFAULT_GRIPPER_TORQUE_RATIO = 0.07
-
-# How long send_jv applies the velocity before zeroing it if the operator gives no duration.
-_DEFAULT_JV_DURATION_S = 1.0
 
 # Default advance speed for send_jp's MIT move (rad/s): the gentle bring-up speed, overridable per
 # invocation with --max-speed. MIT has no firmware speed limit, so this is the rate the streamed target
@@ -155,31 +154,48 @@ for _j in range(REBOT_B601_DM_ARM_DOF):
 # How long the REPL waits for the arm to reach REST when parking on exit before it disables regardless.
 _REPL_PARK_TIMEOUT_S = 8.0
 
-_REPL_HELP = (
-    "  -jN <rad> ...   retarget joint(s), e.g. '-j3 -0.3 -j4 0.0' (unset joints keep their target)\n"
-    "  rest            set every joint target to 0\n"
-    "  -s <rad/s>      set the ramp speed\n"
-    "  -c <rad>        set the command-error clamp (torque ceiling ~ kp*clamp)\n"
-    "  p / <enter>     print target vs measured\n"
-    "  h / help        show this help\n"
-    "  q / quit        park at REST, disable, and exit"
-)
+
+def _repl_help(velocity_mode: bool) -> str:
+    if velocity_mode:
+        set_line = "  -jN <rad/s> ...  set joint velocity(ies), e.g. '-j6 0.3' (unset joints keep theirs)"
+    else:
+        set_line = "  -jN <rad> ...    retarget joint(s), e.g. '-j3 -0.3 -j4 0.0' (unset joints keep theirs)"
+    return "\n".join(
+        [
+            set_line,
+            "  stop             freeze the arm where it is",
+            "  rest             ramp every joint home to 0",
+            "  -s <rad/s>       ramp speed for position moves / rest",
+            "  -c <rad>         command-error clamp (torque ceiling ~ kp*clamp)",
+            "  p / <enter>      print state",
+            "  h / help         show this help",
+            "  q / quit         park at REST, disable, and exit",
+        ]
+    )
 
 
 def _print_repl_status(streamer: RebotB601DmArmStreamer) -> None:
-    target, measured, speed, clamp = streamer.snapshot()
-    typer.echo("  target   " + " ".join(f"{v:+0.3f}" for v in target))
+    velocity_mode, target, velocity, measured, speed, clamp = streamer.snapshot()
+    if velocity_mode:
+        typer.echo("  velocity " + " ".join(f"{v:+0.3f}" for v in velocity) + "  rad/s")
+    else:
+        typer.echo("  target   " + " ".join(f"{v:+0.3f}" for v in target))
     typer.echo("  measured " + " ".join(f"{v:+0.3f}" for v in measured) + f"   (speed {speed:.2f}, clamp {clamp:.3f})")
 
 
-def _apply_repl_command(line: str, streamer: RebotB601DmArmStreamer) -> None:
+def _apply_repl_command(line: str, streamer: RebotB601DmArmStreamer, velocity_mode: bool) -> None:
     """
-    Parse one REPL line and push the change into the streamer. Joint flags update only the named joints of
-    the current target (the rest hold); -s / -c adjust the ramp speed / command-error clamp live.
+    Parse one REPL line and push it into the streamer. Joint flags update only the named joints of the
+    current setpoint (velocity in a jv REPL, target in a jp REPL); the rest keep theirs. In a jv REPL the
+    setpoint restarts from zero when the streamer is not already in velocity mode (e.g. just after
+    rest/stop) so only the joints you name start moving. -s / -c adjust the ramp speed / clamp live.
     """
     tokens = line.split()
-    target, _measured, _speed, _clamp = streamer.snapshot()
-    target = target.copy()
+    velocity_mode_now, target, velocity, _measured, _speed, _clamp = streamer.snapshot()
+    if velocity_mode:
+        setpoint = velocity.copy() if velocity_mode_now else np.zeros_like(velocity)
+    else:
+        setpoint = target.copy()
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -187,7 +203,7 @@ def _apply_repl_command(line: str, streamer: RebotB601DmArmStreamer) -> None:
             raise ValueError(f"'{token}' needs a value")
         value = float(tokens[i + 1])
         if token in _REPL_JOINT_FLAGS:
-            target[_REPL_JOINT_FLAGS[token]] = value
+            setpoint[_REPL_JOINT_FLAGS[token]] = value
         elif token in ("-s", "--speed"):
             streamer.set_speed(value)
         elif token in ("-c", "--clamp"):
@@ -195,7 +211,10 @@ def _apply_repl_command(line: str, streamer: RebotB601DmArmStreamer) -> None:
         else:
             raise ValueError(f"unknown token '{token}'")
         i += 2
-    streamer.set_target(target)
+    if velocity_mode:
+        streamer.set_velocity(setpoint)
+    else:
+        streamer.set_target(setpoint)
 
 
 def _park_and_disable(bus: RebotB601DmBus, streamer: RebotB601DmArmStreamer) -> None:
@@ -206,12 +225,62 @@ def _park_and_disable(bus: RebotB601DmBus, streamer: RebotB601DmArmStreamer) -> 
     streamer.set_target(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
     deadline = time.monotonic() + _REPL_PARK_TIMEOUT_S
     while time.monotonic() < deadline:
-        _target, measured, _speed, _clamp = streamer.snapshot()
+        _velocity_mode, _target, _velocity, measured, _speed, _clamp = streamer.snapshot()
         if float(np.max(np.abs(measured))) < 0.05:
             break
         time.sleep(0.05)
     streamer.stop()
     bus.disable_all(log_fn=_cli_log)
+
+
+def _run_arm_repl(channel: str, speed: float, clamp: float, velocity_mode: bool) -> None:
+    """
+    Shared interactive REPL for send_jp (position) and send_jv (velocity). Brings the arm up once, then a
+    background streamer holds and moves it continuously so it never times out; each line retargets joints
+    (position) or sets joint velocities (velocity). Parks at REST and disables on exit.
+    """
+    bus = RebotB601DmBus(channel=channel)
+    typer.echo(f"opening {channel} and bringing up...")
+    _energize_and_hold(bus)
+    streamer = RebotB601DmArmStreamer(bus, speed_rad_s=speed, error_clamp_rad=clamp)
+    streamer.start()
+    prompt = "jv> " if velocity_mode else "jp> "
+    unit = "rad/s" if velocity_mode else "rad"
+    typer.echo(f"streaming (arm held). '-jN <{unit}>' to move, 'rest' home, 'stop' freeze, 'h' help, 'q' quit.")
+    try:
+        while True:
+            try:
+                line = input(prompt).strip()
+            except EOFError:
+                break
+            if line in ("q", "quit", "exit"):
+                break
+            if line in ("", "p", "?"):
+                _print_repl_status(streamer)
+                continue
+            if line in ("h", "help"):
+                typer.echo(_repl_help(velocity_mode))
+                continue
+            if line == "rest":
+                streamer.set_target(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
+                _print_repl_status(streamer)
+                continue
+            if line == "stop":
+                streamer.hold()
+                _print_repl_status(streamer)
+                continue
+            try:
+                _apply_repl_command(line, streamer, velocity_mode)
+            except (ValueError, IndexError) as exc:
+                typer.echo(f"  ? {exc} (try 'h')")
+                continue
+            _print_repl_status(streamer)
+    except KeyboardInterrupt:
+        typer.echo("")
+    finally:
+        typer.echo("parking at REST and disabling...")
+        _park_and_disable(bus, streamer)
+        typer.echo("done (motors disabled).")
 
 
 # --- CLI --------------------------------------------------------------------
@@ -419,61 +488,28 @@ def cmd_send_jp(
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Interactive joint REPL. Brings the arm up once, then a background thread streams it continuously -- the
-    arm always holds (the stream keeps the DM command-timeout from firing) and moves smoothly whenever you
-    retarget a joint, exactly the way aegis streams the production driver. Type '-jN <rad>' to retarget
-    joints (unset joints keep their target), 'rest' to zero every joint, 'q' to park at REST and exit.
-    Holding the bus open for the whole session is why this works where one-shot commands drop the arm.
+    Interactive joint-POSITION REPL. Brings the arm up once, then a background thread streams it
+    continuously -- the arm always holds (the stream keeps the DM command-timeout from firing) and moves
+    smoothly whenever you retarget a joint, exactly how aegis streams the production driver. Type
+    '-jN <rad>' to retarget joints (unset joints keep their target), 'rest' to home, 'stop' to freeze,
+    'h' for help, 'q' to park at REST and exit. Holding the bus open the whole session is why this works
+    where one-shot commands drop the arm.
     """
-    bus = RebotB601DmBus(channel=channel)
-    typer.echo(f"opening {channel} and bringing up...")
-    _energize_and_hold(bus)
-    streamer = RebotB601DmArmStreamer(bus, speed_rad_s=speed, error_clamp_rad=clamp)
-    streamer.start()
-    typer.echo("streaming (arm held). type '-jN <rad>' to move, 'rest' to zero, 'h' for help, 'q' to park+quit.")
-    try:
-        while True:
-            try:
-                line = input("jp> ").strip()
-            except EOFError:
-                break
-            if line in ("q", "quit", "exit"):
-                break
-            if line in ("", "p", "?"):
-                _print_repl_status(streamer)
-                continue
-            if line in ("h", "help"):
-                typer.echo(_REPL_HELP)
-                continue
-            if line == "rest":
-                streamer.set_target(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
-                _print_repl_status(streamer)
-                continue
-            try:
-                _apply_repl_command(line, streamer)
-            except (ValueError, IndexError) as exc:
-                typer.echo(f"  ? {exc} (try 'h')")
-                continue
-            _print_repl_status(streamer)
-    except KeyboardInterrupt:
-        typer.echo("")
-    finally:
-        typer.echo("parking at REST and disabling...")
-        _park_and_disable(bus, streamer)
-        typer.echo("done (motors disabled).")
+    _run_arm_repl(channel, speed, clamp, velocity_mode=False)
 
 
 @app.command("send_jv")
 def cmd_send_jv(
-    duration: Annotated[
-        float, typer.Option("-d", "--duration", help="Duration to apply velocity (seconds).")
-    ] = _DEFAULT_JV_DURATION_S,
-    j1: Annotated[float, typer.Option("-j1", "--j1", help="Joint 1 velocity (rad/s).")] = 0.0,
-    j2: Annotated[float, typer.Option("-j2", "--j2", help="Joint 2 velocity (rad/s).")] = 0.0,
-    j3: Annotated[float, typer.Option("-j3", "--j3", help="Joint 3 velocity (rad/s).")] = 0.0,
-    j4: Annotated[float, typer.Option("-j4", "--j4", help="Joint 4 velocity (rad/s).")] = 0.0,
-    j5: Annotated[float, typer.Option("-j5", "--j5", help="Joint 5 velocity (rad/s).")] = 0.0,
-    j6: Annotated[float, typer.Option("-j6", "--j6", help="Joint 6 velocity (rad/s).")] = 0.0,
+    speed: Annotated[
+        float,
+        typer.Option(
+            "-s",
+            "--speed",
+            min=0.05,
+            max=_MAX_SEND_JP_SPEED_RAD_S,
+            help="Ramp speed for the 'rest' / home move (rad/s). Adjustable live with '-s <val>'.",
+        ),
+    ] = _DEFAULT_SEND_JP_SPEED_RAD_S,
     clamp: Annotated[
         float,
         typer.Option(
@@ -481,28 +517,20 @@ def cmd_send_jv(
             "--clamp",
             min=0.02,
             max=_MAX_SEND_JP_ERROR_CLAMP_RAD,
-            help="Command-error clamp (rad); per-joint torque ceiling is about kp*clamp. Raise if a heavy "
-            "joint can't move at the requested velocity.",
+            help="Command-error clamp (rad); torque ceiling ~ kp*clamp. Adjustable live with '-c <val>'.",
         ),
     ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Move each named joint at the given velocity for --duration seconds. PURE motion: opens the bus and
-    streams a torque-bounded MIT trajectory whose target advances at the requested per-joint velocity, then
-    holds -- it does NOT enable motors, clear errors, or change mode (run connect once first). This is a
-    velocity via a ramping MIT position target, so the other joints are held in place and torque stays
-    bounded, unlike the firmware VEL mode (whose integral term winds up on contact). Unspecified joints
-    stay put -- so -j6 0.3 -d 0.5 moves joint 6 only, ending 0.15 rad along.
+    Interactive joint-VELOCITY REPL -- the same continuously-streamed hold as send_jp, but each line sets
+    joint velocities instead of positions: '-j6 0.3' spins joint 6 at 0.3 rad/s, unset joints keep their
+    velocity. 'stop' zeroes velocity (freeze), 'rest' ramps home to 0, 'q' parks and exits. Velocity is a
+    ramping MIT position command under the same torque clamp, so it stays bounded and holds the other
+    joints (unlike firmware VEL). It is open-ended -- a joint keeps moving until you change it, so mind the
+    joint limits (the cli does not enforce them).
     """
-    velocities = np.array([j1, j2, j3, j4, j5, j6], dtype=np.float64)
-    bus = RebotB601DmBus(channel=channel)
-    typer.echo(f"opening {channel}...")
-    bus.connect(log_fn=_cli_log)
-    current, _ = bus.read_arm_state()
-    endpoint = current + velocities * duration
-    typer.echo(f"  velocities: {[f'{v:+0.4f}' for v in velocities]} for {duration:.3f} s, clamp {clamp:.3f} rad")
-    bus.move_arm_to(endpoint, "velocity endpoint", speed_rad_s=velocities, error_clamp_rad=clamp, log_fn=_cli_log)
+    _run_arm_repl(channel, speed, clamp, velocity_mode=True)
 
 
 @app.command("gripper")

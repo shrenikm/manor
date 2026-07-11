@@ -211,6 +211,17 @@ def gripper_motor_rad_s_to_width_m_s(motor_rad_s: float) -> float:
     return motor_rad_s * (REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M / REBOT_B601_DM_GRIPPER_MOTOR_OPEN_RAD)
 
 
+def _leash(commanded: np.ndarray, measured: np.ndarray, error_clamp_rad: float) -> np.ndarray:
+    """
+    The torque bound shared by every arm control path: clamp the commanded position to within
+    error_clamp_rad of the measured pose. Because the leashed value is what carries into the next tick, the
+    interpolant can never wind ahead of the arm (a blocked or sagging joint resumes at the commanded rate
+    when it frees instead of rushing), and MIT torque -- kp * (command - measured), no integrator -- stays
+    bounded at kp * error_clamp_rad.
+    """
+    return measured + np.clip(commanded - measured, -error_clamp_rad, error_clamp_rad)
+
+
 def _ramp_and_leash(
     interpolant: np.ndarray,
     target: np.ndarray,
@@ -219,16 +230,11 @@ def _ramp_and_leash(
     error_clamp_rad: float,
 ) -> np.ndarray:
     """
-    One tick of the shared MIT trajectory law used by both move_arm_to and the streamer: ramp the
-    interpolant toward the target by at most step, then leash it to within error_clamp_rad of the measured
-    pose. Because the leashed value is what carries into the next tick, the interpolant can never wind
-    ahead of the arm -- a joint that was blocked or sagging resumes at the ramp speed when it frees instead
-    of rushing to catch up -- and the returned command is always within error_clamp_rad of measured, so
-    torque is bounded at kp * error_clamp_rad (no integrator). The return value is both the next
-    interpolant and the position to command.
+    One position-mode tick: ramp the interpolant toward the target by at most step, then leash it. Returns
+    the next interpolant, which is also the position to command. Used by move_arm_to and the streamer's
+    position mode; the velocity mode advances by velocity * dt instead of ramping, then shares the same leash.
     """
-    interpolant = interpolant + np.clip(target - interpolant, -step, step)
-    return measured + np.clip(interpolant - measured, -error_clamp_rad, error_clamp_rad)
+    return _leash(interpolant + np.clip(target - interpolant, -step, step), measured, error_clamp_rad)
 
 
 @attr.define
@@ -598,17 +604,17 @@ class RebotB601DmBus:
 
 class RebotB601DmArmStreamer:
     """
-    Continuous MIT position streamer for the arm, driven on a background thread. It holds the arm at a
-    settable target -- ramping the commanded position toward the target at a bounded speed with the
-    per-tick command error clamped -- and NEVER stops streaming while running. That is what keeps the arm
-    alive: the DM firmware disables a motor a short time after commands stop arriving (a command-timeout
-    watchdog), so a one-shot command that streams then exits lets the arm drop, whereas this streamer keeps
-    the heartbeat going so the arm stays energized and holding, and moves smoothly whenever the target
-    changes. This is the interactive analogue of how aegis streams the production driver: hold the bus open
-    and keep commanding.
+    Continuous MIT streamer for the arm, driven on a background thread, that NEVER stops commanding while
+    running. That is what keeps the arm alive: the DM firmware disables a motor a short time after commands
+    stop arriving (a command-timeout watchdog), so a one-shot command that streams then exits lets the arm
+    drop, whereas this streamer keeps the heartbeat going so the arm stays energized and holding. This is
+    the interactive analogue of how aegis streams the production driver: hold the bus open and keep sending.
 
-    Assumes the arm is already enabled and in MIT mode (bring it up first). The owning thread is the only
-    one that touches the bus while running; call stop() (which joins the thread) before any other bus use.
+    Two modes share the same torque bound (_leash, at most kp * clamp): position mode ramps the interpolant
+    toward set_target at the speed limit; velocity mode advances it at set_velocity (rad/s). set_target,
+    set_velocity, and hold switch modes live. Assumes the arm is already enabled and in MIT mode (bring it
+    up first). The owning thread is the only one that touches the bus while running; call stop() (which
+    joins the thread) before any other bus use.
     """
 
     def __init__(
@@ -628,7 +634,9 @@ class RebotB601DmArmStreamer:
         positions, _ = bus.read_arm_state()
         # _interpolant is owned solely by the streaming thread; the rest is shared under _lock.
         self._interpolant = positions.copy()
+        self._velocity_mode = False
         self._target = positions.copy()
+        self._velocity = np.zeros_like(positions)
         self._measured = positions.copy()
         self._speed = float(speed_rad_s)
         self._clamp = float(error_clamp_rad)
@@ -642,11 +650,16 @@ class RebotB601DmArmStreamer:
     def _run(self) -> None:
         while not self._stop.is_set():
             with self._lock:
+                velocity_mode = self._velocity_mode
                 target = self._target.copy()
+                velocity = self._velocity.copy()
                 step = self._speed * self._dt
                 clamp = self._clamp
             measured, _ = self._bus.read_arm_state()
-            self._interpolant = _ramp_and_leash(self._interpolant, target, measured, step, clamp)
+            if velocity_mode:
+                self._interpolant = _leash(self._interpolant + velocity * self._dt, measured, clamp)
+            else:
+                self._interpolant = _ramp_and_leash(self._interpolant, target, measured, step, clamp)
             self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd)
             with self._lock:
                 self._measured = measured
@@ -654,7 +667,20 @@ class RebotB601DmArmStreamer:
 
     def set_target(self, target: np.ndarray) -> None:
         with self._lock:
+            self._velocity_mode = False
             self._target = np.asarray(target, dtype=np.float64).copy()
+
+    def set_velocity(self, velocity: np.ndarray) -> None:
+        with self._lock:
+            self._velocity_mode = True
+            self._velocity = np.asarray(velocity, dtype=np.float64).copy()
+
+    def hold(self) -> None:
+        # Freeze at the current pose: position mode targeting the measured position, zero velocity.
+        with self._lock:
+            self._velocity_mode = False
+            self._target = self._measured.copy()
+            self._velocity = np.zeros_like(self._velocity)
 
     def set_speed(self, speed_rad_s: float) -> None:
         with self._lock:
@@ -664,9 +690,16 @@ class RebotB601DmArmStreamer:
         with self._lock:
             self._clamp = float(error_clamp_rad)
 
-    def snapshot(self) -> tuple[np.ndarray, np.ndarray, float, float]:
+    def snapshot(self) -> tuple[bool, np.ndarray, np.ndarray, np.ndarray, float, float]:
         with self._lock:
-            return self._target.copy(), self._measured.copy(), self._speed, self._clamp
+            return (
+                self._velocity_mode,
+                self._target.copy(),
+                self._velocity.copy(),
+                self._measured.copy(),
+                self._speed,
+                self._clamp,
+            )
 
     def stop(self) -> None:
         self._stop.set()
