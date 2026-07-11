@@ -657,10 +657,15 @@ class RebotB601DmArmStreamer:
                 clamp = self._clamp
             measured, _ = self._bus.read_arm_state()
             if velocity_mode:
+                # Feed the commanded velocity as the MIT v_des so the kd term drives the joint TOWARD that
+                # velocity (kd * (v_des - v)) instead of damping it to zero. That needs far less position
+                # lead to hold the rate, so the velocity tracks more crisply. Position mode keeps v_des = 0
+                # (damp to a stop at the target).
                 self._interpolant = _leash(self._interpolant + velocity * self._dt, measured, clamp)
+                self._bus.send_arm_mit(self._interpolant, velocities=velocity, kp=self._kp, kd=self._kd)
             else:
                 self._interpolant = _ramp_and_leash(self._interpolant, target, measured, step, clamp)
-            self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd)
+                self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd)
             with self._lock:
                 self._measured = measured
             time.sleep(self._dt)
