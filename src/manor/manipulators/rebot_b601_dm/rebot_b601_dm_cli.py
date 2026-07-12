@@ -22,14 +22,14 @@ SAFETY NOTES
 Every gripper command goes through FORCE_POS with a torque ratio capped at
 REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX, and every arm motion goes through the torque-bounded MIT law (the
 commanded position is leashed within the command-error clamp of the measured pose, so torque stays
-bounded at kp * clamp, no integrator). send_jp / send_jv / float are interactive REPLs that bring the arm
-up, stream continuously so it never times out (the DM watchdog disables a motor once commands stop), and
-park at REST on exit -- send_jp sets joint positions, send_jv sets joint velocities, and float holds with
-soft gains plus a gravity-comp torque feedforward (g(q), from the Drake model) so the arm carries its own
-weight and backdrives freely. The feedforward is NOT bounded by the command-error clamp, so its scale ramps
-live from 0 ('-g <scale>') while you watch the droop shrink -- a wrong sign makes the arm sag harder, so
-support it. connect / rest / disconnect / limp are the one-shot bring-up / park / teardown. Do not bypass
-these with raw motorbridge calls unless you enjoy reprinting parts.
+bounded at kp * clamp, no integrator). send_jp / send_jv are interactive REPLs that bring the arm up,
+stream continuously so it never times out (the DM watchdog disables a motor once commands stop), and park
+at REST on exit -- send_jp sets joint positions, send_jv sets joint velocities. float is a pure
+gravity-compensation mode: it streams a scaled g(q) torque feedforward (from the Drake model) with NO
+position hold (kp = 0) plus light damping, so the arm carries its own weight and is moved around by hand;
+its scale is tuned live ('-g <scale>') until the arm hangs weightless, and it disables (goes limp) on exit,
+so support the arm. connect / rest / disconnect / limp are the one-shot bring-up / park / teardown. Do not
+bypass these with raw motorbridge calls unless you enjoy reprinting parts.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -50,8 +50,6 @@ from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJoi
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
 from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
-    REBOT_B601_DM_ARM_MIT_STREAM_KD,
-    REBOT_B601_DM_ARM_MIT_STREAM_KP,
     REBOT_B601_DM_DEFAULT_CHANNEL,
     REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
@@ -92,6 +90,13 @@ _DISCONNECT_REST_TOLERANCE_RAD = 0.2
 # (below 1, absorbing geartrain friction / model error) gets passed explicitly with --tau-scale once found.
 _DEFAULT_TAU_SCALE = 0.0
 _MAX_TAU_SCALE = 1.5
+
+# Float-mode gains: NO position stiffness (kp = 0), so the arm holds no target and the scaled g(q)
+# feedforward is the only thing carrying its weight -- that is exactly what makes the scale tunable by feel.
+# kd is light velocity damping so the arm settles instead of drifting or twitching when released. Starting
+# point; tune on hardware.
+_FLOAT_MIT_KP: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+_FLOAT_MIT_KD: tuple[float, ...] = (5.0, 5.0, 5.0, 1.0, 1.0, 1.0)
 
 
 def _cli_log(message: str) -> None:
@@ -401,6 +406,80 @@ def _run_arm_repl(
         typer.echo("done (motors disabled).")
 
 
+def _print_float_status(streamer: RebotB601DmArmStreamer) -> None:
+    state = streamer.snapshot()
+    typer.echo(
+        "  measured " + " ".join(f"{v:+0.3f}" for v in state.measured) + f"   (grav scale {state.tau_scale:.2f})"
+    )
+
+
+def _run_float_repl(channel: str, tau_scale: float) -> None:
+    """
+    Pure gravity-compensation float. Brings the arm up, then streams ONLY a scaled g(q) torque feedforward
+    plus light velocity damping -- no position hold (kp = 0) -- so the arm carries its own weight and is
+    moved around by hand as if it were floating. Tune the scale live with '-g <scale>': below the right
+    value the arm sinks under its weight, above it drifts upward, and at it the arm hangs weightless wherever
+    it is left. 'q' disables the motors (the arm goes limp, so support it) and exits.
+    """
+    typer.echo("building gravity model (Drake)...")
+    gravity_model = RebotB601DmGravityModel()
+    gravity_model.warm()
+    bus = RebotB601DmBus(channel=channel)
+    typer.echo(f"opening {channel} and bringing up...")
+    _energize_and_hold(bus)
+    streamer = RebotB601DmArmStreamer(
+        bus,
+        kp=np.asarray(_FLOAT_MIT_KP, dtype=np.float64),
+        kd=np.asarray(_FLOAT_MIT_KD, dtype=np.float64),
+        gravity_model=gravity_model,
+        tau_scale=tau_scale,
+    )
+    streamer.start()
+    typer.echo(
+        f"FLOATING with gravity comp at scale {tau_scale:.2f}. SUPPORT THE ARM -- with no position hold it "
+        f"is carried ONLY by the feedforward, so at scale 0 it is effectively limp."
+    )
+    typer.echo(
+        "  '-g <scale>' to tune (arm sinks if low, rises if high, hangs weightless when right), 'p' state, "
+        "'h' help, 'q' quit."
+    )
+    try:
+        while True:
+            try:
+                line = input("float> ").strip()
+            except EOFError:
+                break
+            if line in ("q", "quit", "exit"):
+                break
+            if line in ("", "p", "?"):
+                _print_float_status(streamer)
+                continue
+            if line in ("h", "help"):
+                typer.echo(
+                    "  -g <scale>               set the gravity-comp feedforward scale (the tuning knob)\n"
+                    "  p / <enter>              print measured pose + scale\n"
+                    "  q / quit                 disable motors and exit (support the arm first)"
+                )
+                continue
+            tokens = line.split()
+            try:
+                if len(tokens) == 2 and tokens[0] in ("-g", "--gravity-scale"):
+                    streamer.set_tau_scale(float(tokens[1]))
+                else:
+                    raise ValueError(f"unknown command '{line}'")
+            except ValueError as exc:
+                typer.echo(f"  ? {exc} (try 'h')")
+                continue
+            _print_float_status(streamer)
+    except KeyboardInterrupt:
+        typer.echo("")
+    finally:
+        typer.echo("SUPPORT THE ARM -- stopping float and disabling.")
+        streamer.stop()
+        bus.disable_all(log_fn=_cli_log)
+        typer.echo("done (motors disabled).")
+
+
 # --- CLI --------------------------------------------------------------------
 
 app = typer.Typer(
@@ -663,42 +742,25 @@ def cmd_float(
     tau_scale: Annotated[
         float,
         typer.Option(
+            "-g",
             "--tau-scale",
             min=0.0,
             max=_MAX_TAU_SCALE,
-            help="Initial gravity-comp feedforward scale. Starts at 0; ramp up live with '-g'.",
+            help="Initial gravity-comp feedforward scale (0 = limp; tune live with '-g <scale>').",
         ),
     ] = _DEFAULT_TAU_SCALE,
-    clamp: Annotated[
-        float,
-        typer.Option(
-            "-c",
-            "--clamp",
-            min=0.02,
-            max=_MAX_SEND_JP_ERROR_CLAMP_RAD,
-            help="Command-error clamp (rad); position-loop torque ceiling ~ kp*clamp. Adjustable live with '-c'.",
-        ),
-    ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
-    Gravity-compensation float -- the isolated gravity-comp test bench. Brings the arm up, holds the current
-    pose with SOFT (streaming) gains, and adds a g(q) torque feedforward so the arm carries its own weight
-    and backdrives freely. The feedforward starts at scale 0 (the soft leashed position loop alone cannot
-    hold the arm, so it droops); SUPPORT THE ARM, then ramp the scale up with '-g <scale>' toward 1.0. The
-    droop shrinks toward zero when g(q) has the right sign; if it sags harder the sign is wrong -- set
-    '-g 0'. '-jN' still retargets joints, 'stop'/'rest' as usual, 'q' parks at REST and exits.
+    Pure gravity-compensation float: the arm actively carries its own weight (a scaled g(q) torque
+    feedforward) with NO position hold (kp = 0), so you can move it around by hand as if it were floating in
+    space. This is the gravity-comp test bench. Start at scale 0 (the arm is limp, only lightly damped --
+    SUPPORT IT) and raise the scale with '-g <scale>' until the arm hangs weightless wherever you leave it:
+    below the right value it sinks under its own weight, above it drifts upward. That best-float scale (a bit
+    under 1, the remainder lost to geartrain friction) is what gets baked into the driver. 'q' disables and
+    exits.
     """
-    _run_arm_repl(
-        channel,
-        _DEFAULT_SEND_JP_SPEED_RAD_S,
-        clamp,
-        velocity_mode=False,
-        gravity=True,
-        tau_scale=tau_scale,
-        kp=np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KP, dtype=np.float64),
-        kd=np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KD, dtype=np.float64),
-    )
+    _run_float_repl(channel, tau_scale)
 
 
 @app.command("gripper")
