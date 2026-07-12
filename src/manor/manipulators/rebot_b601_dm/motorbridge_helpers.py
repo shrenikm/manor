@@ -35,6 +35,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import attr
 import numpy as np
@@ -50,6 +51,11 @@ from motorbridge import (
 
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
+
+if TYPE_CHECKING:
+    # Imported for typing only: the gravity model pulls in Drake, which we do not want to load just to
+    # import the motor-bus helpers (the driver and tests import this module without any Drake dependency).
+    from manor.manipulators.rebot_b601_dm.gravity import RebotB601DmGravityModel
 
 LogFn = Callable[[str], None]
 
@@ -455,12 +461,16 @@ class RebotB601DmBus:
         velocities: np.ndarray | None = None,
         kp: np.ndarray | None = None,
         kd: np.ndarray | None = None,
+        tau: np.ndarray | None = None,
     ) -> None:
         """
         Stream MIT impedance commands to the arm joints: per-joint torque = kp * (p_des - p) +
-        kd * (v_des - v), saturated at the motor's max torque. No integrator, so bounding the commanded
-        position error bounds the torque. Requires the arm to already be in MIT mode. kp / kd default to
-        the LeRobot streaming gains; velocities default to zero.
+        kd * (v_des - v) + tau, saturated at the motor's max torque. No integrator, so bounding the
+        commanded position error bounds the position-loop torque. Requires the arm to already be in MIT
+        mode. kp / kd default to the LeRobot streaming gains; velocities and tau default to zero. tau is a
+        per-joint feedforward torque (output-side N*m) used for gravity compensation -- unlike the position
+        loop it is NOT bounded by the command-error clamp, so it is the caller's responsibility to keep it
+        to a physically sane hold torque (e.g. a scaled g(q)).
         """
         if velocities is None:
             velocities = np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64)
@@ -468,6 +478,8 @@ class RebotB601DmBus:
             kp = np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KP, dtype=np.float64)
         if kd is None:
             kd = np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KD, dtype=np.float64)
+        if tau is None:
+            tau = np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64)
         for i, spec in enumerate(self.arm_specs):
             try:
                 self._motor(spec.name).send_mit(
@@ -475,7 +487,7 @@ class RebotB601DmBus:
                     float(velocities[i]),
                     float(kp[i]),
                     float(kd[i]),
-                    0.0,
+                    float(tau[i]),
                 )
             except CallError as exc:
                 raise MotorBridgeCallError(f"send_mit failed for motor {spec.name!r}: {exc}") from exc
@@ -602,6 +614,24 @@ class RebotB601DmBus:
         return self._controller
 
 
+@attr.frozen
+class RebotB601DmStreamerState:
+    """
+    A snapshot of the arm streamer's live control settings, returned by RebotB601DmArmStreamer.snapshot for
+    status display. gravity_enabled reflects whether a gravity model is attached; tau_scale is only applied
+    when it is.
+    """
+
+    velocity_mode: bool
+    target: np.ndarray
+    velocity: np.ndarray
+    measured: np.ndarray
+    speed: float
+    clamp: float
+    gravity_enabled: bool
+    tau_scale: float
+
+
 class RebotB601DmArmStreamer:
     """
     Continuous MIT streamer for the arm, driven on a background thread, that NEVER stops commanding while
@@ -623,11 +653,19 @@ class RebotB601DmArmStreamer:
         speed_rad_s: float = REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
         error_clamp_rad: float = _MOVE_ERROR_CLAMP_RAD,
         rate_hz: float = _CONFIGURATION_MOVE_SEND_RATE_HZ,
+        kp: np.ndarray | None = None,
+        kd: np.ndarray | None = None,
+        gravity_model: RebotB601DmGravityModel | None = None,
+        tau_scale: float = 0.0,
     ) -> None:
         self._bus = bus
         self._dt = 1.0 / rate_hz
-        self._kp = np.asarray(_MOVE_MIT_KP, dtype=np.float64)
-        self._kd = np.asarray(_MOVE_MIT_KD, dtype=np.float64)
+        self._kp = np.asarray(_MOVE_MIT_KP if kp is None else kp, dtype=np.float64)
+        self._kd = np.asarray(_MOVE_MIT_KD if kd is None else kd, dtype=np.float64)
+        # Optional gravity feedforward. hold_torque(measured) is added to the MIT tau each tick, scaled by
+        # the live tau_scale (0 disables it); the streaming thread is the only caller, so no locking of the
+        # model is needed.
+        self._gravity_model = gravity_model
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -640,6 +678,7 @@ class RebotB601DmArmStreamer:
         self._measured = positions.copy()
         self._speed = float(speed_rad_s)
         self._clamp = float(error_clamp_rad)
+        self._tau_scale = float(tau_scale)
 
     def start(self) -> None:
         if self._thread is not None:
@@ -655,17 +694,21 @@ class RebotB601DmArmStreamer:
                 velocity = self._velocity.copy()
                 step = self._speed * self._dt
                 clamp = self._clamp
+                tau_scale = self._tau_scale
             measured, _ = self._bus.read_arm_state()
+            # Gravity feedforward at the measured pose (None when no model is attached, so send_arm_mit
+            # defaults tau to zero and the behaviour is exactly the pre-gravity-comp streamer).
+            tau = None if self._gravity_model is None else tau_scale * self._gravity_model.hold_torque(measured)
             if velocity_mode:
                 # Feed the commanded velocity as the MIT v_des so the kd term drives the joint TOWARD that
                 # velocity (kd * (v_des - v)) instead of damping it to zero. That needs far less position
                 # lead to hold the rate, so the velocity tracks more crisply. Position mode keeps v_des = 0
                 # (damp to a stop at the target).
                 self._interpolant = _leash(self._interpolant + velocity * self._dt, measured, clamp)
-                self._bus.send_arm_mit(self._interpolant, velocities=velocity, kp=self._kp, kd=self._kd)
+                self._bus.send_arm_mit(self._interpolant, velocities=velocity, kp=self._kp, kd=self._kd, tau=tau)
             else:
                 self._interpolant = _ramp_and_leash(self._interpolant, target, measured, step, clamp)
-                self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd)
+                self._bus.send_arm_mit(self._interpolant, kp=self._kp, kd=self._kd, tau=tau)
             with self._lock:
                 self._measured = measured
             time.sleep(self._dt)
@@ -695,15 +738,23 @@ class RebotB601DmArmStreamer:
         with self._lock:
             self._clamp = float(error_clamp_rad)
 
-    def snapshot(self) -> tuple[bool, np.ndarray, np.ndarray, np.ndarray, float, float]:
+    def set_tau_scale(self, tau_scale: float) -> None:
+        # Live scale on the gravity feedforward. Stored unconditionally; it only takes effect when a gravity
+        # model is attached (otherwise the streamer commands tau = 0 regardless).
         with self._lock:
-            return (
-                self._velocity_mode,
-                self._target.copy(),
-                self._velocity.copy(),
-                self._measured.copy(),
-                self._speed,
-                self._clamp,
+            self._tau_scale = float(tau_scale)
+
+    def snapshot(self) -> RebotB601DmStreamerState:
+        with self._lock:
+            return RebotB601DmStreamerState(
+                velocity_mode=self._velocity_mode,
+                target=self._target.copy(),
+                velocity=self._velocity.copy(),
+                measured=self._measured.copy(),
+                speed=self._speed,
+                clamp=self._clamp,
+                gravity_enabled=self._gravity_model is not None,
+                tau_scale=self._tau_scale,
             )
 
     def stop(self) -> None:

@@ -22,11 +22,14 @@ SAFETY NOTES
 Every gripper command goes through FORCE_POS with a torque ratio capped at
 REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX, and every arm motion goes through the torque-bounded MIT law (the
 commanded position is leashed within the command-error clamp of the measured pose, so torque stays
-bounded at kp * clamp, no integrator). send_jp / send_jv are interactive REPLs that bring the arm up,
-stream continuously so it never times out (the DM watchdog disables a motor once commands stop), and park
-at REST on exit -- send_jp sets joint positions, send_jv sets joint velocities. connect / rest / disconnect
-/ limp are the one-shot bring-up / park / teardown. Do not bypass these with raw motorbridge calls unless
-you enjoy reprinting parts.
+bounded at kp * clamp, no integrator). send_jp / send_jv / float are interactive REPLs that bring the arm
+up, stream continuously so it never times out (the DM watchdog disables a motor once commands stop), and
+park at REST on exit -- send_jp sets joint positions, send_jv sets joint velocities, and float holds with
+soft gains plus a gravity-comp torque feedforward (g(q), from the Drake model) so the arm carries its own
+weight and backdrives freely. The feedforward is NOT bounded by the command-error clamp, so its scale ramps
+live from 0 ('-g <scale>') while you watch the droop shrink -- a wrong sign makes the arm sag harder, so
+support it. connect / rest / disconnect / limp are the one-shot bring-up / park / teardown. Do not bypass
+these with raw motorbridge calls unless you enjoy reprinting parts.
 * The all-zero pose (REST) is the vendor home: arm horizontal / sit-down, gripper closed. Joints 2 and 3
 sit at their limit there. Motor zero offsets are volatile per session on this arm -- if positions look wrong
 at connect, run the zero command with the arm physically held at the home pose.
@@ -42,10 +45,13 @@ import numpy as np
 import typer
 from motorbridge import Mode
 
+from manor.manipulators.rebot_b601_dm.gravity import RebotB601DmGravityModel
 from manor.manipulators.rebot_b601_dm.joint_configurations import RebotB601DmJointConfiguration
 from manor.manipulators.rebot_b601_dm.model import REBOT_B601_DM_ARM_DOF
 from manor.manipulators.rebot_b601_dm.motorbridge_helpers import (
     REBOT_B601_DM_ARM_CONFIGURATION_MOVE_SPEED_RAD_S,
+    REBOT_B601_DM_ARM_MIT_STREAM_KD,
+    REBOT_B601_DM_ARM_MIT_STREAM_KP,
     REBOT_B601_DM_DEFAULT_CHANNEL,
     REBOT_B601_DM_GRIPPER_MEASURED_OPEN_WIDTH_M,
     REBOT_B601_DM_GRIPPER_TORQUE_RATIO_MAX,
@@ -79,6 +85,13 @@ _MAX_SEND_JP_ERROR_CLAMP_RAD = 0.25
 # How far from REST the arm may be for disconnect to disable without asking. Beyond this the backdrivable,
 # brakeless DM joints will fall under gravity when torque drops.
 _DISCONNECT_REST_TOLERANCE_RAD = 0.2
+
+# Gravity-compensation feedforward scale. Starts at 0 everywhere so the sign is validated on hardware by
+# ramping it up (live, with '-g <scale>'): the droop shrinks toward zero if g(q) has the right sign and
+# grows if it is flipped, and the leashed position loop bounds the arm either way. A tuned working value
+# (below 1, absorbing geartrain friction / model error) gets passed explicitly with --tau-scale once found.
+_DEFAULT_TAU_SCALE = 0.0
+_MAX_TAU_SCALE = 1.5
 
 
 def _cli_log(message: str) -> None:
@@ -155,7 +168,7 @@ for _j in range(REBOT_B601_DM_ARM_DOF):
 _REPL_PARK_TIMEOUT_S = 8.0
 
 
-def _repl_help(velocity_mode: bool) -> str:
+def _repl_help(velocity_mode: bool, gravity_enabled: bool) -> str:
     if velocity_mode:
         head = [
             "  -jN <rad/s> ... -d <s>   move joint(s) at velocity for <s> seconds then stop, e.g.",
@@ -166,12 +179,20 @@ def _repl_help(velocity_mode: bool) -> str:
             "  -jN <rad> ...            retarget joint(s), e.g. '-j3 -0.3 -j4 0.0' (unset joints keep theirs)",
             "  -s <rad/s>               ramp speed",
         ]
+    gravity_line = (
+        ["  -g <scale>               gravity-comp feedforward scale (ramp up from 0 to engage)"]
+        if gravity_enabled
+        else []
+    )
     return "\n".join(
         head
         + [
             "  stop                     freeze the arm where it is",
             "  rest                     ramp every joint home to 0",
             "  -c <rad>                 command-error clamp (torque ceiling ~ kp*clamp)",
+        ]
+        + gravity_line
+        + [
             "  p / <enter>              print state",
             "  h / help                 show this help",
             "  q / quit                 park at REST, disable, and exit",
@@ -180,23 +201,30 @@ def _repl_help(velocity_mode: bool) -> str:
 
 
 def _print_repl_status(streamer: RebotB601DmArmStreamer) -> None:
-    velocity_mode, target, velocity, measured, speed, clamp = streamer.snapshot()
-    if velocity_mode:
-        typer.echo("  velocity " + " ".join(f"{v:+0.3f}" for v in velocity) + "  rad/s")
+    state = streamer.snapshot()
+    if state.velocity_mode:
+        typer.echo("  velocity " + " ".join(f"{v:+0.3f}" for v in state.velocity) + "  rad/s")
     else:
-        typer.echo("  target   " + " ".join(f"{v:+0.3f}" for v in target))
-    typer.echo("  measured " + " ".join(f"{v:+0.3f}" for v in measured) + f"   (speed {speed:.2f}, clamp {clamp:.3f})")
+        typer.echo("  target   " + " ".join(f"{v:+0.3f}" for v in state.target))
+    settings = f"speed {state.speed:.2f}, clamp {state.clamp:.3f}"
+    if state.gravity_enabled:
+        settings += f", grav {state.tau_scale:.2f}"
+    typer.echo("  measured " + " ".join(f"{v:+0.3f}" for v in state.measured) + f"   ({settings})")
 
 
-def _parse_repl_tokens(tokens: list[str]) -> tuple[dict[int, float], float | None, float | None, float | None]:
+def _parse_repl_tokens(
+    tokens: list[str],
+) -> tuple[dict[int, float], float | None, float | None, float | None, float | None]:
     """
-    Parse REPL '-jN val' / '-s val' / '-c val' / '-d val' pairs into (joint_values, speed, clamp, duration).
-    A flag with no value, or an unrecognised token, raises ValueError.
+    Parse REPL '-jN val' / '-s val' / '-c val' / '-d val' / '-g val' pairs into
+    (joint_values, speed, clamp, duration, tau_scale). A flag with no value, or an unrecognised token,
+    raises ValueError.
     """
     joint_values: dict[int, float] = {}
     speed: float | None = None
     clamp: float | None = None
     duration: float | None = None
+    tau_scale: float | None = None
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -211,27 +239,30 @@ def _parse_repl_tokens(tokens: list[str]) -> tuple[dict[int, float], float | Non
             clamp = value
         elif token in ("-d", "--duration"):
             duration = value
+        elif token in ("-g", "--gravity-scale"):
+            tau_scale = value
         else:
             raise ValueError(f"unknown token '{token}'")
         i += 2
-    return joint_values, speed, clamp, duration
+    return joint_values, speed, clamp, duration, tau_scale
 
 
 def _apply_position_command(line: str, streamer: RebotB601DmArmStreamer) -> None:
     """
-    Position REPL line: retarget the named joints (others keep their target); -s / -c adjust the ramp speed
-    and command-error clamp live.
+    Position REPL line: retarget the named joints (others keep their target); -s / -c / -g adjust the ramp
+    speed, command-error clamp, and gravity-comp scale live.
     """
-    joint_values, speed, clamp, duration = _parse_repl_tokens(line.split())
+    joint_values, speed, clamp, duration, tau_scale = _parse_repl_tokens(line.split())
     if duration is not None:
         raise ValueError("-d (duration) is only for the velocity repl")
     if speed is not None:
         streamer.set_speed(speed)
     if clamp is not None:
         streamer.set_clamp(clamp)
+    if tau_scale is not None:
+        streamer.set_tau_scale(tau_scale)
     if joint_values:
-        _velocity_mode, target, _velocity, _measured, _speed, _clamp = streamer.snapshot()
-        target = target.copy()
+        target = streamer.snapshot().target.copy()
         for index, value in joint_values.items():
             target[index] = value
         streamer.set_target(target)
@@ -241,14 +272,16 @@ def _apply_velocity_pulse(line: str, streamer: RebotB601DmArmStreamer) -> None:
     """
     Velocity REPL line: move the named joints at their velocities for -d seconds, then freeze. A duration is
     REQUIRED so a joint can never run open-ended into a limit (or the cameras). Each pulse starts from zero,
-    so only the named joints move; -c adjusts the clamp. The wait blocks the prompt while the arm streams;
-    Ctrl-C ends the pulse early and freezes, without leaving the repl.
+    so only the named joints move; -c adjusts the clamp and -g the gravity-comp scale. The wait blocks the
+    prompt while the arm streams; Ctrl-C ends the pulse early and freezes, without leaving the repl.
     """
-    joint_values, speed, clamp, duration = _parse_repl_tokens(line.split())
+    joint_values, speed, clamp, duration, tau_scale = _parse_repl_tokens(line.split())
     if speed is not None:
         raise ValueError("no -s in the velocity repl -- the -jN values are the velocities")
     if clamp is not None:
         streamer.set_clamp(clamp)
+    if tau_scale is not None:
+        streamer.set_tau_scale(tau_scale)
     if not joint_values:
         return
     if duration is None or duration <= 0.0:
@@ -278,28 +311,57 @@ def _park_and_disable(bus: RebotB601DmBus, streamer: RebotB601DmArmStreamer) -> 
     streamer.set_target(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
     deadline = time.monotonic() + _REPL_PARK_TIMEOUT_S
     while time.monotonic() < deadline:
-        _velocity_mode, _target, _velocity, measured, _speed, _clamp = streamer.snapshot()
-        if float(np.max(np.abs(measured))) < 0.05:
+        if float(np.max(np.abs(streamer.snapshot().measured))) < 0.05:
             break
         time.sleep(0.05)
     streamer.stop()
     bus.disable_all(log_fn=_cli_log)
 
 
-def _run_arm_repl(channel: str, speed: float, clamp: float, velocity_mode: bool) -> None:
+def _run_arm_repl(
+    channel: str,
+    speed: float,
+    clamp: float,
+    velocity_mode: bool,
+    gravity: bool = False,
+    tau_scale: float = _DEFAULT_TAU_SCALE,
+    kp: np.ndarray | None = None,
+    kd: np.ndarray | None = None,
+) -> None:
     """
-    Shared interactive REPL for send_jp (position) and send_jv (velocity). Brings the arm up once, then a
-    background streamer holds and moves it continuously so it never times out; each line retargets joints
-    (position) or sets joint velocities (velocity). Parks at REST and disables on exit.
+    Shared interactive REPL for send_jp (position), send_jv (velocity), and float (gravity-comp hold).
+    Brings the arm up once, then a background streamer holds and moves it continuously so it never times
+    out; each line retargets joints (position) or sets joint velocities (velocity). When gravity is set the
+    streamer adds a g(q) feedforward scaled by tau_scale (live via '-g'), with kp / kd overriding the
+    default move gains (float uses the soft streaming gains). Parks at REST and disables on exit.
     """
+    gravity_model: RebotB601DmGravityModel | None = None
+    if gravity:
+        typer.echo("building gravity model (Drake)...")
+        gravity_model = RebotB601DmGravityModel()
+        gravity_model.warm()
     bus = RebotB601DmBus(channel=channel)
     typer.echo(f"opening {channel} and bringing up...")
     _energize_and_hold(bus)
-    streamer = RebotB601DmArmStreamer(bus, speed_rad_s=speed, error_clamp_rad=clamp)
+    streamer = RebotB601DmArmStreamer(
+        bus,
+        speed_rad_s=speed,
+        error_clamp_rad=clamp,
+        kp=kp,
+        kd=kd,
+        gravity_model=gravity_model,
+        tau_scale=tau_scale,
+    )
     streamer.start()
     prompt = "jv> " if velocity_mode else "jp> "
     move_hint = "'-jN <rad/s> -d <s>' to pulse a joint" if velocity_mode else "'-jN <rad>' to move a joint"
     typer.echo(f"streaming (arm held). {move_hint}, 'rest' home, 'stop' freeze, 'h' help, 'q' quit.")
+    if gravity_model is not None:
+        typer.echo(
+            f"  gravity comp ON (scale {tau_scale:.2f}). SUPPORT THE ARM, then ramp up slowly with "
+            f"'-g <scale>' toward 1.0: the droop should shrink -- if it sags harder the sign is wrong, "
+            f"set '-g 0'."
+        )
     try:
         while True:
             try:
@@ -312,7 +374,7 @@ def _run_arm_repl(channel: str, speed: float, clamp: float, velocity_mode: bool)
                 _print_repl_status(streamer)
                 continue
             if line in ("h", "help"):
-                typer.echo(_repl_help(velocity_mode))
+                typer.echo(_repl_help(velocity_mode, gravity_model is not None))
                 continue
             if line == "rest":
                 streamer.set_target(np.zeros(REBOT_B601_DM_ARM_DOF, dtype=np.float64))
@@ -541,6 +603,22 @@ def cmd_send_jp(
             help="Command-error clamp (rad); torque ceiling ~ kp*clamp. Adjustable live with '-c <val>'.",
         ),
     ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
+    gravity: Annotated[
+        bool,
+        typer.Option(
+            "--gravity/--no-gravity",
+            help="Add a gravity-comp torque feedforward on top of the position hold (ramp its scale live with '-g').",
+        ),
+    ] = False,
+    tau_scale: Annotated[
+        float,
+        typer.Option(
+            "--tau-scale",
+            min=0.0,
+            max=_MAX_TAU_SCALE,
+            help="Initial gravity-comp feedforward scale (0 = off; ramp up live with '-g'). Needs --gravity.",
+        ),
+    ] = _DEFAULT_TAU_SCALE,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
@@ -549,9 +627,10 @@ def cmd_send_jp(
     smoothly whenever you retarget a joint, exactly how aegis streams the production driver. Type
     '-jN <rad>' to retarget joints (unset joints keep their target), 'rest' to home, 'stop' to freeze,
     'h' for help, 'q' to park at REST and exit. Holding the bus open the whole session is why this works
-    where one-shot commands drop the arm.
+    where one-shot commands drop the arm. Pass --gravity to add the g(q) feedforward (stiff move gains stay,
+    so it just reduces sag); for the soft backdrivable float test use the 'float' command instead.
     """
-    _run_arm_repl(channel, speed, clamp, velocity_mode=False)
+    _run_arm_repl(channel, speed, clamp, velocity_mode=False, gravity=gravity, tau_scale=tau_scale)
 
 
 @app.command("send_jv")
@@ -577,6 +656,49 @@ def cmd_send_jv(
     VEL). The home / rest ramp uses the default move speed.
     """
     _run_arm_repl(channel, _DEFAULT_SEND_JP_SPEED_RAD_S, clamp, velocity_mode=True)
+
+
+@app.command("float")
+def cmd_float(
+    tau_scale: Annotated[
+        float,
+        typer.Option(
+            "--tau-scale",
+            min=0.0,
+            max=_MAX_TAU_SCALE,
+            help="Initial gravity-comp feedforward scale. Starts at 0; ramp up live with '-g'.",
+        ),
+    ] = _DEFAULT_TAU_SCALE,
+    clamp: Annotated[
+        float,
+        typer.Option(
+            "-c",
+            "--clamp",
+            min=0.02,
+            max=_MAX_SEND_JP_ERROR_CLAMP_RAD,
+            help="Command-error clamp (rad); position-loop torque ceiling ~ kp*clamp. Adjustable live with '-c'.",
+        ),
+    ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
+    channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
+) -> None:
+    """
+    Gravity-compensation float -- the isolated gravity-comp test bench. Brings the arm up, holds the current
+    pose with SOFT (streaming) gains, and adds a g(q) torque feedforward so the arm carries its own weight
+    and backdrives freely. The feedforward starts at scale 0 (the soft leashed position loop alone cannot
+    hold the arm, so it droops); SUPPORT THE ARM, then ramp the scale up with '-g <scale>' toward 1.0. The
+    droop shrinks toward zero when g(q) has the right sign; if it sags harder the sign is wrong -- set
+    '-g 0'. '-jN' still retargets joints, 'stop'/'rest' as usual, 'q' parks at REST and exits.
+    """
+    _run_arm_repl(
+        channel,
+        _DEFAULT_SEND_JP_SPEED_RAD_S,
+        clamp,
+        velocity_mode=False,
+        gravity=True,
+        tau_scale=tau_scale,
+        kp=np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KP, dtype=np.float64),
+        kd=np.asarray(REBOT_B601_DM_ARM_MIT_STREAM_KD, dtype=np.float64),
+    )
 
 
 @app.command("gripper")
