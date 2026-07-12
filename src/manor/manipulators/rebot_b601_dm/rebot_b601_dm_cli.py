@@ -84,11 +84,13 @@ _MAX_SEND_JP_ERROR_CLAMP_RAD = 0.25
 # brakeless DM joints will fall under gravity when torque drops.
 _DISCONNECT_REST_TOLERANCE_RAD = 0.2
 
-# Gravity-compensation feedforward scale. Starts at 0 everywhere so the sign is validated on hardware by
-# ramping it up (live, with '-g <scale>'): the droop shrinks toward zero if g(q) has the right sign and
-# grows if it is flipped, and the leashed position loop bounds the arm either way. A tuned working value
-# (below 1, absorbing geartrain friction / model error) gets passed explicitly with --tau-scale once found.
+# Gravity-compensation feedforward scale (tau = scale * g(q); tunable live with '-g <scale>'). The Drake
+# model is exact, so scale ~1 is the physical value; the small excess that holds best on hardware (validated
+# ~1.1) covers the unmodeled wrist payload (camera + wires). send_jp / send_jv default gravity comp ON at the
+# validated scale so it is active for all real work; float starts at 0 (limp) because its job is to re-find
+# that scale from a neutral baseline. --no-gravity, or '-g 0' live, turns the feedforward off.
 _DEFAULT_TAU_SCALE = 0.0
+_DEFAULT_GRAVITY_TAU_SCALE = 1.1
 _MAX_TAU_SCALE = 1.5
 
 # Float-mode gains: NO position stiffness (kp = 0), so the arm holds no target and the scaled g(q)
@@ -362,11 +364,7 @@ def _run_arm_repl(
     move_hint = "'-jN <rad/s> -d <s>' to pulse a joint" if velocity_mode else "'-jN <rad>' to move a joint"
     typer.echo(f"streaming (arm held). {move_hint}, 'rest' home, 'stop' freeze, 'h' help, 'q' quit.")
     if gravity_model is not None:
-        typer.echo(
-            f"  gravity comp ON (scale {tau_scale:.2f}). SUPPORT THE ARM, then ramp up slowly with "
-            f"'-g <scale>' toward 1.0: the droop should shrink -- if it sags harder the sign is wrong, "
-            f"set '-g 0'."
-        )
+        typer.echo(f"  gravity comp ON (scale {tau_scale:.2f}); adjust live with '-g <scale>', '-g 0' to disable.")
     try:
         while True:
             try:
@@ -686,18 +684,18 @@ def cmd_send_jp(
         bool,
         typer.Option(
             "--gravity/--no-gravity",
-            help="Add a gravity-comp torque feedforward on top of the position hold (ramp its scale live with '-g').",
+            help="g(q) feedforward so the arm holds without sag. On by default; scale live with '-g'.",
         ),
-    ] = False,
+    ] = True,
     tau_scale: Annotated[
         float,
         typer.Option(
             "--tau-scale",
             min=0.0,
             max=_MAX_TAU_SCALE,
-            help="Initial gravity-comp feedforward scale (0 = off; ramp up live with '-g'). Needs --gravity.",
+            help="Gravity-comp feedforward scale (tau = scale * g(q)); adjustable live with '-g'.",
         ),
-    ] = _DEFAULT_TAU_SCALE,
+    ] = _DEFAULT_GRAVITY_TAU_SCALE,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
@@ -706,8 +704,9 @@ def cmd_send_jp(
     smoothly whenever you retarget a joint, exactly how aegis streams the production driver. Type
     '-jN <rad>' to retarget joints (unset joints keep their target), 'rest' to home, 'stop' to freeze,
     'h' for help, 'q' to park at REST and exit. Holding the bus open the whole session is why this works
-    where one-shot commands drop the arm. Pass --gravity to add the g(q) feedforward (stiff move gains stay,
-    so it just reduces sag); for the soft backdrivable float test use the 'float' command instead.
+    where one-shot commands drop the arm. Gravity comp is ON by default (a g(q) torque feedforward, scale
+    tuned live with '-g'), so the arm holds accurately without sag even in gravity-heavy poses; --no-gravity
+    disables it. For the soft backdrivable float test use the 'float' command instead.
     """
     _run_arm_repl(channel, speed, clamp, velocity_mode=False, gravity=gravity, tau_scale=tau_scale)
 
@@ -724,6 +723,22 @@ def cmd_send_jv(
             help="Command-error clamp (rad); torque ceiling ~ kp*clamp. Adjustable live with '-c <val>'.",
         ),
     ] = _DEFAULT_SEND_JP_ERROR_CLAMP_RAD,
+    gravity: Annotated[
+        bool,
+        typer.Option(
+            "--gravity/--no-gravity",
+            help="g(q) feedforward so the arm holds without sag. On by default; scale live with '-g'.",
+        ),
+    ] = True,
+    tau_scale: Annotated[
+        float,
+        typer.Option(
+            "--tau-scale",
+            min=0.0,
+            max=_MAX_TAU_SCALE,
+            help="Gravity-comp feedforward scale (tau = scale * g(q)); adjustable live with '-g'.",
+        ),
+    ] = _DEFAULT_GRAVITY_TAU_SCALE,
     channel: Annotated[str, _CHANNEL_OPTION] = REBOT_B601_DM_DEFAULT_CHANNEL,
 ) -> None:
     """
@@ -732,9 +747,12 @@ def cmd_send_jv(
     1 s then freezes. A duration is mandatory so a joint can never run open-ended into a limit or the
     cameras. 'stop' freezes now, 'rest' ramps home, 'q' parks and exits. Velocity is a ramping MIT position
     command under the same torque clamp, so it stays bounded and holds the other joints (unlike firmware
-    VEL). The home / rest ramp uses the default move speed.
+    VEL). Gravity comp is ON by default (scale tuned live with '-g'); --no-gravity disables it. The home /
+    rest ramp uses the default move speed.
     """
-    _run_arm_repl(channel, _DEFAULT_SEND_JP_SPEED_RAD_S, clamp, velocity_mode=True)
+    _run_arm_repl(
+        channel, _DEFAULT_SEND_JP_SPEED_RAD_S, clamp, velocity_mode=True, gravity=gravity, tau_scale=tau_scale
+    )
 
 
 @app.command("float")
